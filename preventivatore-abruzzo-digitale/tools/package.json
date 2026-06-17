@@ -1,0 +1,7 @@
+{
+  "name": "ad-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Script di dev una tantum (no parte di runtime app/server)",
+  "dependencies": { "exceljs": "^4.4.0" }
+}

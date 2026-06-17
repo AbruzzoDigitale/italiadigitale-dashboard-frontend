@@ -1,0 +1,268 @@
+/* ============================================================
+   PRESENTAZIONE PACCHETTI SOCIAL
+   Valori copiati 1:1 da preventivatore-abruzzo-digitale/css/app.css
+   ============================================================ */
+
+/* ── Wrapper esterno ── */
+.social-presentation-page {
+  min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Sezione hero scura (identica al prototipo) ── */
+.social-hero-section {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(46, 195, 243, .25), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 80% 70%, rgba(233, 30, 138, .25), transparent 60%),
+    linear-gradient(180deg, #2b1342 0%, #1a0a2b 100%);
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  padding: 64px 40px 56px;
+}
+
+/* ---- hero title/sub (identici al prototipo) ---- */
+
+.social-hero__title {
+  /* --fs-4xl = 60px, --tracking-tight = -0.025em, --lh-tight = 1.05 */
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 60px;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  text-align: center;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.social-hero__sub {
+  /* --fs-md = 17px, --tracking-wide = 0.04em */
+  text-align: center;
+  font-size: 17px;
+  color: rgba(255, 255, 255, .7);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.social-hero__sub strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---- deck grid ---- */
+
+.social-hero__deck {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  max-width: 1200px;
+  margin: 36px auto 0;
+}
+
+/* ---- card ---- */
+
+.social-pack {
+  position: relative;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .25), rgba(0, 0, 0, .45));
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 16px; /* --r-lg */
+  padding: 28px 22px 22px;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.social-pack:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, .2);
+}
+
+/* is-selected: identico al prototipo */
+.social-pack.is-selected {
+  border-color: currentColor;
+  box-shadow: 0 0 0 2px currentColor, 0 20px 40px rgba(0, 0, 0, .5);
+}
+
+/* accent colori esatti dai token del prototipo */
+.social-pack--visibility { color: #2ec3f3; } /* --ad-cyan */
+.social-pack--growth     { color: #fcd43c; } /* --ad-yellow */
+.social-pack--evolution  { color: #e91e8a; } /* --ad-pink */
+
+.social-pack__name {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 36px;
+  text-transform: uppercase;
+  letter-spacing: -0.025em; /* --tracking-tight */
+  line-height: 1.05;        /* --lh-tight */
+  text-align: center;
+  color: currentColor;
+  margin-bottom: 14px;
+}
+
+.social-pack__desc {
+  font-size: 13px; /* --fs-sm */
+  color: rgba(255, 255, 255, .8);
+  text-align: center;
+  margin-bottom: 22px;
+  line-height: 1.5; /* --lh-base */
+  min-height: 64px;
+}
+
+.social-pack__group-title {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 5px 14px;
+  border-radius: 999px; /* --r-pill */
+  background: rgba(0, 0, 0, .4);
+  border: 1.5px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em; /* --tracking-wider */
+  color: currentColor;
+  margin-bottom: 12px;
+}
+
+.social-pack__list {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 18px;
+}
+
+.social-pack__list li {
+  font-size: 13px; /* --fs-sm */
+  padding: 4px 0;
+  color: rgba(255, 255, 255, .92);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+
+.social-pack__list li::before {
+  content: "•";
+  color: currentColor;
+  margin-right: 8px;
+  font-weight: 900;
+}
+
+.social-pack__price {
+  margin-top: auto;
+  text-align: center;
+  padding: 14px;
+  border-radius: 999px; /* --r-pill */
+  border: 2px solid currentColor;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 32px; /* --fs-2xl */
+  color: currentColor;
+  position: relative;
+}
+
+.social-pack__price small {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em; /* --tracking-wider */
+  color: rgba(255, 255, 255, .5);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.social-pack__badge {
+  position: absolute;
+  top: -16px;
+  right: -10px;
+  background: #fcd43c; /* --ad-yellow */
+  color: #0a0a0a;      /* --ad-ink */
+  padding: 6px 12px;
+  border-radius: 999px; /* --r-pill */
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em; /* --tracking-wider */
+  transform: rotate(8deg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
+}
+
+.social-presentation-empty {
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, .2);
+  color: rgba(255, 255, 255, .7);
+  background: rgba(255, 255, 255, .04);
+  padding: 20px;
+  font-size: 15px;
+}
+
+@media (max-width: 1180px) {
+  .social-hero-section {
+    padding: 40px 24px 40px;
+  }
+
+  .social-hero__deck {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .social-hero__title {
+    font-size: 48px;
+  }
+}
+
+@media (max-width: 760px) {
+  .social-hero-section {
+    padding: 24px 14px 32px;
+  }
+
+  .social-hero__title {
+    font-size: 34px;
+  }
+
+  .social-hero__sub {
+    font-size: 14px;
+  }
+
+  .social-hero__deck {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .social-pack__desc {
+    min-height: 0;
+  }
+}
+
+/* ============================================================
+   CONFIGURATORE PACCHETTO (usa le classi cfg-* del configuratore)
+   ============================================================ */
+
+.pack-config-block {
+  padding: 40px 40px 80px;
+  flex: 1;
+}
+
+.pack-config-block__title {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  margin-bottom: 28px;
+  color: var(--ad-ink);
+}
+
+@media (max-width: 1180px) {
+  .pack-config-block {
+    padding: 32px 24px 60px;
+  }
+}
+
+@media (max-width: 760px) {
+  .pack-config-block {
+    padding: 24px 14px 48px;
+  }
+}

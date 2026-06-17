@@ -1,0 +1,712 @@
+[
+  {
+    "code": null,
+    "name": "Aggiornamento e manutenzione ecommerce",
+    "desc": "Aggiornamento e manutenzione ecommerce e rispettivi plugin. Backup giornalieri.\n\nRinnovo annuale allo stesso importo salvo variazioni apportate all'ecommerce.",
+    "category": "Aggiornamento e manutenzione",
+    "net": 960.0,
+    "gross": 1171.2,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Aggiornamento e manutenzione ecommerce Shopify",
+    "desc": "Aggiornamento e manutenzione ecommerce e rispettivi plugin. Backup giornalieri.",
+    "category": "Aggiornamento e manutenzione",
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": "Anno"
+  },
+  {
+    "code": null,
+    "name": "Aggiornamento e manutenzione sito web corporate",
+    "desc": "Aggiornamento e manutenzione sito web e rispettivi plugin. Backup giornalieri.\n\nRinnovo annuale allo stesso importo salvo variazioni apportate al sito web.",
+    "category": "Aggiornamento e manutenzione",
+    "net": 480.0,
+    "gross": 585.6,
+    "vat": 0.22,
+    "udm": "Mesi"
+  },
+  {
+    "code": null,
+    "name": "Brand Identity",
+    "desc": "Costruzione della brand identity:\n\n1 - Identificazione e costruzione dei valori e degli obiettivi aziendali \n\n2 - Identificazione e creazione del target di riferimento\n\n3 - Analisi del mercato\n\n4 - Studio e ideazione delle proposte di naming \n\n5 - Ideazione e creazione del logo\n\n6 - Studio della palette colore e dei font\n\n7 - Studio dello stile di comunicazione e del TOV\n\n8 - Brandbook aziendale con Immagini e fotografie coerenti con l'identità aziendale",
+    "category": "Grafica",
+    "net": 1200.0,
+    "gross": 1464.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Brochure aziendale/depliant 3 ante",
+    "desc": "Ideazione e realizzazione brochure aziendale/depliant a 3 ante",
+    "category": "Grafica",
+    "net": 240.0,
+    "gross": 292.8,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Brochure aziendale/depliant a 2 ante",
+    "desc": "Ideazione e realizzazione brochure aziendale/depliant a 2 ante",
+    "category": "Grafica",
+    "net": 230.0,
+    "gross": 280.6,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Brochure prodotti/catalogo prodotti",
+    "desc": "Ideazione e realizzazione brochure/catalogo prodotti",
+    "category": "Grafica",
+    "net": 340.0,
+    "gross": 414.8,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Campagna lancio META",
+    "desc": "Produzione e realizzazione di contenuti social vetrina.\nPubblicazione di 6 - 9 contenuti (post/reel) per Facebook e Instagram.",
+    "category": "Social media management",
+    "net": 900.0,
+    "gross": 1098.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Canone mensile QR Code dinamico",
+    "desc": "Canone mensile QR code dinamico",
+    "category": "Configurazione web",
+    "net": 5.0,
+    "gross": 6.1,
+    "vat": 0.22,
+    "udm": "mensile"
+  },
+  {
+    "code": null,
+    "name": "Company Profile",
+    "desc": "Ideazione e creazione Company Profile",
+    "category": "Grafica",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Configurazione Google My Business",
+    "desc": "Configurazione/riscatto proprietà profilo Google My Business",
+    "category": "Configurazione social",
+    "net": 90.0,
+    "gross": 109.8,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Configurazione Klarna",
+    "desc": "1 - Creazione/configurazione account Klarna.\n\n2 - Installazione e configurazione plugin Klarna per WooCommerce.\n\n3 - Configurazione delle opzioni di pagamento.\n\n4 - Personalizzazione del design.\n\n5 - Test del processo di pagamento.",
+    "category": "Configurazione web",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Configurazione LinkedIn Business manager",
+    "desc": "Configurazione LinkedIn Business Manager per gestione ruoli pagina aziendale Linkedin, fatturazione aziendale e gestione inserzioni.",
+    "category": "Configurazione social",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Configurazione Mbway",
+    "desc": "1 - Creazione/configurazione account Mbway.\n\n2 - Installazione e configurazione plugin di terzer parti Mbway per WooCommerce.\n\n3 - Configurazione delle opzioni di pagamento.\n\n4 - Personalizzazione del design.\n\n5 - Test del processo di pagamento.",
+    "category": "Configurazione web",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Configurazione Meta Business manager",
+    "desc": "Configurazione Meta Business Manager per gestione ruoli pagine aziendali Facebook e Instagram, tracciamento (Pixel) , fatturazione aziendale e gestione inserzioni.\n(Voce interamente scontata qualora il business manager sia già correttamente configurato)",
+    "category": "Configurazione social",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Configurazione Scalapay",
+    "desc": "1 - Creazione/configurazione account Scalapay.\n\n2 - Installazione e configurazione plugin Scalapay per WooCommerce.\n\n3 - Configurazione delle opzioni di pagamento.\n\n4 - Personalizzazione del design.\n\n5 - Test del processo di pagamento.",
+    "category": "Configurazione web",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Creazione contenuti vetrina META",
+    "desc": "Produzione e realizzazione di contenuti social vetrina.\nPubblicazione di 9 contenuti (post/reel) per Facebook e Instagram.",
+    "category": "Social media management",
+    "net": 900.0,
+    "gross": 1098.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Creazione pagina Facebook",
+    "desc": "Creazione e configurazione pagina aziendale Facebook",
+    "category": "Configurazione social",
+    "net": 50.0,
+    "gross": 61.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Creazione profilo aziendale Instagram",
+    "desc": "Creazione e configurazione profilo aziendale Instagram",
+    "category": "Configurazione social",
+    "net": 50.0,
+    "gross": 61.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Creazione profilo Tik Tok",
+    "desc": "Creazione e configurazione profilo aziendale Tik Tok",
+    "category": "Configurazione social",
+    "net": 50.0,
+    "gross": 61.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Data entry prodotti ecommerce",
+    "desc": "Primi 30 prodotti inclusi.\nPoi 5€/cad",
+    "category": "Data Entry",
+    "net": 5.0,
+    "gross": 6.1,
+    "vat": 0.22,
+    "udm": "Cad"
+  },
+  {
+    "code": null,
+    "name": "Depliant informativo",
+    "desc": "Ideazione e realizzazione depliant informativo",
+    "category": "Grafica",
+    "net": 180.0,
+    "gross": 219.6,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Dominio",
+    "desc": "Acquisto dominio con validità annuale.\nRinnovo allo stesso importo dopo un anno.*\n\n*Salvo variazioni di mercato",
+    "category": "Dominio",
+    "net": 15.0,
+    "gross": 18.3,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Email aziendali",
+    "desc": "Creazione e configurazione delle mail aziendali con dominio proprietario.\n\n512MB inclusi.\n\nEsclusa configurazione su dispositivi personali.",
+    "category": "Creazione email",
+    "net": 15.0,
+    "gross": 18.3,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "GDPR",
+    "desc": "Generazione documenti privacy policy, cookie policy. Creazione e configurazione cookie banner.",
+    "category": "GDPR",
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Google Analytics",
+    "desc": "Implementazione e configurazione Google Anlytics.\n\nCreazione account esclusa.",
+    "category": "Analytics",
+    "net": 120.0,
+    "gross": 146.4,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Google Search Console",
+    "desc": "Implementazione e configurazione Google Search Console.\n\nCreazione account esclusa.",
+    "category": "Analytics",
+    "net": 120.0,
+    "gross": 146.4,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Grafica e studio UX/UI Ecommerce",
+    "desc": "Mockup grafico e studio UX/UI (user\nexperience e user interface).\n\nRealizzazione di 2 proposte di mockup e max 3 modifiche sulla grafica scelta.",
+    "category": "Progettazione web",
+    "net": 850.0,
+    "gross": 1037.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Grafica e studio UX/UI Sito web corporate",
+    "desc": "Mockup grafico e studio UX/UI (user\nexperience e user interface).\n\nRealizzazione di 2 proposte di mockup e max 3 modifiche sulla grafica scelta.",
+    "category": "Progettazione web",
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Grafica packaging prodotto",
+    "desc": "Ideazione e creazione grafica packaging di prodotto",
+    "category": "Grafica",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Grafica Roll up",
+    "desc": "Creazione e realizzazione grafica roll up",
+    "category": "Grafica",
+    "net": 90.0,
+    "gross": 109.8,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Grafica sezione Hero",
+    "desc": "Creazione della grafica per la sezione hero sito del sito web.",
+    "category": "Sito web",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Hosting Base",
+    "desc": "Servizio hosting condiviso ad alte prestazioni.\n3 GB di spazio su disco.\nfino a 3 account email.\n~40000 visite mensili\nCertificato SSL Base\nAssistenza tecnica hosting (1 intervento/anno)\n\n*valido per il primo anno\"",
+    "category": "Hosting",
+    "net": 150.0,
+    "gross": 183.0,
+    "vat": 0.22,
+    "udm": "Anno"
+  },
+  {
+    "code": null,
+    "name": "Hosting Cloud Base",
+    "desc": "Servizio hosting cloud ad altissime prestazioni.\n40 GB di spazio su SSD\n8 GB di memoria\n4 Core\n5 account email.\nVisite mensili illimitate\nCertificato SSL Base\nAssistenza tecnica hosting (1 intervento/anno)\n\n*valido per il primo anno",
+    "category": "Hosting",
+    "net": 110.0,
+    "gross": 134.2,
+    "vat": 0.22,
+    "udm": "Mese"
+  },
+  {
+    "code": null,
+    "name": "Hosting Evo",
+    "desc": "Servizio hosting condiviso ad alte prestazioni.\n12 GB di spazio su disco.\nFino a 10 account email.\n~40000 visite mensili.\nCertificato SSL Base.\n\nAssistenza tecnica hosting (1 intervento/anno)\n\n*Valido per il primo anno\"",
+    "category": "Hosting",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": "Anno"
+  },
+  {
+    "code": null,
+    "name": "Hosting Pro",
+    "desc": "Servizio hosting condiviso ad alte prestazioni.\n7 GB di spazio su disco.\nFino a 5 account email.\n~40000 visite mensili\nCertificato SSL Base.\n\nAssistenza tecnica hosting (1 intervento/anno).\n\n*Valido per il primo anno\"",
+    "category": "Hosting",
+    "net": 300.0,
+    "gross": 366.0,
+    "vat": 0.22,
+    "udm": "Anno"
+  },
+  {
+    "code": null,
+    "name": "Infografica",
+    "desc": "Creazione e realizzazione infografica",
+    "category": "Grafica",
+    "net": 120.0,
+    "gross": 146.4,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Locandina",
+    "desc": "Ideazione e realizzazione locandina",
+    "category": "Grafica",
+    "net": 85.0,
+    "gross": 103.7,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Menu Digitale",
+    "desc": "Realizzazione menù digitale con QR Code dinamico incluso.\n\n*Canone annuale",
+    "category": "Progettazione web",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Menu digitale PDF",
+    "desc": "Progettazione, realizzazione grafica e impaginazione Menu con QR Code Incluso.\n\n(costo di dominio escluso)",
+    "category": "Grafica",
+    "net": 120.0,
+    "gross": 146.4,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "META ADS",
+    "desc": "Gestione campagne META ADS:\n\n- Creazione Campagne advertising\n- Realizzazione creatività inserzioni\n- Monitoraggio e ottimizzazione campagne\n- Report mensili\n\n*Budget ADV escluso",
+    "category": "Advertising",
+    "net": 350.0,
+    "gross": 427.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Migrazione Hosting e dominio ecommerce",
+    "desc": "Trasferimento ecommerce attualmente online su server in gestione da Abruzzo Digitale.",
+    "category": "Configurazione web",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Migrazione Hosting e Dominio sito web",
+    "desc": "Trasferimento sito web attualmente online su server in gestione da Abruzzo Digitale.",
+    "category": "Configurazione web",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Multilingua Ecommerce",
+    "desc": "Configurazione sito multilingua (Inglese di default, traduzioni escluse).\n\nCosto licenza annuale escluso",
+    "category": "Ecommerce",
+    "net": 300.0,
+    "gross": 366.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Ottimizzazione Responsive Ecommerce",
+    "desc": "Codice ottimizzato per mobile responsive (versione smartphone e tablet). Declinazione del sito web desktop nelle differenti versioni dei dispositivi portatili.",
+    "category": "Responsive",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Ottimizzazione Responsive ecommerce Shopify",
+    "desc": "Codice ottimizzato per mobile responsive (versione smartphone e tablet). Declinazione del sito web desktop nelle differenti versioni dei dispositivi portatili.",
+    "category": "Responsive",
+    "net": 300.0,
+    "gross": 366.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Ottimizzazione responsive sito corporate",
+    "desc": "Codice ottimizzato per mobile responsive (versione smartphone e tablet). Declinazione del sito web desktop nelle differenti versioni dei dispositivi portatili.",
+    "category": "Responsive",
+    "net": 300.0,
+    "gross": 366.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Pacchetto Social Media Crescita",
+    "desc": "Gestione mensile profili aziendali Facebook e Instagram.\n\n*Pubblicazione mensile di:\n\n6 - 8 POST FOTOGRAFICI/GRAFICI\n1 - 2 REEL\n6 - 8 STORIES\n2 campagne META ADS (realizzazione creatività, gestione e monitoraggio).\n\nProduzione e realizzazione di foto, grafiche, animazioni e video per post, stories e reels.\n\nShooting fotografico e riprese video inclusi per la realizzazione dei contenuti previsti nel pacchetto.\n\n*Creatività e numero di pubblicazioni vengono definiti nel documento strategico.",
+    "category": "Social media management",
+    "net": 850.0,
+    "gross": 1037.0,
+    "vat": 0.22,
+    "udm": "Mesi"
+  },
+  {
+    "code": null,
+    "name": "Pacchetto Social Media custom",
+    "desc": "Gestione profili aziendali Facebook e Instagram.\n\nProduzione e realizzazione di foto, grafiche, animazioni e video per post, stories e reels.\n\nAnalisi e aggiornamento hashtag.\n\nPubblicazione mensile di:\n\n1 reel\n6 contenuti social IG/FB grafico/fotografico\n5 stories\n2 campagne adv (realizzazione creatività, gestione e monitoraggio).\n\nShooting fotografico e riprese video inclusi per la realizzazione dei contenuti previsti nel pacchetto.",
+    "category": "Social media management",
+    "net": 650.0,
+    "gross": 793.0,
+    "vat": 0.22,
+    "udm": "Mese"
+  },
+  {
+    "code": null,
+    "name": "Pacchetto Social Media Evoluzione",
+    "desc": "Gestione mensile profili aziendali Facebook e Instagram.\n\n*Pubblicazione mensile di:\n\n6 - 8 POST FOTOGRAFICI/GRAFICI\n3 - 4 REEL\n8 - 10 STORIES\n3 campagne META ADS (realizzazione creatività, gestione e monitoraggio).\n\nProduzione e realizzazione di foto, grafiche, animazioni e video per post, stories e reels.\n\nShooting fotografico e riprese video inclusi per la realizzazione dei contenuti previsti nel pacchetto.\n\n*Creatività e numero di pubblicazioni vengono definiti nel documento strategico.",
+    "category": "Social media management",
+    "net": 1200.0,
+    "gross": 1464.0,
+    "vat": 0.22,
+    "udm": "Mesi"
+  },
+  {
+    "code": null,
+    "name": "Pacchetto Social Media Visibilità",
+    "desc": "Gestione mensile profili aziendali Facebook e Instagram.\n\n*Pubblicazione mensile di:\n\n4 - 6 POST FOTOGRAFICI/GRAFICI\n1 REEL\n4 - 6 STORIES\n1 campagna META ADS (realizzazione creatività, gestione e monitoraggio).\n\nProduzione e realizzazione di foto, grafiche, animazioni e video per post, stories e reels.\n\nShooting fotografico e riprese video inclusi per la realizzazione dei contenuti previsti nel pacchetto.\n\n*Creatività e numero di pubblicazioni vengono definiti nel documento strategico.",
+    "category": "Social media management",
+    "net": 650.0,
+    "gross": 793.0,
+    "vat": 0.22,
+    "udm": "Mesi"
+  },
+  {
+    "code": null,
+    "name": "Pagina pubblicitaria",
+    "desc": "Ideazione e realizzazione grafica per pagina pubblicitaria",
+    "category": "Grafica",
+    "net": 150.0,
+    "gross": 183.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Progettazione grafica rivista/giornalino",
+    "desc": "Progettazione e impaginazione grafica rivista/giornalino",
+    "category": "Grafica",
+    "net": 450.0,
+    "gross": 549.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Realizzazione ecommerce Shopify",
+    "desc": "Installazione e configurazione Shopify.\n\nCreazione e pubblicazioni di tutte le pagine del sito definite in fase di progettazione grafica.\n\nInstallazione e configurazione plugin essenziali: SEO, Messaggistica, Sicurezza, SPAM, Social (specifici plugin che richiedono un canone aggiuntivo sono da considerarsi esclusi dal preventivo).\n\nOttimizzazione e rielaborazione testi (forniti dal cliente).\n\nConfigurazione metodi di pagamento (creazioni account aziendali esclusi).\n\nCreazione e configurazione catalogo prodotti. Sincronizzazione con canali social (Meta).",
+    "category": "Ecommerce",
+    "net": 1900.0,
+    "gross": 2318.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Realizzazione Ecommerce Woocommerce",
+    "desc": "Installazione e configurazione piattaforma Wordpress.\n\nInstallazione e configurazione piattaforma Woocommerce.\n\nCreazione e pubblicazioni di tutte le pagine del sito definite in fase di progettazione grafica.\n\nInstallazione e configurazione plugin essenziali: SEO, Messaggistica, Sicurezza, SPAM, Social.\n\nOttimizzazione e rielaborazione testi (forniti dal cliente).\n\nConfigurazione metodi di pagamento (creazioni account aziendali esclusi).\n\nCreazione e configurazione catalogo prodotti. Sincronizzazione con canali social (Meta).",
+    "category": "Ecommerce",
+    "net": 2700.0,
+    "gross": 3294.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Realizzazione Logo",
+    "desc": "Realizzazione logo:\n\n1) Ideazione e creazione del logo\n\n2) Studio della palette colore e dei font\n\n3) Versioni alternative (orizzontale, verticale, icona, monocromatico, negativo)\n\n4) Presentazione logo aziendale con Immagini e fotografie coerenti con l'identità aziendale\n\n5) Pacchetto logo esportato in tutti i suoi formati\n\n6) Manuale di utilizzo del marchio",
+    "category": "Grafica",
+    "net": 850.0,
+    "gross": 1037.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Realizzazione QR Code",
+    "desc": "Creazione QR Code statico",
+    "category": "Configurazione web",
+    "net": 15.0,
+    "gross": 18.3,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Realizzazione sito web",
+    "desc": "Installazione e configurazione piattaforma Wordpress.\nInstallazione plugin essenziali: SEO, Messaggistica, Sicurezza, SPAM, Social.\n\nOttimizzazione e rielaborazione testi (forniti dal cliente).",
+    "category": "Sito web",
+    "net": 850.0,
+    "gross": 1037.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Riprese video",
+    "desc": "Riprese e montaggio video professionale",
+    "category": "Shooting",
+    "net": 0.0,
+    "gross": 0.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "SEO Base",
+    "desc": "Studio e configurazione SEO base per indicizzazione su motore di ricerca Google su pagine statiche del sito.",
+    "category": "SEO",
+    "net": 350.0,
+    "gross": 427.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Servizio drone",
+    "desc": "Riprese drone e montaggio video professionale",
+    "category": null,
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Shooting Fotografico",
+    "desc": "Shooting fotografico professionale",
+    "category": "Shooting",
+    "net": 800.0,
+    "gross": 976.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Shopify piano Basic",
+    "desc": "Piano hosting mensile.\n\nIncluso:\nReport di base\nFino a 1.000 magazzini\n2 account staff\n\nCommissioni carte di credito:\n1,9% + 0,25 € online\n1,5% + 0,00 € di persona",
+    "category": "Hosting",
+    "net": 28.0,
+    "gross": 34.16,
+    "vat": 0.22,
+    "udm": "Mese"
+  },
+  {
+    "code": null,
+    "name": "SMM Tik Tok",
+    "desc": null,
+    "category": "Social media management",
+    "net": 250.0,
+    "gross": 305.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Social media marketing LinkedIn",
+    "desc": "Gestione del profilo aziendale Linkedin.\nRealizzazione grafiche, copywriting e pubblicazione mensile di:\n4 post\n1 campagna adv",
+    "category": "Social media management",
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": "mesi"
+  },
+  {
+    "code": null,
+    "name": "Strategia di contenuti social",
+    "desc": "Studio e definizione della strategia di contenuti social. Il documento prodotto indicherà la strategia di contenuti (filoni editoriali, il tono di voce e i format)",
+    "category": "Consulenza",
+    "net": 350.0,
+    "gross": 427.0,
+    "vat": 0.22,
+    "udm": "Una tantum"
+  },
+  {
+    "code": null,
+    "name": "Strategia di social media marketing",
+    "desc": "Studio e definizione della strategia di social media marketing. Il documento prodotto indicherà la strategia di contenuti (filoni editoriali, il tono di voce e i format) e la strategia META ADS (format e periodizzazione delle campagne).",
+    "category": "Consulenza",
+    "net": 500.0,
+    "gross": 610.0,
+    "vat": 0.22,
+    "udm": "una tantum"
+  },
+  {
+    "code": null,
+    "name": "Strategia META ADS",
+    "desc": "Studio e definizione della strategia di META ADS (format e periodizzazione delle campagne).",
+    "category": "Consulenza",
+    "net": 350.0,
+    "gross": 427.0,
+    "vat": 0.22,
+    "udm": "Una tantum"
+  },
+  {
+    "code": null,
+    "name": "Studio del naming",
+    "desc": "Studio e ideazione del naming aziendale",
+    "category": "Grafica",
+    "net": 350.0,
+    "gross": 427.0,
+    "vat": 0.22,
+    "udm": null
+  },
+  {
+    "code": null,
+    "name": "Traduzione testi inglese",
+    "desc": null,
+    "category": "Traduzioni",
+    "net": 0.15,
+    "gross": 0.183,
+    "vat": 0.22,
+    "udm": "parole"
+  },
+  {
+    "code": null,
+    "name": "Volantino pubblicitario",
+    "desc": "Realizzazione grafica per volantino pubblicitario",
+    "category": "Grafica",
+    "net": 70.0,
+    "gross": 85.4,
+    "vat": 0.22,
+    "udm": null
+  }
+]

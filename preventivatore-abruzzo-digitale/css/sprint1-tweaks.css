@@ -1,0 +1,234 @@
+/* ============================================================
+   SPRINT 1 TWEAKS — Polish v3 (Apple/Notion principles)
+   Architettura: token "brand" fissi + token "semantic" che si invertono
+   Niente !important. Niente patch puntuali.
+   ============================================================ */
+
+/* ============================================================
+   TOKEN BRAND FISSI — non cambiano mai
+   Usati per elementi che devono SEMPRE essere neri (sidebar, btn primary)
+   ============================================================ */
+:root {
+  --ad-brand-ink:    #0a0a0a;    /* nero del brand */
+  --ad-brand-paper:  #ffffff;    /* bianco del brand */
+  --ad-brand-deep:   #050505;    /* sidebar shade */
+}
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--ad-cream);
+  color: var(--ad-ink);
+  border: 1px solid var(--ad-line);
+  transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.theme-toggle:hover { background: var(--ad-line); transform: rotate(15deg); }
+.theme-toggle:active { transform: scale(0.95); }
+.theme-toggle svg { width: 18px; height: 18px; }
+
+/* ============================================================
+   SIDEBAR — sempre dark, contrasti chiari
+   ============================================================ */
+.sidebar { background: var(--ad-brand-ink); border-right-color: rgba(255,255,255,.08); }
+.sidebar__brand { border-bottom-color: rgba(255,255,255,.08); }
+.sidebar__footer { border-top-color: rgba(255,255,255,.08); color: rgba(255,255,255,.45); }
+.sidebar__brand-text { color: #fff; }
+.sidebar__brand-text span { color: rgba(255,255,255,.55); }
+
+.sidebar .nav-link { color: rgba(255,255,255,.65); }
+.sidebar .nav-link:hover { background: rgba(255,255,255,.10); color: #fff; }
+.sidebar .nav-link.is-active {
+  background: #fff;
+  color: var(--ad-brand-ink);
+}
+.nav-section-label { color: rgba(255,255,255,.40); }
+
+/* ============================================================
+   PACK CONFIG SIDE — sempre dark
+   ============================================================ */
+.pack-config__side {
+  background: var(--ad-brand-deep);
+  color: #fff;
+}
+.pack-config__side h3 {
+  color: #fff;
+  border-bottom-color: rgba(255,255,255,.10);
+}
+.pack-config__row span:first-child { color: rgba(255,255,255,.65); }
+.pack-config__row span:last-child { color: #fff; }
+.pack-config__total b { color: #fff; }
+
+/* ============================================================
+   SOCIAL HERO — sempre dark con titolo bianco
+   Il CSS originale aveva <strong> con color: var(--ad-paper)
+   che in dark mode era diventato scuro. Forziamo bianco.
+   ============================================================ */
+.social-hero__title { color: #fff; }
+.social-hero__sub { color: rgba(255,255,255,.72); }
+.social-hero__sub strong { color: #fff; }
+
+/* ============================================================
+   PRESENTATION — sempre dark
+   ============================================================ */
+.presentation__title, .presentation__sub { color: #fff; }
+
+/* ============================================================
+   LOGIN SCREEN — sempre dark
+   ============================================================ */
+.login-screen h1, .login-box p { color: #fff; }
+
+/* ============================================================
+   DARK MODE — semantic token remap
+   Cambia SOLO i token semantici di superficie/testo.
+   I token brand (--ad-brand-*) restano fissi.
+   ============================================================ */
+html.theme-dark {
+  color-scheme: dark;
+  --ad-paper:     #131316;
+  --ad-cream:     #1c1c20;
+  --ad-ink:       #f4f4f7;
+  --ad-ink-soft:  #e6e6ea;
+  --ad-ink-2:     #d4d4d8;
+  --ad-line:      #2a2a2e;
+  --ad-mute:      #9999a0;
+}
+
+/* Componenti che usano --ad-ink come background (btn primary, cat-chip active, ecc.)
+   In dark mode --ad-ink diventa chiaro: questi diventano "pulsanti chiari su sfondo scuro".
+   E' il pattern corretto: inverso del light mode. */
+html.theme-dark .btn--primary { color: var(--ad-paper); }
+html.theme-dark .cat-chip.is-active { color: var(--ad-paper); border-color: var(--ad-ink); }
+html.theme-dark .data-table .row-action:hover { color: var(--ad-paper); }
+html.theme-dark .product-card__add { color: var(--ad-paper); }
+html.theme-dark .user-chip__avatar { color: var(--ad-paper); }
+html.theme-dark .kpi-config-item.is-active { color: var(--ad-paper); }
+
+/* Toast in dark mode resta scuro per coerenza */
+html.theme-dark .toast { background: var(--ad-cream); color: var(--ad-ink); border: 1px solid var(--ad-line); }
+
+/* Dashboard CTA primaria in dark: gradient brand viola */
+html.theme-dark .dash-cta--primary {
+  background: linear-gradient(135deg, #4a1d6e 0%, #2b1342 100%);
+  color: #fff;
+}
+html.theme-dark .dash-cta--primary .dash-cta__icon { background: rgba(255,255,255,.15); color: #fff; }
+
+/* Toolbar e modal in dark prendono cream già invertito */
+html.theme-dark .catalog-toolbar { background: var(--ad-cream); }
+html.theme-dark .modal { background: var(--ad-cream); color: var(--ad-ink); }
+
+/* Status pill colori coerenti in dark */
+html.theme-dark .status-pill.bozza    { background: rgba(255,255,255,.08); color: rgba(255,255,255,.72); }
+html.theme-dark .status-pill.inviato  { background: rgba(245,158,11,.18); color: #fbbf24; }
+html.theme-dark .status-pill.accettato{ background: rgba(22,163,74,.18); color: #4ade80; }
+html.theme-dark .status-pill.rifiutato{ background: rgba(220,38,38,.18); color: #f87171; }
+
+/* Connection pill */
+html.theme-dark .connection-pill.online { background: rgba(22,163,74,.18); }
+html.theme-dark .connection-pill.offline { background: rgba(155,155,155,.16); color: rgba(255,255,255,.55); }
+
+/* Brand slot in dark */
+html.theme-dark .brand-slot { background: var(--ad-paper); }
+
+/* Preventivo side & cat chips ereditano i token già invertiti */
+
+/* ============================================================
+   PANNELLO TOTALI — gerarchia visiva (Apple/Notion: pulizia + scale contrast)
+   ============================================================ */
+.preventivo-side h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  color: var(--ad-mute);
+  font-weight: 700;
+}
+.totals__row { padding: 6px 0; }
+
+/* ============================================================
+   LOGO CONTAINERS — dimensioni fisse per evitare overflow
+   ============================================================ */
+#sidebarLogo { display: flex; align-items: center; justify-content: center; flex: 0 0 36px; height: 36px; }
+#sidebarLogo svg, #sidebarLogo img { max-height: 36px; max-width: 36px; display: block; }
+#loginLogo { display: flex; justify-content: center; margin-bottom: 24px; }
+#loginLogo svg, #loginLogo img { max-height: 96px; max-width: 96px; display: block; }
+#presentationLogo svg, #presentationLogo img { max-height: 36px; max-width: 200px; display: block; }
+
+/* ============================================================
+   PERFORMANCE — riduco transition: all dove non serve
+   ============================================================ */
+.product-card { transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.dash-cta { transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease); }
+.card { transition: border-color var(--dur-base) var(--ease); }
+
+/* ============================================================
+   RESPONSIVE — iPad e mobile
+   ============================================================ */
+@media (max-width: 1024px) {
+  .preventivo-side, .pack-config__side { margin-top: 16px; position: static; }
+}
+@media (max-width: 720px) {
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar__title { font-size: var(--fs-md); }
+  .topbar__breadcrumb { display: none; }
+  .connection-pill { display: none; }
+  .view { padding: 16px 12px 32px; }
+  .social-hero { margin: -16px -12px 20px; padding: 32px 16px 24px; }
+  .social-hero__title { font-size: var(--fs-xl); }
+}
+
+/* ============================================================
+   Dropdown menu utente (avatar in topbar)
+   ============================================================ */
+.user-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s ease;
+}
+.user-chip:hover { background: rgba(0,0,0,.06); }
+html.theme-dark .user-chip:hover { background: rgba(255,255,255,.08); }
+.user-chip__caret { opacity: .6; transition: transform .2s ease; }
+.user-chip.is-open .user-chip__caret { transform: rotate(180deg); }
+
+.user-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 180px;
+  background: var(--ad-paper);
+  color: var(--ad-ink);
+  border: 1px solid var(--ad-line);
+  border-radius: var(--r-md, 10px);
+  box-shadow: 0 12px 32px rgba(0,0,0,.18);
+  padding: 6px;
+  z-index: 1000;
+  display: flex; flex-direction: column;
+}
+.user-menu[hidden] { display: none; }
+.user-menu__item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.user-menu__item:hover { background: rgba(0,0,0,.06); }
+html.theme-dark .user-menu__item:hover { background: rgba(255,255,255,.08); }
+.user-menu__item--danger { color: #b91c1c; }
+html.theme-dark .user-menu__item--danger { color: #f87171; }
+
+/* Fix hover btn--primary: tenere testo chiaro su sfondo scuro anche al hover */
+.btn--primary { color: var(--ad-brand-paper); }
+.btn--primary:hover { background: #1a1a1a; color: var(--ad-brand-paper); }
+html.theme-dark .btn--primary { background: #fff; color: var(--ad-brand-ink); }
+html.theme-dark .btn--primary:hover { background: #eee; color: var(--ad-brand-ink); }

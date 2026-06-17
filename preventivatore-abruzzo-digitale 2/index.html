@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AD Preventivatore">
+  <title>Preventivatore — Abruzzo Digitale</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="assets/logo/logo-mark.svg">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/profile-brand.css">
+  <link rel="stylesheet" href="css/sprint1-tweaks.css">
+  <link rel="stylesheet" href="css/configurator.css">
+  <link rel="stylesheet" href="css/roles.css">
+  <link rel="stylesheet" href="css/pipeline.css">
+  <link rel="stylesheet" href="css/contracts.css">
+  <link rel="stylesheet" href="css/social-plan.css">
+  <link rel="stylesheet" href="css/ped-generator.css">
+  <link rel="stylesheet" href="css/workload.css">
+  <link rel="stylesheet" href="css/operations-board.css">
+  <link rel="stylesheet" href="css/daily-todo.css">
+  <link rel="stylesheet" href="css/oracle.css">
+<script>
+  // Diagnostica errori: cattura globalmente per mostrare info utili se App non si carica
+  window.__diagErrors = [];
+  window.addEventListener('error', function(e) {
+    var info = {
+      msg: e.message || '(unknown)',
+      src: e.filename || '(?)',
+      line: e.lineno || 0,
+      col: e.colno || 0,
+      err: e.error ? (e.error.stack || e.error.message || String(e.error)) : ''
+    };
+    window.__diagErrors.push(info);
+    console.error('[DIAG]', info);
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    window.__diagErrors.push({ msg: 'Promise rejection: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)) });
+    console.error('[DIAG promise]', e.reason);
+  });
+  // Helper: chiamato dall'onsubmit del form se App non e disponibile
+  window.__showDiag = function() {
+    var lines = ['App non caricata.', ''];
+    if (window.__diagErrors.length === 0) {
+      lines.push('Nessun errore JS catturato. Possibile blocco caricamento script.');
+    } else {
+      lines.push('Errori rilevati (' + window.__diagErrors.length + '):');
+      window.__diagErrors.forEach(function(e, i) {
+        lines.push((i+1) + '. ' + e.msg);
+        if (e.src) lines.push('   File: ' + e.src + ':' + e.line);
+      });
+    }
+    lines.push('');
+    lines.push('Copia questo testo e mandalo per la diagnosi.');
+    alert(lines.join('\n'));
+  };
+</script>
+</head>
+<body>
+
+<!-- ============================================================
+     LOGIN SCREEN
+     ============================================================ -->
+<div class="login-screen is-active" id="loginScreen">
+  <div class="login-box">
+    <div id="loginLogo" style="display:flex;justify-content:center;margin-bottom:24px"><svg viewBox="0 0 100 100" aria-label="Logo placeholder"><rect x="2" y="2" width="96" height="96" rx="14" fill="none" stroke="white" stroke-width="3" stroke-dasharray="4 4" opacity="0.4"/><text x="50" y="62" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="38" fill="white">AD</text></svg></div>
+    <h1 id="loginTitle">ABRUZZO DIGITALE</h1>
+    <p id="loginSubtitle">Accedi al preventivatore</p>
+    <form id="loginForm" onsubmit="event.preventDefault(); if(window.App) { App.handleLoginFromForm(); } else { window.__showDiag(); } return false;">
+      <div class="field">
+        <label>Utente</label>
+        <input class="input" type="text" id="loginUser" placeholder="nome utente" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input class="input" type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" required>
+      </div>
+      <div class="login-error" id="loginError">Credenziali non valide</div>
+      <button class="btn btn--primary btn--lg" type="submit" style="background:white;color:black">Accedi</button>
+    </form>
+    <p id="loginTagline" style="margin-top:24px;font-size:11px;color:var(--ad-mute-dark)">
+      Cuore Abruzzese, Mente Digitale.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP SHELL
+     ============================================================ -->
+<div class="app" id="app" style="display:none">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar__brand">
+      <div id="sidebarLogo" style="flex:0 0 auto"><svg viewBox="0 0 100 100" aria-label="Logo placeholder"><rect x="2" y="2" width="96" height="96" rx="14" fill="none" stroke="white" stroke-width="3" stroke-dasharray="4 4" opacity="0.4"/><text x="50" y="62" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="38" fill="white">AD</text></svg></div>
+      <div class="sidebar__brand-text">
+        Abruzzo Digitale
+        <span>Preventivatore</span>
+      </div>
+    </div>
+    <nav class="sidebar__nav">
+      <div class="nav-section-label">Crea</div>
+      <a class="nav-link is-active" data-view="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-link" data-view="social">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12.08V12a10 10 0 1 0-10 10"/><path d="M16 22l-4-4 4-4"/><path d="M20 22h-8"/></svg>
+        Pacchetti Social
+      </a>
+      <a class="nav-link" data-view="configurator">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        Configuratore
+      </a>
+      <a class="nav-link" data-view="catalog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        Listino Servizi
+      </a>
+      <a class="nav-link" data-view="preventivo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Editor Preventivo
+      </a>
+
+      <div class="nav-section-label">Gestisci</div>
+      <a class="nav-link" data-view="requests">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Richieste
+        <span class="nav-badge" id="navRequestsBadge" style="display:none">0</span>
+      </a>
+      <a class="nav-link" data-view="quotes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Storico Preventivi
+      </a>
+      <a class="nav-link" data-view="oracle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Oracolo
+      </a>
+      <a class="nav-link" data-view="contracts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Situazione clienti
+      </a>
+      <a class="nav-link" data-view="social-plan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Situazione operativa
+      </a>
+
+      <div class="nav-section-label">Produzione</div>
+      <a class="nav-link" data-view="ped-generator">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 L2 7 L12 12 L22 7 Z"/><path d="M2 17 L12 22 L22 17"/><path d="M2 12 L12 17 L22 12"/></svg>
+        Generatore PED
+      </a>
+      <a class="nav-link" data-view="workload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="14" y2="14"/><line x1="8" y1="18" x2="11" y2="18"/></svg>
+        Workload
+      </a>
+      <a class="nav-link" data-view="operations-board">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg>
+        Board lavorazioni
+      </a>
+      <a class="nav-link" data-view="daily-todo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Attività del giorno
+      </a>
+
+      <a class="nav-link" data-view="pipeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Pipeline
+      </a>
+      <a class="nav-link" data-view="clients">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Clienti
+      </a>
+
+      <div class="nav-section-label">Configura</div>
+      <a class="nav-link" data-view="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Personalizza
+      </a>
+      <a class="nav-link" data-view="integrations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Integrazioni
+      </a>
+      <a class="nav-link" data-view="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Impostazioni
+      </a>
+    </nav>
+    <div class="sidebar__footer">
+      <div>Abruzzo Digitale</div>
+      <div style="opacity:.7;margin-top:2px" id="appVersion">v2.4.20</div>
+    </div>
+  </aside>
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div>
+      <div class="topbar__title" id="topbarTitle">Dashboard</div>
+      <div class="topbar__breadcrumb" id="topbarSub">Benvenuto in Abruzzo Digitale</div>
+    </div>
+    <div class="topbar__spacer"></div>
+    <div class="topbar__actions">
+      <button class="notif-bell" id="notifBell" title="Notifiche richieste preventivo" aria-label="Notifiche">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="notif-bell__dot" id="notifBellDot" style="display:none">0</span>
+      </button>
+      <span class="role-badge" id="roleBadge"></span>
+      <span class="connection-pill" id="connPill"><span class="dot"></span><span id="connLabel">Online</span></span>
+      <div class="user-chip-wrap" style="position:relative">
+        <div class="user-chip" id="userChip" role="button" tabindex="0" title="Apri menu utente">
+          <div class="user-chip__avatar" id="userAvatar">L</div>
+          <span id="userName">Luigi</span>
+          <svg class="user-chip__caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="user-menu" id="userMenu" hidden>
+          <button class="user-menu__item" data-act="profile">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Personalizza
+          </button>
+          <button class="user-menu__item user-menu__item--danger" data-act="logout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Disconnetti
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWS -->
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <section class="view is-active" id="view-dashboard">
+      <div class="section-eyebrow">Cuore abruzzese, mente digitale</div>
+      <h1 class="section-title">Benvenuto, <span id="dashUserName">Luigi</span>.</h1>
+      <p class="section-lead">Tutto pronto per chiudere il prossimo cliente. Da dove cominciamo oggi?</p>
+
+      <div id="dashRequestsBanner"></div>
+      <div id="dashRemindersBanner"></div>
+      <div class="dash-grid">
+        <div class="kpi">
+          <div class="kpi__label">Preventivi attivi</div>
+          <div class="kpi__value" id="kpiActive">0</div>
+          <div class="kpi__sub">in bozza o inviati</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__label">Accettati 30gg</div>
+          <div class="kpi__value" id="kpiAccepted">0</div>
+          <div class="kpi__sub">questo mese</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__label">Valore pipeline</div>
+          <div class="kpi__value" id="kpiValue">€0</div>
+          <div class="kpi__sub">netto</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__label">Clienti in anagrafica</div>
+          <div class="kpi__value" id="kpiClients">0</div>
+          <div class="kpi__sub">totali</div>
+        </div>
+      </div>
+
+      <div class="dash-cta-grid">
+        <div class="dash-cta dash-cta--primary dash-cta--social" data-go="social">
+          <div class="dash-cta__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <div class="dash-cta__title">Pacchetti Social Media</div>
+          <div class="dash-cta__sub">Visibilità · Crescita · Evoluzione — la prima cosa che chiede ogni cliente</div>
+        </div>
+        <div class="dash-cta dash-cta--configurator" data-go="configurator">
+          <div class="dash-cta__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          </div>
+          <div class="dash-cta__title">Configuratore</div>
+          <div class="dash-cta__sub">Compone preventivi per Social, Web, Menu Digitale a moduli.</div>
+        </div>
+        <div class="dash-cta dash-cta--catalog" data-go="catalog">
+          <div class="dash-cta__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          </div>
+          <div class="dash-cta__title">Listino completo</div>
+          <div class="dash-cta__sub">71 servizi · 21 categorie. Costruisci un preventivo personalizzato.</div>
+        </div>
+        <div class="dash-cta dash-cta--preventivo" data-go="preventivo">
+          <div class="dash-cta__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="dash-cta__title">Nuovo preventivo</div>
+          <div class="dash-cta__sub">Parti da zero con il configuratore.</div>
+        </div>
+      </div>
+
+      <h2 style="font-family:var(--font-display);font-weight:700;font-size:var(--fs-xl);margin:40px 0 16px;letter-spacing:var(--tracking-tight)">Preventivi recenti</h2>
+      <div id="dashRecentQuotes"></div>
+    </section>
+
+    <!-- PACCHETTI SOCIAL -->
+    <section class="view" id="view-social">
+      <div class="social-hero">
+        <div class="social-hero__title">Pacchetti Social Media</div>
+        <div class="social-hero__sub"><strong>Durata minima: 6 mesi</strong> · IVA esclusa</div>
+
+        <div class="social-hero__deck" id="socialDeck">
+          <!-- 3 pack cards renderizzate da JS -->
+        </div>
+      </div>
+
+      <div class="social-actions">
+        <button class="btn btn--secondary" id="socialCustomBtn">
+          + Pacchetto Custom
+        </button>
+        <button class="btn btn--magenta" id="socialPresentBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Modalità Presentazione
+        </button>
+      </div>
+
+      <div id="packConfigBlock" style="display:none">
+        <div class="pack-config">
+          <div class="pack-config__main">
+            <h2 style="font-family:var(--font-display);font-weight:700;font-size:var(--fs-2xl);letter-spacing:var(--tracking-tight);margin-bottom:8px" id="packConfigTitle">Personalizza il pacchetto</h2>
+            <p style="color:var(--ad-mute);margin-bottom:24px">Modifica durata, aggiungi servizi extra o applica uno sconto.</p>
+            <div class="card" style="margin-bottom:16px">
+              <h3 class="card__title">Durata e modalità</h3>
+              <div class="field-row" style="margin-top:16px">
+                <div class="field">
+                  <label>Mesi di durata</label>
+                  <input type="number" class="input" id="packMonths" min="1" value="6">
+                </div>
+                <div class="field">
+                  <label>Modalità</label>
+                  <select class="select" id="packBilling">
+                    <option value="mensile">Canone mensile</option>
+                    <option value="unico">Pagamento unico</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <h3 class="card__title">Servizi extra (opzionali)</h3>
+              <div id="packExtras" style="margin-top:14px"></div>
+              <button class="btn btn--ghost btn--sm" id="packAddExtra" style="margin-top:12px">+ Aggiungi servizio dal listino</button>
+            </div>
+            <div class="card">
+              <h3 class="card__title">Sconto</h3>
+              <div class="field-row" style="margin-top:16px">
+                <div class="field">
+                  <label>Sconto %</label>
+                  <input type="number" class="input" id="packDiscountPct" min="0" max="100" step="0.5" value="0">
+                </div>
+                <div class="field">
+                  <label>oppure Sconto €</label>
+                  <input type="number" class="input" id="packDiscountEur" min="0" step="10" value="0">
+                </div>
+              </div>
+              <div class="field" style="margin-top:16px">
+                <label>Note interne / commerciali</label>
+                <textarea class="textarea" id="packNotes" placeholder="es. cliente premium, primo anno scontato, fidelizzazione…"></textarea>
+              </div>
+            </div>
+          </div>
+          <aside class="pack-config__side">
+            <h3>Riepilogo</h3>
+            <div id="packSummary"></div>
+            <div class="pack-config__total">
+              <span>Totale netto</span>
+              <b id="packTotal">€0</b>
+            </div>
+            <button class="btn btn--magenta btn--lg" id="packCreateQuote" style="width:100%;margin-top:20px">
+              Crea preventivo
+            </button>
+            <button class="btn btn--ghost btn--sm" id="packCancel" style="width:100%;color:white;margin-top:10px">Annulla</button>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- LISTINO COMPLETO -->
+    <section class="view" id="view-catalog">
+      <div class="section-eyebrow">Listino completo</div>
+      <h1 class="section-title">Tutti i servizi</h1>
+      <p class="section-lead">71 servizi in 21 categorie, sincronizzati con il tuo Fatture in Cloud.</p>
+
+      <div class="catalog-toolbar">
+        <div class="search-input">
+          <input class="input" type="search" id="catSearch" placeholder="Cerca un servizio…">
+        </div>
+        <select class="select" id="catSort" style="width:auto">
+          <option value="cat">Ordina: Categoria</option>
+          <option value="name">Ordina: Nome</option>
+          <option value="price-asc">Ordina: Prezzo ↑</option>
+          <option value="price-desc">Ordina: Prezzo ↓</option>
+        </select>
+        <button class="btn btn--primary" id="goToQuoteFromCatalog">
+          Vedi preventivo (<span id="cartCount">0</span>)
+        </button>
+      </div>
+
+      <div class="catalog-categories" id="catChips"></div>
+      <div class="catalog-grid" id="catalogGrid"></div>
+    </section>
+
+    <!-- EDITOR PREVENTIVO -->
+    <section class="view" id="view-preventivo">
+      <div class="section-eyebrow">Editor preventivo · <span id="preventivoNumberHint" class="preventivo-number-hint">—</span></div>
+      <h1 class="section-title" id="preventivoTitle">Nuovo preventivo</h1>
+
+      <div class="preventivo-layout">
+        <div class="preventivo-main">
+          <div class="card" style="margin-bottom:16px">
+            <h3 class="card__title">Dati cliente</h3>
+            <div class="field" style="margin-top:14px">
+              <label for="quoteTag">Titolo preventivo</label>
+              <input type="text" class="input" id="quoteTag" placeholder="Es. Social Media Marketing La Perla Del Mare" autocomplete="off">
+            </div>
+            <div class="field-row" style="margin-top:14px">
+              <div class="field">
+                <label>Cliente</label>
+                <select class="select" id="quoteClient">
+                  <option value="">— Seleziona o crea —</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Data preventivo</label>
+                <input type="date" class="input" id="quoteDate">
+              </div>
+            </div>
+            <button class="btn btn--ghost btn--sm" id="newClientBtn" style="margin-top:10px">+ Nuovo cliente</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <h3 class="card__title">Voci del preventivo</h3>
+            <div id="quoteLines" style="margin-top:14px">
+              <div class="line-items">
+                <div class="line-items__header">
+                  <div>Servizio</div>
+                  <div>Qtà</div>
+                  <div>Prezzo €</div>
+                  <div>Sconto %</div>
+                  <div></div>
+                </div>
+                <div id="lineItemsBody"></div>
+              </div>
+            </div>
+            <button class="btn btn--ghost btn--sm" id="addLineBtn" style="margin-top:12px">+ Aggiungi servizio dal listino</button>
+          </div>
+
+          <div class="card">
+            <h3 class="card__title">Note</h3>
+            <textarea class="textarea" id="quoteNotes" placeholder="Note del preventivo, visibili al cliente…" style="margin-top:10px"></textarea>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <h3 class="card__title">Appunti commerciali</h3>
+            <p class="card__sub" style="margin-bottom:10px">Note interne tra un appuntamento e l'altro. Non vanno al cliente, servono a strutturare il brief operativo.</p>
+            <textarea class="textarea" id="quoteAppuntiCommerciali" placeholder="Es. Cliente cerca taglio premium, vuole evitare slogan generici. Budget flessibile fino a +20% se ROAS provato. Decision maker: Marco (CFO)."></textarea>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <h3 class="card__title">Brief operativo</h3>
+            <p class="card__sub" style="margin-bottom:10px">Istruzioni operative per il team produzione. Al passaggio in <b>Firmato</b>, il contenuto popola automaticamente: ✉️ mail di automation team · 📋 scheda Trello nella board del cliente (colonna "Informazioni").</p>
+            <textarea class="textarea" id="quoteBriefOperativo" placeholder="Es. Obiettivo: aumento follower IG +20% in 3 mesi. Tone of voice elegante, fotografie in stile editorial. Posting: lun/mer/ven. Reel 1/sett. Hashtag locali Pescara + nicchia food."></textarea>
+          </div>
+        </div>
+
+        <aside class="preventivo-side">
+          <h3 style="font-family:var(--font-display);font-weight:700;font-size:var(--fs-md);margin-bottom:14px;letter-spacing:var(--tracking-tight)">Totali</h3>
+          <div class="field" style="margin-bottom:14px">
+            <label>Sconto totale</label>
+            <div class="field-row" style="margin-top:4px">
+              <input type="number" class="input" id="quoteGlobalDiscPct" min="0" max="100" step="0.5" placeholder="0 %">
+              <input type="number" class="input" id="quoteGlobalDiscEur" min="0" step="10" placeholder="0 €">
+            </div>
+          </div>
+          <div class="totals">
+            <div class="totals__row" style="font-weight:600"><span>Spesa una tantum</span><span id="totOneTime">€0,00</span></div>
+            <div class="totals__row" style="font-weight:600"><span>Spesa mensile (canone)</span><span id="totMonthly">€0,00</span></div>
+            <div class="totals__row" style="color:var(--ad-pink)"><span>Sconto applicato al cliente</span><span id="totDisc">-€0,00</span></div>
+            <div class="totals__row" style="opacity:.7;font-size:11px;margin-top:8px"><span>Imponibile</span><span id="totSub">€0,00</span></div>
+            <div class="totals__row" style="opacity:.5;font-size:10px"><span>IVA 22%</span><span id="totVat">€0,00</span></div>
+            <div class="totals__row total"><span>TOTALE</span><span id="totFinal">€0,00</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:20px">
+            <button class="btn btn--magenta btn--lg" id="presentQuoteBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Presentazione live
+            </button>
+            <button class="btn btn--primary" id="saveQuoteBtn">
+              Salva preventivo
+            </button>
+            <button class="btn btn--secondary" id="sendToFicBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Crea bozza su Fatture in Cloud
+            </button>
+            <button class="btn btn--ghost btn--sm" id="exportPdfBtn">Esporta PDF</button>
+          </div>
+          <div id="ficActionStatus" style="margin-top:14px;font-size:var(--fs-sm);line-height:1.5;color:var(--ad-mute)"></div>
+        </aside>
+      </div>
+    </section>
+
+    
+    <!-- CONFIGURATORE drag and drop -->
+    <section class="view" id="view-configurator">
+      <div class="section-eyebrow">Sprint 2 bozza</div>
+      <h1 class="section-title">Configuratore modulare</h1>
+      <p class="section-lead">Componi un preventivo per area: Social Media o Web. Le sezioni "Richiesto" sono obbligatorie. Il prezzo si aggiorna in tempo reale.</p>
+      <div class="cfg-tabs" id="cfgTabs"></div>
+      <div class="cfg-layout">
+        <div class="cfg-palette" id="cfgPalette"></div>
+        <aside class="cfg-canvas" id="cfgCanvas">
+          <div class="cfg-canvas__header">
+            <div class="cfg-canvas__title">Composizione</div>
+            <div class="cfg-canvas__count" id="cfgCount">0 voci</div>
+          </div>
+          <div class="cfg-canvas__items" id="cfgItems"></div>
+          <div class="cfg-totals" id="cfgTotals"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- RICHIESTE (admin: vede tutte da_approvare · operator: vede le sue) -->
+    <section class="view" id="view-requests">
+      <div class="section-eyebrow">Workflow approvazione</div>
+      <h1 class="section-title" id="requestsTitle">Richieste preventivo</h1>
+      <p class="section-lead" id="requestsLead">Tutte le richieste in attesa di approvazione, ordinate per data.</p>
+      <div id="requestsList"></div>
+    </section>
+
+    <!-- STORICO PREVENTIVI -->
+    <section class="view" id="view-quotes">
+      <div class="section-eyebrow">Archivio</div>
+      <h1 class="section-title">Storico preventivi</h1>
+      <p class="section-lead">Tutti i preventivi salvati. Filtra per stato, duplica o riapri per modificare.</p>
+
+      <div class="list-toolbar">
+        <div class="search-input" style="flex:1">
+          <input class="input" type="search" id="quotesSearch" placeholder="Cerca per cliente, numero, importo…">
+        </div>
+        <select class="select" id="quotesFilter" style="width:auto">
+          <option value="all">Tutti</option>
+          <option value="bozza">Bozze</option>
+          <option value="inviato">Inviati</option>
+          <option value="accettato">Accettati</option>
+          <option value="da_approvare">Da approvare</option>
+          <option value="rifiutato">Rifiutati</option>
+        </select>
+        <button class="btn btn--primary" data-go="preventivo">+ Nuovo preventivo</button>
+      </div>
+
+      <table class="data-table">
+        <thead><tr>
+          <th>N°</th>
+          <th>Cliente</th>
+          <th>Data</th>
+          <th>Importo</th>
+          <th>Stato</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="quotesTbody"></tbody>
+      </table>
+    </section>
+
+    <!-- PIPELINE COMMERCIALE -->
+    <section class="view" id="view-pipeline">
+      <div class="section-eyebrow">Gestione vendite</div>
+      <h1 class="section-title">Pipeline commerciale</h1>
+      <p class="section-lead">Segui ogni preventivo lungo il funnel: dalla bozza alla firma, dal brief al consegnato.</p>
+
+      <div class="pip-stats" id="pipStats"></div>
+
+      <div class="pip-toolbar">
+        <span>Trascina o usa <b>→</b> sulle card per avanzare di fase. Click su <b>⋯</b> per azioni rapide (email, WhatsApp, contratto, brief, Drive).</span>
+      </div>
+
+      <div class="pip-board" id="pipBoard"></div>
+
+      <!-- Pannello dettaglio legacy: ora il dettaglio appare in modal sovrimpressione
+           (pipeline.js openDetail crea #pipDetailModal). Questo div resta per
+           compat con riferimenti vecchi ma è permanentemente nascosto. -->
+      <div class="pip-detail" id="pipDetailLegacy" hidden style="display:none"></div>
+    </section>
+
+    <!-- CLIENTI -->
+    <!-- ORACOLO — wizard ricerca dati FiC -->
+    <section class="view" id="view-oracle">
+      <div id="oracleBody"></div>
+    </section>
+
+    <!-- SITUAZIONE CLIENTI — contratti firmati / attivi -->
+    <section class="view" id="view-contracts">
+      <div class="section-eyebrow">Post-vendita</div>
+      <h1 class="section-title">Situazione clienti</h1>
+      <p class="section-lead">Schede dei clienti con almeno un contratto formalizzato. Si popola automaticamente quando un preventivo passa allo stato <b>Firmato</b> nella Pipeline.</p>
+
+      <div id="contractsStats" class="contracts-stats"></div>
+
+      <div class="contracts-toolbar">
+        <div class="search-input" style="flex:1">
+          <input class="input" type="search" id="contractsSearch" placeholder="Cerca cliente, P.IVA, città, email…">
+        </div>
+        <div class="contracts-filters">
+          <button class="btn btn--ghost btn--sm is-active" data-contracts-filter="all">Tutti</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-filter="social">📱 Social</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-filter="web">🌐 Web</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-filter="menu">🍽 Menu</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-filter="grafica">🎨 Grafica</button>
+        </div>
+        <div class="contracts-filters contracts-filters--type" role="group" aria-label="Filtra per tipo contratto">
+          <button class="btn btn--ghost btn--sm is-active" data-contracts-type-filter="all" title="Tutti i tipi">Tipo: tutti</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-type-filter="continuativo" title="Solo contratti continuativi (canoni ricorrenti)">↻ Continuativi</button>
+          <button class="btn btn--ghost btn--sm" data-contracts-type-filter="una_tantum" title="Solo pratiche una tantum (shooting, eventi)">◆ Una tantum</button>
+        </div>
+        <div class="contracts-view-toggle" role="group" aria-label="Cambia visualizzazione">
+          <button class="btn btn--ghost btn--sm" data-view-mode="grid" title="Icone grandi (griglia)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          </button>
+          <button class="btn btn--ghost btn--sm" data-view-mode="tile" title="Icone medie (tile)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6"/><rect x="11" y="3" width="6" height="6"/><rect x="3" y="11" width="6" height="6"/><rect x="11" y="11" width="6" height="6"/><rect x="19" y="3" width="2" height="6"/><rect x="19" y="11" width="2" height="6"/></svg>
+          </button>
+          <button class="btn btn--ghost btn--sm" data-view-mode="list" title="Lista dettagli">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r=".5"/><circle cx="3.5" cy="12" r=".5"/><circle cx="3.5" cy="18" r=".5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="contractsList" class="contracts-list"></div>
+    </section>
+
+    <!-- SITUAZIONE OPERATIVA — Social & Web -->
+    <section class="view" id="view-social-plan">
+      <div class="section-eyebrow">Operatività</div>
+      <h1 class="section-title">Situazione operativa</h1>
+      <p class="section-lead">Stato delle attività per ogni cliente, mese per mese. Replica e sostituisce il foglio Excel <i>Clienti social</i> e gestisce anche manutenzione + sviluppo siti web.</p>
+      <div id="socialPlanRoot"><!-- popolato da SocialPlan.render() --></div>
+    </section>
+
+    <!-- GENERATORE PED — produzione piani editoriali social -->
+    <section class="view" id="view-ped-generator">
+      <div class="section-eyebrow">Produzione</div>
+      <h1 class="section-title">Generatore PED</h1>
+      <p class="section-lead">Crea i piani editoriali social dei clienti partendo dalla strategia approvata, dal Brand Kit Canva e dalle immagini dello shooting. Il tool guida l'operatore passo passo, ricorda quello che è già stato pubblicato ed evita ripetizioni di immagini.</p>
+      <div id="pedGeneratorRoot"><!-- popolato da PedGenerator.render() --></div>
+    </section>
+
+    <!-- WORKLOAD — timeline operatori, carico orario -->
+    <section class="view" id="view-workload">
+      <div class="section-eyebrow">Produzione</div>
+      <h1 class="section-title">Workload</h1>
+      <p class="section-lead">Timeline operativa settimanale: chi lavora a cosa, in che giorno, con quante ore di carico. Le lavorazioni non chiuse si possono spostare manualmente al giorno successivo. <em>MVP scheletro: creazione manuale, edit progresso e stato — backend e AI assist arrivano negli step successivi.</em></p>
+      <div id="workloadRoot"><!-- popolato da Workload.render() --></div>
+    </section>
+
+    <!-- BOARD LAVORAZIONI — kanban Situazione operativa -->
+    <section class="view" id="view-operations-board">
+      <div class="section-eyebrow">Produzione</div>
+      <h1 class="section-title">Board lavorazioni</h1>
+      <p class="section-lead">Board kanban delle lavorazioni per stato (Da fare · In corso · Approvazione · Fatto). Riflesso sintetico — il dettaglio completo vive sulle card Trello (integrazione nei prossimi step). Il badge <b>⏱</b> mostra le ore stimate: ≤4h grigio, 5-8h ambra, &gt;8h rosso (anti-pattern, valuta di spezzare).</p>
+      <div id="operationsBoardRoot"><!-- popolato da OperationsBoard.render() --></div>
+    </section>
+
+    <!-- ATTIVITÀ DEL GIORNO — to-do list personale operatore -->
+    <section class="view" id="view-daily-todo">
+      <div class="section-eyebrow">Personale</div>
+      <h1 class="section-title">Attività del giorno</h1>
+      <p class="section-lead">La tua to-do list di oggi: vista personale focalizzata sulla giornata. Estratta automaticamente dalle Lavorazioni che ti sono assegnate per oggi. Spunta per chiudere, aggiungi al volo, genera il wrap-up a fine giornata.</p>
+      <div id="dailyTodoRoot"><!-- popolato da DailyTodo.render() --></div>
+    </section>
+
+    <section class="view" id="view-clients">
+      <div class="section-eyebrow">Anagrafica</div>
+      <h1 class="section-title">Clienti</h1>
+      <p class="section-lead">L'archivio clienti dell'agenzia. Si sincronizza con Fatture in Cloud.</p>
+
+      <div class="list-toolbar">
+        <div class="search-input" style="flex:1">
+          <input class="input" type="search" id="clientsSearch" placeholder="Cerca cliente, P.IVA, città…">
+        </div>
+        <button class="btn btn--secondary" id="syncClientsFromFicBtn" title="Scarica l'anagrafica clienti da Fatture in Cloud">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Sincronizza da FiC
+        </button>
+        <button class="btn btn--primary" id="newClientBtn2">+ Nuovo cliente</button>
+      </div>
+
+      <table class="data-table">
+        <thead><tr>
+          <th>Ragione sociale</th>
+          <th>P.IVA</th>
+          <th>Email</th>
+          <th>Città</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="clientsTbody"></tbody>
+      </table>
+    </section>
+
+    
+    <!-- PERSONALIZZA — parte 1: Profilo utente (mostrata insieme a view-brand) -->
+    <section class="view" id="view-profile">
+      <div class="section-eyebrow">Personalizza · Profilo</div>
+      <h1 class="section-title">Il tuo profilo</h1>
+      <p class="section-lead">Dati personali, firma e password — usati nei preventivi che produci.</p>
+
+      <div class="profile-layout">
+        <aside class="profile-card">
+          <div class="avatar-large" id="profileAvatarBig">
+            <span id="profileAvatarInitial">L</span>
+            <label class="avatar-upload-btn" title="Carica foto profilo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <input type="file" id="profileAvatarInput" accept="image/*">
+            </label>
+          </div>
+          <div class="profile-name" id="profileCardName">Luigi</div>
+          <div class="profile-role" id="profileCardRole">Admin</div>
+        </aside>
+
+        <div>
+          <div class="card" style="margin-bottom:16px">
+            <h3 class="card__title">Dati personali</h3>
+            <div class="field-row" style="margin-top:14px">
+              <div class="field"><label>Nome</label><input class="input" id="profileName"></div>
+              <div class="field"><label>Ruolo</label><input class="input" id="profileRole" placeholder="es. Sales Manager"></div>
+            </div>
+            <div class="field-row" style="margin-top:14px">
+              <div class="field"><label>Email</label><input class="input" type="email" id="profileEmail"></div>
+              <div class="field"><label>Telefono</label><input class="input" type="tel" id="profilePhone"></div>
+            </div>
+            <button class="btn btn--primary" id="saveProfileBtn" style="margin-top:16px">Salva dati personali</button>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <h3 class="card__title">Firma per i preventivi</h3>
+            <p class="card__sub" style="margin-bottom:14px">Apparirà in fondo a ogni preventivo presentato o esportato in PDF.</p>
+            <div class="field">
+              <label>Testo firma</label>
+              <textarea class="textarea" id="profileSignature" placeholder="Es:&#10;Cordialmente,&#10;Luigi Rossi&#10;Sales Manager - Abruzzo Digitale&#10;ciao@abruzzodigitale.com" style="min-height:100px"></textarea>
+            </div>
+            <div class="field" style="margin-top:14px">
+              <label>Firma immagine (opzionale)</label>
+              <input type="file" id="profileSignatureImg" accept="image/*" class="input">
+              <div id="signaturePreview" class="signature-preview" style="display:none"></div>
+            </div>
+            <button class="btn btn--primary" id="saveSignatureBtn" style="margin-top:16px">Salva firma</button>
+          </div>
+
+          <div class="card">
+            <h3 class="card__title">Cambia password</h3>
+            <div class="field-row" style="margin-top:14px">
+              <div class="field"><label>Password attuale</label><input class="input" type="password" id="oldPassword"></div>
+              <div class="field"><label>Nuova password</label><input class="input" type="password" id="newPassword"></div>
+            </div>
+            <button class="btn btn--primary" id="changePasswordBtn" style="margin-top:16px">Cambia password</button>
+            <div id="passwordStatus" style="margin-top:10px;font-size:var(--fs-sm)"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERSONALIZZA — parte 2: Brand agenzia + Schermata di login -->
+    <section class="view" id="view-brand">
+      <div class="section-eyebrow">Personalizza · Identità visiva</div>
+      <h1 class="section-title">Brand agenzia</h1>
+      <p class="section-lead">Carica i loghi ufficiali Abruzzo Digitale. Verranno usati automaticamente in sidebar, login, presentazioni e PDF.</p>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">Loghi</h3>
+        <p class="card__sub" style="margin-bottom:18px">Carica le varianti del marchio nei rispettivi slot. Ogni slot supporta PNG, JPG, SVG.</p>
+        <div class="brand-slots" id="brandSlots"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">Automazioni & template pipeline</h3>
+        <p class="card__sub" style="margin-bottom:14px">Imposta i destinatari e i testi usati dalle <b>azioni rapide della pipeline</b> (email cliente, brief team, contratto). I template supportano variabili tra parentesi graffe doppie: <code>{{client.name}}</code>, <code>{{quote.number}}</code>, <code>{{quote.totalNet}}</code>, <code>{{quote.linesList}}</code>, <code>{{quote.notes}}</code>, ecc.</p>
+
+        <div class="field-row" style="margin-bottom:14px">
+          <div class="field">
+            <label>Email team operativo (per brief)</label>
+            <input class="input" id="autoTeamEmail" type="email" placeholder="mattia@abruzzodigitale.com">
+          </div>
+          <div class="field">
+            <label>URL board Trello (per brief)</label>
+            <input class="input" id="autoTeamTrello" type="url" placeholder="https://trello.com/b/...">
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:8px">
+          <label>Template contratto cliente</label>
+          <textarea class="textarea" id="tplContract" rows="10" style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5"></textarea>
+          <div style="opacity:.6;font-size:11px;margin-top:4px">Lascia vuoto per usare il default. Usato da <i>Pipeline → Azioni rapide → "Genera contratto"</i>.</div>
+        </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>Template brief team operativo</label>
+          <textarea class="textarea" id="tplBrief" rows="10" style="font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5"></textarea>
+          <div style="opacity:.6;font-size:11px;margin-top:4px">Lascia vuoto per usare il default. Usato da <i>Pipeline → Azioni rapide → "Brief team"</i>.</div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn--primary" id="saveAutoTplBtn">Salva automazioni & template</button>
+          <button class="btn btn--ghost btn--sm" id="resetTplContract">Ripristina contratto default</button>
+          <button class="btn btn--ghost btn--sm" id="resetTplBrief">Ripristina brief default</button>
+        </div>
+        <div id="autoTplStatus" style="margin-top:10px;font-size:var(--fs-sm);color:var(--ad-mute)"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">Template documenti (contratto & brief)</h3>
+        <p class="card__sub" style="margin-bottom:14px">Puoi collegare i tuoi <b>Google Doc master</b> con carta intestata. Quando il preventivo passa allo stage Contratto inviato (o Firmato per il brief team), l'app duplicherà il doc nel tuo Drive e compilerà i campi variabili. <em>L'apertura/copia richiede l'integrazione Google attiva (vedi Integrazioni).</em></p>
+
+        <div class="field" style="margin-bottom:12px">
+          <label>URL Google Doc master — <b>contratto</b></label>
+          <input class="input" type="url" id="templateContractGdocUrl" placeholder="https://docs.google.com/document/d/…/edit">
+          <div style="font-size:11px;color:var(--ad-mute);margin-top:4px">Il documento deve essere accessibile dall'account Google collegato in Integrazioni.</div>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <label>URL Google Doc master — <b>brief operativo</b> (opzionale)</label>
+          <input class="input" type="url" id="templateBriefOpsGdocUrl" placeholder="https://docs.google.com/document/d/…/edit">
+        </div>
+        <button class="btn btn--primary btn--sm" id="saveTemplateGdocBtn" type="button">Salva URL template</button>
+        <div id="templateGdocStatus" style="margin-top:10px;font-size:var(--fs-sm);color:var(--ad-mute)"></div>
+
+        <details style="margin-top:18px;background:rgba(0,0,0,.04);padding:12px 14px;border-radius:8px;font-size:12px">
+          <summary style="cursor:pointer;font-weight:600">📋 Campi variabili supportati (incollali nel tuo Google Doc)</summary>
+          <p style="margin:10px 0 6px"><b>Cliente</b></p>
+          <ul style="margin:0;padding-left:20px;line-height:1.8;font-family:monospace;font-size:11px">
+            <li>{{client.name}} — Ragione sociale / nome</li>
+            <li>{{client.contact}} — Persona di contatto</li>
+            <li>{{client.vat}} — P.IVA</li>
+            <li>{{client.addr}}, {{client.city}}, {{client.zip}}, {{client.prov}}</li>
+            <li>{{client.email}}, {{client.phone}}</li>
+          </ul>
+          <p style="margin:10px 0 6px"><b>Preventivo</b></p>
+          <ul style="margin:0;padding-left:20px;line-height:1.8;font-family:monospace;font-size:11px">
+            <li>{{quote.number}} — Numero (es. 2026-0001)</li>
+            <li>{{quote.date}} — Data emissione</li>
+            <li>{{quote.subject}} — Oggetto auto (es. "Social Media Marketing - Cliente X")</li>
+            <li>{{quote.notes}} — Note del preventivo</li>
+            <li>{{quote.owner}} — Chi ha creato il preventivo</li>
+          </ul>
+          <p style="margin:10px 0 6px"><b>Voci e totali</b> (solo nel contratto, MAI nel brief team)</p>
+          <ul style="margin:0;padding-left:20px;line-height:1.8;font-family:monospace;font-size:11px">
+            <li>{{quote.linesList}} — Lista voci con prezzi (multi-riga)</li>
+            <li>{{quote.linesListOps}} — Lista voci SENZA prezzi (per brief team)</li>
+            <li>{{quote.totalNet}} — Totale netto</li>
+            <li>{{quote.monthlyLine}} — Eventuale canone mensile</li>
+          </ul>
+          <p style="margin:14px 0 6px;font-style:italic;color:var(--ad-mute)">Esempio nel doc: «Spett.le {{client.name}} ({{client.vat}}), in riferimento al preventivo {{quote.number}} del {{quote.date}}…»</p>
+        </details>
+      </div>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">Notifiche richieste</h3>
+        <p class="card__sub" style="margin-bottom:14px">Quando arriva una nuova richiesta di preventivo dall'operatore, l'app può riprodurre un suono. Puoi usare quello di default o caricarne uno tuo.</p>
+        <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <input type="checkbox" id="notifSoundEnabled" style="width:18px;height:18px">
+          <span>Suono di notifica abilitato</span>
+        </label>
+        <div class="field" style="margin-bottom:10px">
+          <label>Suono personalizzato (MP3, WAV, max ~1 MB)</label>
+          <input class="input" type="file" id="notifSoundFile" accept="audio/*">
+          <div id="notifSoundStatus" style="margin-top:8px;font-size:var(--fs-sm);color:var(--ad-mute)">Nessun file caricato — verrà usato il beep di default.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn btn--secondary btn--sm" id="notifSoundTest">▶ Anteprima suono</button>
+          <button class="btn btn--ghost btn--sm" id="notifSoundReset">Ripristina default</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">Schermata di login</h3>
+        <p class="card__sub" style="margin-bottom:14px">Logo e testi visibili nella pagina di accesso. Visibili anche in finestre non ancora loggate (es. incognito) grazie alla sync via backend.</p>
+
+        <div class="field" style="margin-bottom:16px">
+          <label>Logo della schermata di login</label>
+          <div style="display:flex;align-items:center;gap:14px;background:#0a0a0a;padding:14px;border-radius:8px">
+            <div id="loginCustomLogoPreview" style="width:120px;height:60px;display:flex;align-items:center;justify-content:center;flex:0 0 auto">
+              <span style="color:rgba(255,255,255,.4);font-size:12px">— anteprima —</span>
+            </div>
+            <div style="flex:1">
+              <input class="input" type="file" id="loginCustomLogoFile" accept="image/png,image/jpeg,image/svg+xml,image/webp">
+              <div style="font-size:11px;color:var(--ad-mute);margin-top:6px">PNG / SVG / WebP, max ~500 KB. Se vuoto userà il <b>Lockup verticale (scuro)</b> dei loghi sopra.</div>
+            </div>
+            <button class="btn btn--ghost btn--sm" id="loginCustomLogoReset" type="button">Rimuovi</button>
+          </div>
+        </div>
+
+        <div class="field-row" style="margin-top:6px">
+          <div class="field">
+            <label>Titolo (sotto al logo)</label>
+            <input class="input" id="loginCustomTitle" placeholder="ABRUZZO DIGITALE">
+          </div>
+          <div class="field">
+            <label>Sottotitolo</label>
+            <input class="input" id="loginCustomSubtitle" placeholder="Accedi al preventivatore">
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label>Tagline a fondo pagina</label>
+          <input class="input" id="loginCustomTagline" placeholder="Cuore Abruzzese, Mente Digitale.">
+        </div>
+        <button class="btn btn--primary" id="saveLoginCustomBtn" style="margin-top:16px">Salva testi schermata login</button>
+        <div id="loginCustomStatus" style="margin-top:10px;font-size:var(--fs-sm);color:var(--ad-mute)"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px">
+        <h3 class="card__title">KPI mostrati nella dashboard</h3>
+        <p class="card__sub">Scegli quali metriche vuoi vedere quando apri l'app. Puoi cambiarli quando vuoi.</p>
+        <div class="kpi-config-grid" id="kpiConfigGrid"></div>
+        <button class="btn btn--primary" id="saveKpiBtn" style="margin-top:16px">Salva KPI</button>
+      </div>
+
+      <div class="card">
+        <h3 class="card__title">Anteprima header preventivo</h3>
+        <p class="card__sub" style="margin-bottom:14px">Cosi apparira l'intestazione dei tuoi preventivi PDF:</p>
+        <div class="quote-header-preview">
+          <div class="quote-header-preview__logo" id="quoteHeaderPreviewLogo">— carica il lockup orizzontale per vedere l'anteprima —</div>
+          <div style="font-family:var(--font-display);font-weight:700;font-size:var(--fs-lg);letter-spacing:var(--tracking-tight)">Preventivo 2026-0001</div>
+          <div style="color:var(--ad-mute);font-size:var(--fs-sm);margin-top:4px">Abruzzo Digitale · C.so G. Garibaldi 62, Giulianova (TE) · P.IVA 02196170670</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INTEGRAZIONI — hub credenziali servizi esterni (solo admin) -->
+    <section class="view" id="view-integrations">
+      <div class="section-eyebrow">Connessioni esterne</div>
+      <h1 class="section-title">Integrazioni</h1>
+      <p class="section-lead">Qui colleghi i servizi esterni (Fatture in Cloud, Trello, Adobe Sign, Gmail, Drive, WhatsApp). Le credenziali viaggiano cifrate al backend e restano server-side: non vengono mai esposte al browser dopo il salvataggio.</p>
+      <div id="integrationsList" class="integrations-list" style="display:flex;flex-direction:column;gap:14px;margin-top:8px"></div>
+    </section>
+
+    <!-- IMPOSTAZIONI -->
+    <section class="view" id="view-settings">
+      <div class="section-eyebrow">Configurazione</div>
+      <h1 class="section-title">Impostazioni</h1>
+      <p class="section-lead">Token API, utenti e gestione listino.</p>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card__title">Fatture in Cloud — API</h3>
+        <p class="card__sub" style="margin-bottom:16px">Inserisci il Personal Access Token. Lo trovi su <em>Fatture in Cloud → Sviluppatori → Token Personale</em>.</p>
+        <div class="field" style="margin-bottom:14px">
+          <label>Personal Access Token</label>
+          <input class="input" type="password" id="ficToken" placeholder="••••••••••••••••">
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Company ID</label>
+          <input class="input" type="text" id="ficCompany" placeholder="es. 123456">
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn--primary" id="saveFicBtn">Salva e testa connessione</button>
+          <button class="btn btn--secondary" id="syncListinoBtn">Sincronizza listino</button>
+        </div>
+        <div id="ficStatus" style="margin-top:12px;font-size:var(--fs-sm)"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card__title">Invio email</h3>
+        <p class="card__sub" style="margin-bottom:16px">Quando l'app deve aprire una mail (es. dopo il cambio stato in pipeline, dalla card cliente), decide se usare il client di sistema, Gmail nel browser o SMTP automatico.</p>
+        <div class="field" style="margin-bottom:10px">
+          <label for="mailProviderSelect">Provider email</label>
+          <select class="select" id="mailProviderSelect">
+            <option value="default">Client predefinito di sistema (Thunderbird / Apple Mail / ecc.)</option>
+            <option value="gmail">Apri Gmail nel browser</option>
+            <option value="smtp" disabled>Invio automatico via SMTP (in arrivo)</option>
+          </select>
+        </div>
+        <div id="mailProviderStatus" style="font-size:var(--fs-sm);color:var(--ad-mute)"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card__title">Utenti</h3>
+        <p class="card__sub" style="margin-bottom:16px">Gli utenti che possono accedere al preventivatore.</p>
+        <div id="usersList"></div>
+        <button class="btn btn--ghost btn--sm" id="addUserBtn" style="margin-top:12px">+ Aggiungi utente</button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px" id="operatorPermsCard">
+        <h3 class="card__title">Permessi operatori</h3>
+        <p class="card__sub" style="margin-bottom:16px">Per ogni operatore, scegli quali sezioni può vedere. Gli admin vedono sempre tutto. Lasciando vuoto si applica il default (Dashboard, Configuratore, Editor preventivo).</p>
+        <div id="operatorPermsList"></div>
+        <button class="btn btn--primary btn--sm" id="saveOperatorPermsBtn" style="margin-top:16px">Salva permessi</button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px" id="configRulesCard">
+        <h3 class="card__title">Regole configuratore</h3>
+        <p class="card__sub" style="margin-bottom:16px">Per area Social e Web puoi rendere opzionale la sezione obbligatoria di default. Per Menu Digitale la regola rimane fissa.</p>
+        <label style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--ad-line);cursor:pointer">
+          <input type="checkbox" id="ruleSocialGestionRequired" checked>
+          <div style="flex:1">
+            <b>Area Social — "Gestione & Strategia" obbligatoria</b>
+            <div style="color:var(--ad-mute);font-size:var(--fs-sm);margin-top:2px">Se disattivata, i preventivi social possono essere creati senza una gestione/bundle start.</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:12px;padding:12px 0;cursor:pointer">
+          <input type="checkbox" id="ruleWebMaintRequired" checked>
+          <div style="flex:1">
+            <b>Area Web — "Manutenzione & Aggiornamento" obbligatoria</b>
+            <div style="color:var(--ad-mute);font-size:var(--fs-sm);margin-top:2px">Alcuni clienti non vogliono la manutenzione: disattiva per permettere preventivi web senza canone manutenzione.</div>
+          </div>
+        </label>
+        <button class="btn btn--primary btn--sm" id="saveConfigRulesBtn" style="margin-top:16px">Salva regole</button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="card__title">Aliquota IVA predefinita</h3>
+        <div class="field" style="margin-top:14px;max-width:200px">
+          <label>Aliquota %</label>
+          <input class="input" type="number" id="defaultVat" value="22" min="0" max="100">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card__title">Dati agenzia (per i preventivi)</h3>
+        <div class="field-row" style="margin-top:14px">
+          <div class="field">
+            <label>Ragione sociale</label>
+            <input class="input" id="agencyName" value="Abruzzo Digitale">
+          </div>
+          <div class="field">
+            <label>P.IVA</label>
+            <input class="input" id="agencyVat" value="02196170670">
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label>Indirizzo</label>
+          <input class="input" id="agencyAddr" value="C.so G. Garibaldi 62, Giulianova - TE">
+        </div>
+        <div class="field-row" style="margin-top:14px">
+          <div class="field">
+            <label>Email</label>
+            <input class="input" id="agencyEmail" value="ciao@abruzzodigitale.com">
+          </div>
+          <div class="field">
+            <label>Telefono</label>
+            <input class="input" id="agencyPhone" value="+39 329 9652869">
+          </div>
+        </div>
+        <button class="btn btn--primary" id="saveAgencyBtn" style="margin-top:16px">Salva</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================================================
+     PRESENTAZIONE LIVE
+     ============================================================ -->
+<div class="presentation" id="presentation">
+  <div class="presentation__topbar">
+    <div class="presentation__logo">
+      <div id="presentationLogo"><svg viewBox="0 0 100 100" aria-label="Logo placeholder"><rect x="2" y="2" width="96" height="96" rx="14" fill="none" stroke="white" stroke-width="3" stroke-dasharray="4 4" opacity="0.4"/><text x="50" y="62" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="38" fill="white">AD</text></svg></div>
+      <div style="font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:var(--tracking-wider);text-transform:uppercase;line-height:1.1">
+        Abruzzo Digitale
+        <div style="font-size:10px;font-weight:400;color:rgba(255,255,255,.5);margin-top:2px;letter-spacing:var(--tracking-wider)">Cuore Abruzzese, Mente Digitale</div>
+      </div>
+    </div>
+    <button class="presentation__close" id="presentationClose">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <div class="presentation__title">Pacchetti Social Media</div>
+  <div class="presentation__sub" id="presentationSub">Durata minima 6 mesi · IVA esclusa</div>
+
+  <div class="presentation__deck" id="presentationDeck"></div>
+
+  <div class="presentation__totalbar">
+    <div>
+      <div class="presentation__total-label">Totale stimato</div>
+      <div class="presentation__total-value" id="presentationTotal">€0</div>
+    </div>
+    <div class="presentation__discount">
+      <label>Sconto %</label>
+      <input type="number" id="presentationDiscount" value="0" min="0" max="100" step="0.5">
+    </div>
+    <button class="btn btn--magenta btn--lg" id="presentationSave" style="margin-left:20px">Salva come preventivo</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL CLIENTE
+     ============================================================ -->
+<div class="modal-overlay" id="clientModal">
+  <div class="modal">
+    <div class="modal__header">
+      <div class="modal__title" id="clientModalTitle">Nuovo cliente</div>
+      <button class="modal__close" data-close-modal>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="clientForm">
+      <div class="field-row">
+        <div class="field"><label>Ragione sociale *</label><input class="input" id="cliName" required></div>
+        <div class="field"><label>Persona di riferimento</label><input class="input" id="cliContact"></div>
+      </div>
+      <div class="field-row" style="margin-top:14px">
+        <div class="field"><label>P. IVA</label><input class="input" id="cliVat"></div>
+        <div class="field"><label>Codice fiscale</label><input class="input" id="cliCf"></div>
+      </div>
+      <div class="field-row" style="margin-top:14px">
+        <div class="field"><label>Email</label><input class="input" type="email" id="cliEmail"></div>
+        <div class="field"><label>Telefono</label><input class="input" type="tel" id="cliPhone"></div>
+      </div>
+      <div class="field" style="margin-top:14px"><label>Indirizzo</label><input class="input" id="cliAddr"></div>
+      <div class="field-row-3" style="margin-top:14px">
+        <div class="field"><label>Città</label><input class="input" id="cliCity"></div>
+        <div class="field"><label>CAP</label><input class="input" id="cliZip"></div>
+        <div class="field"><label>Prov.</label><input class="input" id="cliProv" maxlength="2"></div>
+      </div>
+      <div class="field-row" style="margin-top:14px">
+        <div class="field"><label>Codice SDI</label><input class="input" id="cliSdi"></div>
+        <div class="field"><label>PEC</label><input class="input" type="email" id="cliPec"></div>
+      </div>
+      <div class="modal__footer">
+        <button type="button" class="btn btn--ghost" data-close-modal>Annulla</button>
+        <button type="submit" class="btn btn--primary">Salva cliente</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL SELEZIONA SERVIZIO DAL LISTINO
+     ============================================================ -->
+<div class="modal-overlay" id="productPickerModal">
+  <div class="modal" style="max-width:800px;max-height:80vh">
+    <div class="modal__header">
+      <div class="modal__title">Aggiungi servizio dal listino</div>
+      <button class="modal__close" data-close-modal>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <input class="input" id="pickerSearch" placeholder="Cerca nel listino..." style="margin-bottom:14px">
+      <div id="pickerList" style="max-height:50vh;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TOAST CONTAINER
+     ============================================================ -->
+<div id="toasts" style="position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px"></div>
+
+<!-- ============================================================
+     SCRIPTS
+     ============================================================ -->
+<script src="js/db.js"></script>
+<script src="js/listino-data.js"></script>
+<script src="js/listino.js"></script>
+<script src="js/state.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/roles.js"></script>
+<script src="js/fic.js"></script>
+<script src="js/views.js"></script>
+<script src="js/configurator.js"></script>
+<script src="js/configurator-view.js"></script>
+<script src="js/pipeline.js"></script>
+<script src="js/reminders.js"></script>
+<script src="js/integrations.js"></script>
+<script src="js/contracts.js"></script>
+<script src="js/social-plan.js"></script>
+<script src="js/ped-generator.js"></script>
+<script src="js/workload.js"></script>
+<script src="js/operations-board.js"></script>
+<script src="js/daily-todo.js"></script>
+<script src="js/oracle.js"></script>
+<script src="js/sprint1-tweaks.js"></script>
+<script src="js/profile-brand.js"></script>
+<script src="js/app-profile.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

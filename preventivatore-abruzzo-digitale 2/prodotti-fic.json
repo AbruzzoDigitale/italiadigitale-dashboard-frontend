@@ -1,0 +1,534 @@
+[
+  {
+    "id": 37294378,
+    "name": "Aggiornamento e manutenzione ecommerce",
+    "net": 960,
+    "measure": "",
+    "category": "Aggiornamento e manutenzione"
+  },
+  {
+    "id": 37294379,
+    "name": "Aggiornamento e manutenzione ecommerce Shopify",
+    "net": 500,
+    "measure": "Anno",
+    "category": "Aggiornamento e manutenzione"
+  },
+  {
+    "id": 37294380,
+    "name": "Aggiornamento e manutenzione sito web corporate",
+    "net": 480,
+    "measure": "Mesi",
+    "category": "Aggiornamento e manutenzione"
+  },
+  {
+    "id": 37294381,
+    "name": "Brand Identity",
+    "net": 1200,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294382,
+    "name": "Brochure aziendale/depliant 3 ante",
+    "net": 240,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294383,
+    "name": "Brochure aziendale/depliant a 2 ante",
+    "net": 230,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294384,
+    "name": "Brochure prodotti/catalogo prodotti",
+    "net": 340,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294385,
+    "name": "Campagna lancio META",
+    "net": 900,
+    "measure": "",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294386,
+    "name": "Canone mensile QR Code dinamico",
+    "net": 5,
+    "measure": "mensile",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 37294387,
+    "name": "Company Profile",
+    "net": 450,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294388,
+    "name": "Configurazione Google My Business",
+    "net": 90,
+    "measure": "",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294389,
+    "name": "Configurazione Klarna",
+    "net": 250,
+    "measure": "",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 38865697,
+    "name": "Configurazione LinkedIn Business manager",
+    "net": 250,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 41828146,
+    "name": "Configurazione LinkedIn Business manager",
+    "net": 250,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294390,
+    "name": "Configurazione Mbway",
+    "net": 250,
+    "measure": "",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 37294391,
+    "name": "Configurazione Meta Business manager",
+    "net": 250,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294392,
+    "name": "Configurazione Scalapay",
+    "net": 250,
+    "measure": "",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 41828140,
+    "name": "Configurazione Tik Tok Business manager",
+    "net": 250,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294393,
+    "name": "Creazione contenuti vetrina META",
+    "net": 900,
+    "measure": "",
+    "category": "Social media management"
+  },
+  {
+    "id": 41828170,
+    "name": "Creazione pagina aziendale LinkedIn",
+    "net": 90,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294394,
+    "name": "Creazione pagina Facebook",
+    "net": 90,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 41828160,
+    "name": "Creazione pagina Instagram business",
+    "net": 90,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294396,
+    "name": "Creazione profilo Tik Tok",
+    "net": 50,
+    "measure": "una tantum",
+    "category": "Configurazione social"
+  },
+  {
+    "id": 37294397,
+    "name": "Data entry prodotti ecommerce",
+    "net": 5,
+    "measure": "Cad",
+    "category": "Data Entry"
+  },
+  {
+    "id": 37294398,
+    "name": "Depliant informativo",
+    "net": 180,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294399,
+    "name": "Dominio",
+    "net": 15,
+    "measure": "",
+    "category": "Dominio"
+  },
+  {
+    "id": 37294400,
+    "name": "Email aziendali",
+    "net": 15,
+    "measure": "",
+    "category": "Creazione email"
+  },
+  {
+    "id": 37294401,
+    "name": "GDPR",
+    "net": 500,
+    "measure": "",
+    "category": "GDPR"
+  },
+  {
+    "id": 37294402,
+    "name": "Google Analytics",
+    "net": 120,
+    "measure": "",
+    "category": "Analytics"
+  },
+  {
+    "id": 37294403,
+    "name": "Google Search Console",
+    "net": 120,
+    "measure": "",
+    "category": "Analytics"
+  },
+  {
+    "id": 37294404,
+    "name": "Grafica e studio UX/UI Ecommerce",
+    "net": 850,
+    "measure": "",
+    "category": "Progettazione web"
+  },
+  {
+    "id": 37294405,
+    "name": "Grafica e studio UX/UI Sito web corporate",
+    "net": 500,
+    "measure": "",
+    "category": "Progettazione web"
+  },
+  {
+    "id": 37294406,
+    "name": "Grafica packaging prodotto",
+    "net": 250,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294407,
+    "name": "Grafica Roll up",
+    "net": 90,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294408,
+    "name": "Grafica sezione Hero",
+    "net": 450,
+    "measure": "",
+    "category": "Sito web"
+  },
+  {
+    "id": 41031680,
+    "name": "Hosting Base",
+    "net": 150,
+    "measure": "Anno",
+    "category": "Hosting"
+  },
+  {
+    "id": 41792924,
+    "name": "Hosting Cloud Base",
+    "net": 110,
+    "measure": "Mese",
+    "category": "Hosting"
+  },
+  {
+    "id": 37294435,
+    "name": "Hosting Evo",
+    "net": 450,
+    "measure": "Anno",
+    "category": "Hosting"
+  },
+  {
+    "id": 37294436,
+    "name": "Hosting Pro",
+    "net": 300,
+    "measure": "Anno",
+    "category": "Hosting"
+  },
+  {
+    "id": 37294409,
+    "name": "Infografica",
+    "net": 120,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294410,
+    "name": "Locandina",
+    "net": 85,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294411,
+    "name": "Menu Digitale",
+    "net": 250,
+    "measure": "",
+    "category": "Progettazione web"
+  },
+  {
+    "id": 37294412,
+    "name": "Menu digitale PDF",
+    "net": 120,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294413,
+    "name": "META ADS",
+    "net": 350,
+    "measure": "",
+    "category": "Advertising"
+  },
+  {
+    "id": 37294414,
+    "name": "Migrazione Hosting e dominio ecommerce",
+    "net": 450,
+    "measure": "",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 37294415,
+    "name": "Migrazione Hosting e Dominio sito web",
+    "net": 250,
+    "measure": "",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 37294416,
+    "name": "Multilingua Ecommerce",
+    "net": 300,
+    "measure": "",
+    "category": "Ecommerce"
+  },
+  {
+    "id": 37294417,
+    "name": "Ottimizzazione Responsive Ecommerce",
+    "net": 450,
+    "measure": "",
+    "category": "Responsive"
+  },
+  {
+    "id": 37294418,
+    "name": "Ottimizzazione Responsive ecommerce Shopify",
+    "net": 300,
+    "measure": "",
+    "category": "Responsive"
+  },
+  {
+    "id": 37294419,
+    "name": "Ottimizzazione responsive sito corporate",
+    "net": 300,
+    "measure": "",
+    "category": "Responsive"
+  },
+  {
+    "id": 37294420,
+    "name": "Pacchetto Social Media Crescita",
+    "net": 850,
+    "measure": "Mesi",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294421,
+    "name": "Pacchetto Social Media custom",
+    "net": 650,
+    "measure": "Mese",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294422,
+    "name": "Pacchetto Social Media Evoluzione",
+    "net": 1200,
+    "measure": "Mesi",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294423,
+    "name": "Pacchetto Social Media Visibilità",
+    "net": 650,
+    "measure": "Mesi",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294424,
+    "name": "Pagina pubblicitaria",
+    "net": 150,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294425,
+    "name": "Progettazione grafica rivista/giornalino",
+    "net": 450,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294426,
+    "name": "Realizzazione ecommerce Shopify",
+    "net": 1900,
+    "measure": "",
+    "category": "Ecommerce"
+  },
+  {
+    "id": 37294427,
+    "name": "Realizzazione Ecommerce Woocommerce",
+    "net": 2700,
+    "measure": "",
+    "category": "Ecommerce"
+  },
+  {
+    "id": 37294428,
+    "name": "Realizzazione Logo",
+    "net": 850,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 37294429,
+    "name": "Realizzazione QR Code",
+    "net": 15,
+    "measure": "una tantum",
+    "category": "Configurazione web"
+  },
+  {
+    "id": 37294430,
+    "name": "Realizzazione sito web",
+    "net": 850,
+    "measure": "",
+    "category": "Sito web"
+  },
+  {
+    "id": 37294433,
+    "name": "Riprese drone",
+    "net": 500,
+    "measure": "",
+    "category": ""
+  },
+  {
+    "id": 37294431,
+    "name": "Riprese video",
+    "net": 700,
+    "measure": "",
+    "category": "Shooting"
+  },
+  {
+    "id": 37294432,
+    "name": "SEO Base",
+    "net": 350,
+    "measure": "",
+    "category": "SEO"
+  },
+  {
+    "id": 37294437,
+    "name": "Shooting Fotografico",
+    "net": 800,
+    "measure": "",
+    "category": "Shooting"
+  },
+  {
+    "id": 37294438,
+    "name": "Shopify piano Basic",
+    "net": 28,
+    "measure": "Mese",
+    "category": "Hosting"
+  },
+  {
+    "id": 37294439,
+    "name": "SMM Tik Tok",
+    "net": 250,
+    "measure": "",
+    "category": "Social media management"
+  },
+  {
+    "id": 38865676,
+    "name": "Social media marketing LinkedIn",
+    "net": 500,
+    "measure": "mesi",
+    "category": "Social media management"
+  },
+  {
+    "id": 37294440,
+    "name": "Strategia di contenuti social",
+    "net": 350,
+    "measure": "Una tantum",
+    "category": "Consulenza"
+  },
+  {
+    "id": 37294441,
+    "name": "Strategia di social media marketing",
+    "net": 500,
+    "measure": "una tantum",
+    "category": "Consulenza"
+  },
+  {
+    "id": 37294442,
+    "name": "Strategia META ADS",
+    "net": 350,
+    "measure": "Una tantum",
+    "category": "Consulenza"
+  },
+  {
+    "id": 37294443,
+    "name": "Studio del naming",
+    "net": 350,
+    "measure": "",
+    "category": "Grafica"
+  },
+  {
+    "id": 41828027,
+    "name": "Tik Tok ADS",
+    "net": 350,
+    "measure": "mese",
+    "category": "Advertising"
+  },
+  {
+    "id": 41828034,
+    "name": "Tik Tok ADS",
+    "net": 350,
+    "measure": "mese",
+    "category": "Advertising"
+  },
+  {
+    "id": 37294444,
+    "name": "Traduzione testi inglese",
+    "net": 0.15,
+    "measure": "parole",
+    "category": "Traduzioni"
+  },
+  {
+    "id": 37294445,
+    "name": "Volantino pubblicitario",
+    "net": 70,
+    "measure": "",
+    "category": "Grafica"
+  }
+]

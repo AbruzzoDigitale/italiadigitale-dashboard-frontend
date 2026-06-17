@@ -1,0 +1,44 @@
+[
+  {
+    "label": "UPDATE Campagna lancio META → Campagna lancio META base",
+    "status": 200,
+    "id": 37294385,
+    "name": "Campagna lancio META base"
+  },
+  {
+    "label": "CREATE Campagna lancio META pro",
+    "status": 200,
+    "id": 41828458,
+    "name": "Campagna lancio META pro"
+  },
+  {
+    "label": "CREATE Menu Digitale Gnammm",
+    "status": 200,
+    "id": 41828459,
+    "name": "Menu Digitale Gnammm"
+  },
+  {
+    "label": "CREATE Gnammm piano Marketing semestrale",
+    "status": 200,
+    "id": 41828460,
+    "name": "Gnammm piano Marketing semestrale"
+  },
+  {
+    "label": "CREATE Gnammm piano Marketing annuale",
+    "status": 200,
+    "id": 41828461,
+    "name": "Gnammm piano Marketing annuale"
+  },
+  {
+    "label": "CREATE Gnammm piano Management semestrale",
+    "status": 200,
+    "id": 41828462,
+    "name": "Gnammm piano Management semestrale"
+  },
+  {
+    "label": "CREATE Gnammm piano Management annuale",
+    "status": 200,
+    "id": 41828463,
+    "name": "Gnammm piano Management annuale"
+  }
+]

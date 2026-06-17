@@ -1,0 +1,28 @@
+# Dipendenze backend / tool di dev
+server/node_modules/
+tools/node_modules/
+tools/package-lock.json
+node_modules/
+
+# Database locale SQLite (incl. WAL/SHM)
+server/*.db
+server/*.db-*
+server/*.sqlite
+server/data/
+
+# Segreti: token Fatture in Cloud, JWT secret, ecc. — MAI nel repo
+.env
+server/.env
+*.env.local
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# File temporanei di lock di Office (creati quando il file è aperto)
+~$*
+.~lock.*
+
+# Log
+*.log
+npm-debug.log*

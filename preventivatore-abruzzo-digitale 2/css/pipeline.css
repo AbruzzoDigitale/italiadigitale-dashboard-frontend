@@ -1,0 +1,531 @@
+/* ============================================================
+   PIPELINE — board kanban + pannello dettaglio
+   ============================================================ */
+
+/* Stats top */
+.pip-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+.pip-stat {
+  background: var(--ad-paper);
+  border: 1px solid var(--ad-line);
+  border-radius: var(--r-md, 10px);
+  padding: 14px 16px;
+}
+.pip-stat__label { font-size: var(--fs-sm); color: var(--ad-mute); }
+.pip-stat__value { font-size: var(--fs-lg); font-weight: 600; margin-top: 4px; }
+
+/* Toolbar */
+.pip-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: var(--fs-sm);
+  color: var(--ad-mute);
+}
+
+/* Kanban board: scroll orizzontale (+ verticale interno) — la scrollbar X
+   rimane SEMPRE visibile in fondo al container, mai sotto la viewport. */
+.pip-board {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  overflow-y: auto;
+  /* Limita l'altezza al residuo viewport (topbar + sezione header ≈ 280px).
+     Min-height per evitare board troppo schiacciate quando ci sono poche card. */
+  max-height: calc(100vh - 280px);
+  min-height: 360px;
+  padding-bottom: 12px;
+  scrollbar-color: var(--ad-mute) var(--ad-cream);
+  scrollbar-width: thin;
+}
+.pip-board::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+.pip-board::-webkit-scrollbar-track {
+  background: var(--ad-cream);
+  border-radius: 999px;
+}
+.pip-board::-webkit-scrollbar-thumb {
+  background: var(--ad-line);
+  border-radius: 999px;
+  border: 2px solid var(--ad-cream);
+}
+.pip-board::-webkit-scrollbar-thumb:hover {
+  background: var(--ad-mute);
+}
+.pip-col {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--ad-cream);
+  border-radius: var(--r-md, 10px);
+  border: 1px solid var(--ad-line);
+  border-top: 0;
+  min-height: 200px;
+}
+/* Modal sovrimpressione per il dettaglio card pipeline.
+   Sostituisce il pannello in fondo alla pagina che con l'altezza max del board
+   era fuori vista. Stile coerente con rem-modal del resto dell'app. */
+.pip-detail-modal__box {
+  max-width: 1280px;
+  width: 96vw;
+  max-height: 92vh;
+  overflow: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Variante fullscreen — occupa quasi tutto lo schermo.
+   La specificity tripla `.rem-modal__box.pip-detail-modal__box--full` batte
+   la regola base `.rem-modal__box { max-width: 460px }` (riga ~494). */
+.rem-modal__box.pip-detail-modal__box--full,
+.pip-detail-modal__box.pip-detail-modal__box--full {
+  max-width: none !important;
+  width: 96vw !important;
+  height: 94vh !important;
+  max-height: 94vh !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.pip-detail-modal__box--full #pipDetail {
+  flex: 1 1 auto !important;
+  overflow: auto !important;
+}
+
+/* Sezione brief operativo + appunti commerciali dentro il modal pipeline.
+   Edit inline senza dover andare nell'editor preventivo. */
+.pip-detail-modal__box .pip-detail__brief {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ad-line);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .pip-detail-modal__box .pip-detail__brief { grid-template-columns: 1fr; }
+}
+.pip-detail__brief-col {
+  display: flex;
+  flex-direction: column;
+}
+.pip-detail__brief-hint {
+  font-size: 12px;
+  color: var(--ad-mute);
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+.pip-detail__textarea {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ad-ink);
+  background: var(--ad-cream);
+  border: 1px solid var(--ad-line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.pip-detail__textarea:focus {
+  outline: none;
+  border-color: var(--ad-ink);
+}
+.pip-detail__brief-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+.pip-detail__brief-status {
+  font-size: 13px;
+  font-weight: 600;
+  font-style: italic;
+}
+.pip-detail-modal__box #pipDetail {
+  padding: 24px 32px 28px;
+  font-size: 14px;
+}
+.pip-detail-modal__box .pip-detail__head {
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--ad-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.pip-detail-modal__box .pip-detail__client {
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ad-ink);
+  margin-bottom: 4px;
+}
+.pip-detail-modal__box .pip-detail__meta {
+  font-size: 13px;
+  color: var(--ad-mute);
+  line-height: 1.5;
+}
+.pip-detail-modal__box .pip-detail__cols {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .pip-detail-modal__box .pip-detail__cols { grid-template-columns: 1fr; }
+}
+.pip-detail-modal__box .pip-detail__col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pip-detail-modal__box .pip-detail h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ad-mute);
+  font-weight: 700;
+  margin: 8px 0 6px;
+}
+.pip-detail-modal__box .pip-detail .btn {
+  font-size: 13px;
+}
+
+/* + Nuova bozza: card dummy in cima alla colonna Bozza che al click
+   apre l'editor preventivo per crearne uno vuoto. */
+.pip-new-draft {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 18px 12px;
+  background: transparent;
+  border: 2px dashed var(--ad-line);
+  border-radius: var(--r-md, 10px);
+  color: var(--ad-mute);
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: 8px;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.pip-new-draft:hover {
+  border-color: var(--ad-ink);
+  background: var(--ad-paper);
+  color: var(--ad-ink);
+}
+.pip-new-draft__plus {
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+}
+.pip-new-draft__label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.pip-new-draft__hint {
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Info icon (i) accanto al label di fase — aiuto contestuale per nuovi
+   operatori. Click apre popover spiegazione. */
+.pip-col__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--ad-mute);
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.pip-col__info:hover {
+  color: var(--ad-ink);
+  background: var(--ad-paper);
+}
+.pip-stage-popover {
+  position: absolute;
+  z-index: 9000;
+  max-width: 280px;
+  background: var(--ad-paper);
+  border: 1px solid var(--ad-line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ad-ink);
+  animation: pip-pop-in 0.15s ease;
+}
+.pip-stage-popover__head {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--ad-ink);
+}
+.pip-stage-popover__head span {
+  margin-right: 4px;
+}
+.pip-stage-popover__body {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ad-mute);
+}
+@keyframes pip-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pip-col__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-top: 3px solid var(--ad-mute);
+  border-top-left-radius: var(--r-md, 10px);
+  border-top-right-radius: var(--r-md, 10px);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  letter-spacing: var(--tracking-wider, 0.02em);
+  background: var(--ad-paper);
+}
+.pip-col__icon { font-size: 16px; }
+.pip-col__label { flex: 1; text-transform: uppercase; }
+.pip-col__count {
+  background: var(--ad-cream);
+  border: 1px solid var(--ad-line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.pip-col__body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pip-card {
+  background: var(--ad-paper);
+  border: 1px solid var(--ad-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color .15s, transform .12s;
+}
+.pip-card:hover { border-color: var(--ad-ink); transform: translateY(-1px); }
+.pip-card__client { font-weight: 600; font-size: var(--fs-sm); }
+.pip-card__meta { font-size: 11px; color: var(--ad-mute); display: flex; gap: 4px; flex-wrap: wrap; }
+.pip-card__num { font-weight: 600; }
+.pip-card__row { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+.pip-card__total { font-weight: 600; font-size: 13px; }
+.pip-card__monthly { font-size: 11px; color: var(--ad-mute); }
+.pip-card__actions { display: flex; gap: 4px; margin-top: 8px; }
+.pip-card__actions .btn { padding: 3px 8px; font-size: 11px; }
+
+.pip-empty {
+  text-align: center;
+  font-size: 11px;
+  color: var(--ad-mute);
+  padding: 16px 0;
+  opacity: .5;
+}
+
+/* Pannello dettaglio sotto la board */
+.pip-detail {
+  margin-top: 24px;
+  background: var(--ad-paper);
+  border: 1px solid var(--ad-line);
+  border-radius: var(--r-md, 10px);
+  border-left: 4px solid var(--ad-mute);
+  padding: 18px 20px;
+}
+.pip-detail[hidden] { display: none; }
+.pip-detail__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--ad-line);
+}
+.pip-detail__client { font-size: var(--fs-lg); font-weight: 600; }
+.pip-detail__meta { font-size: var(--fs-sm); color: var(--ad-mute); margin-top: 4px; }
+.pip-detail__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.pip-detail__col h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider, 0.04em);
+  color: var(--ad-mute);
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.pip-stage-row { display: flex; gap: 8px; align-items: center; }
+
+.pip-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  border-left: 2px solid var(--ad-line);
+  padding-left: 12px;
+}
+.pip-history li { margin-bottom: 8px; }
+
+.pip-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pip-actions .btn { justify-content: flex-start; text-align: left; }
+
+@media (max-width: 900px) {
+  .pip-detail__cols { grid-template-columns: 1fr; gap: 18px; }
+  .pip-actions { grid-template-columns: 1fr; }
+}
+
+/* Card 'ghost' per bozze FiC non ancora importate */
+/* Drag & drop visual feedback */
+.pip-card[draggable="true"] { cursor: grab; }
+.pip-card[draggable="true"]:active { cursor: grabbing; }
+.pip-card.is-dragging {
+  opacity: 0.45;
+  transform: scale(0.97) rotate(-1deg);
+  transition: transform .15s ease;
+}
+body.pip-dragging .pip-col__body { transition: background .15s ease; }
+.pip-col.is-drop-target {
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.5);
+  border-radius: 12px;
+}
+html.theme-dark .pip-col.is-drop-target {
+  background: rgba(16, 185, 129, 0.16);
+}
+
+/* Riordino intra-colonna Bozza: indicatore di insert prima/dopo la card
+   target. Linea sottile color accent (stessa palette del drop target). */
+.pip-col[data-stage="bozza"] .pip-card { position: relative; }
+.pip-col[data-stage="bozza"] .pip-card.is-drop-before::before,
+.pip-col[data-stage="bozza"] .pip-card.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(16, 185, 129);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  pointer-events: none;
+}
+.pip-col[data-stage="bozza"] .pip-card.is-drop-before::before { top: -6px; }
+.pip-col[data-stage="bozza"] .pip-card.is-drop-after::after  { bottom: -6px; }
+
+.pip-card--ghost {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--ad-paper), var(--ad-paper) 8px,
+    rgba(0,0,0,.025) 8px, rgba(0,0,0,.025) 16px
+  );
+  border-style: dashed;
+  opacity: .85;
+}
+.pip-card__badge {
+  display: inline-block;
+  background: #fcd535;
+  color: #0a0a0a;
+  font-weight: 700;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: .04em;
+}
+
+/* Reminder banner in dashboard */
+.rem-banner {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+html.theme-dark .rem-banner {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: var(--ad-ink);
+}
+.rem-banner__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md, 14px);
+  margin-bottom: 8px;
+}
+.rem-banner__icon { font-size: 18px; }
+.rem-banner__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-sm);
+}
+.rem-banner__list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px dashed rgba(0,0,0,.1);
+}
+.rem-banner__list li:first-child { border-top: 0; }
+.rem-banner__actions { display: flex; gap: 4px; }
+
+/* Modale prompt reminder */
+.rem-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.rem-modal__box {
+  background: var(--ad-paper);
+  color: var(--ad-ink);
+  padding: 26px 28px;
+  border-radius: 12px;
+  max-width: 460px;
+  box-shadow: 0 16px 50px rgba(0,0,0,.3);
+}
+.rem-modal__box h3 { margin: 0 0 8px; font-size: 18px; }
+.rem-modal__box p  { margin: 0 0 18px; color: var(--ad-mute); }
+.rem-modal__slots {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rem-modal__slots .btn { justify-content: flex-start; }
