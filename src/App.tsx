@@ -29,6 +29,7 @@ import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkloadPage } from "./pages/WorkloadPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
+import { FatturazionePage } from "./pages/FatturazionePage";
 import { canAccessRoute } from "./utils/access";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -97,6 +98,7 @@ function AppRoutes() {
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
+        <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
       {/* Fallback */}

@@ -16,6 +16,7 @@ export type AppRouteKey =
   | "llm"
   | "profile"
   | "work-items"
+  | "fatturazione"
   | "admin";
 
 export function canAccessRoute(
@@ -57,6 +58,8 @@ export function canAccessRoute(
     case "work-items":
       // All authenticated users can access; the API enforces fine-grained RBAC
       return true;
+    case "fatturazione":
+      return permissions.is_admin;
     default:
       return false;
   }

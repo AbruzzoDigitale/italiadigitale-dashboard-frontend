@@ -138,6 +138,13 @@ const allNavItems: NavItem[] = [
     routeKey: "admin",
     group: "admin",
   },
+  {
+    label: "Fatturazione",
+    to: "/fatturazione",
+    icon: <Icon name="credit-card" />,
+    routeKey: "fatturazione",
+    group: "commercial",
+  },
 ];
 
 const NAV_GROUP_LABELS: Record<NavItem["group"], string> = {
