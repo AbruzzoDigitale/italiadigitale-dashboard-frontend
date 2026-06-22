@@ -16,6 +16,7 @@ import { getCompanyApi } from "../api/companies";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
+import { OperatorCalendarColumn } from "../components/workload/OperatorCalendarColumn";
 import {
   getWorkloadUserCalendarDayApi,
   listWorkloadUsersApi,
@@ -1245,6 +1246,50 @@ export function WorkloadPage() {
     }
   }, [calendarData, handleOverlapApiError, reloadCalendar, toast]);
 
+  // Adapter per la colonna calendario: riposiziona una task in uno slot (eventualmente cambiando operatore).
+  const moveCalendarTaskToSlot = useCallback(async (taskId: number, startTime: string, assigneeId: number) => {
+    if (moveInFlightRef.current) return;
+    const payload: MoveWorkItemPayload = {
+      assignee_id: assigneeId,
+      work_date: calendarData?.selected_date ?? selectedDay,
+      start_time: startTime,
+    };
+    const previousCalendarData = calendarData;
+    try {
+      moveInFlightRef.current = true;
+      setMovingTaskId(taskId);
+      patchCalendarTaskLocally(taskId, payload);
+      await moveWorkItemApi(taskId, payload);
+      await loadMain({ silent: true });
+      await reloadCalendar();
+    } catch (err) {
+      setCalendarData(previousCalendarData);
+      await reloadCalendar();
+      handleOverlapApiError(err, "Impossibile spostare la task");
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingTaskId(null);
+      setDraggingTaskId(null);
+      setDragSourceAssigneeId(undefined);
+    }
+  }, [calendarData, selectedDay, patchCalendarTaskLocally, loadMain, reloadCalendar, handleOverlapApiError]);
+
+  // Adapter per la colonna calendario: commit del resize (durata) data l'ora di fine.
+  const resizeCalendarTask = useCallback(async (taskId: number, endTime: string) => {
+    const item = calendarData?.timeline.find((i) => i.kind === "task" && i.work_item_id === taskId);
+    const startMinutes = hhmmToMinutes(item?.start_time ?? null) ?? 0;
+    const endMinutes = hhmmToMinutes(endTime) ?? startMinutes + CALENDAR_CREATE_SLOT_MINUTES;
+    await saveCalendarResize({
+      workItemId: taskId,
+      startMinutes,
+      originalEndMinutes: endMinutes,
+      currentEndMinutes: endMinutes,
+      minEndMinutes: startMinutes + CALENDAR_CREATE_SLOT_MINUTES,
+      maxEndMinutes: 24 * 60,
+      startClientY: 0,
+    });
+  }, [calendarData, saveCalendarResize]);
+
   useEffect(() => {
     if (!calendarResizeState) return;
 
@@ -2257,708 +2302,35 @@ export function WorkloadPage() {
       );
     }
 
-    const selectedSummary = summaryByUserId.get(calendarData.user_id);
-    const roleLabel = calendarData.roles.map((role) => role.name).join(", ");
-    const displayName = calendarData.full_name || calendarData.username;
-    const avatarInitials = displayName
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((chunk) => chunk[0]?.toUpperCase() ?? "")
-      .join("") || "?";
-
-    const timedItems = calendarData.timeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
-    const unscheduledTaskItems = calendarData.timeline.filter((item) => item.kind === "task" && (item.is_all_day || !item.start_time || !item.end_time));
-    const overCapacity = calendarData.over_capacity;
-    const calendarConflicts = calendarData.conflicts ?? [];
-
-    const {
-      dayStartMinutes,
-      dayEndMinutes,
-      totalMinutes,
-      hourSlots,
-      halfSlots,
-      openingMinutes,
-      closingMinutes,
-    } = calendarBounds;
-    const showEndLabel = closingMinutes != null && closingMinutes > dayStartMinutes && closingMinutes < dayEndMinutes;
-    const showOpeningLine = openingMinutes != null && openingMinutes > dayStartMinutes && openingMinutes < dayEndMinutes;
-    // Linea "ora corrente": solo se il giorno mostrato è oggi e l'ora rientra nella griglia.
-    const isToday = calendarData.selected_date === getTodayDate();
-    const showNowLine = isToday && nowMinutes >= dayStartMinutes && nowMinutes <= dayEndMinutes;
-    const nowTopPx = ((nowMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
-
-    const timelineBlocks = timedItems.map((item) => {
-      const start = hhmmToMinutes(item.start_time) ?? 0;
-      const end = hhmmToMinutes(item.end_time) ?? start + Math.max(30, Math.round(resolveTimelineEffectiveHours(item) * 60));
-      const safe = clampTimelineInRange(start, end, dayStartMinutes, dayEndMinutes);
-      if (safe.end <= dayStartMinutes || safe.start >= dayEndMinutes) return null;
-      return { item, start: safe.start, end: safe.end };
-    }).filter((item): item is { item: WorkloadTimelineItem; start: number; end: number } => !!item);
-    const laidOutTimelineBlocks = layoutCalendarTimelineBlocks(timelineBlocks);
-
-    const totalTaskHours = calendarData.timeline
-      .filter((item) => item.kind === "task")
-      .reduce((acc, item) => acc + resolveTimelineEffectiveHours(item), 0);
-
-    const dayMeta = dateFromIso(calendarData.selected_date).toLocaleDateString("it-IT", {
-      weekday: "long",
-      day: "2-digit",
-      month: "short",
-    });
-    const previewTopPx =
-      calendarDropPreviewMinutes != null
-        ? ((calendarDropPreviewMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX
-        : null;
-    const previewHeightPx = (CALENDAR_SLOT_MINUTES / 60) * CALENDAR_HOUR_HEIGHT_PX;
-    const createPreviewTopPx = calendarCreatePreview
-      ? ((calendarCreatePreview.startMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX
-      : null;
-    const createPreviewHeightPx = calendarCreatePreview
-      ? Math.max(18, ((calendarCreatePreview.endMinutes - calendarCreatePreview.startMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX)
-      : null;
-
-    const isCalendarCreationBlocked = (event: MouseEvent<HTMLElement>) => {
-      const target = event.target as HTMLElement | null;
-      return !!target?.closest('[data-calendar-task-block="true"], [data-cal-complete-btn="true"]');
-    };
-
-    const getCalendarGridMinutes = (event: MouseEvent<HTMLElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-      const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
-      return snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes, CALENDAR_CREATE_SLOT_MINUTES);
-    };
-
-    // True se l'intervallo [start, end) si sovrappone a un blocco già pianificato (task, pausa, ecc.)
-    const isRangeOccupied = (startMinutes: number, endMinutes: number) =>
-      timelineBlocks.some((block) => startMinutes < block.end && endMinutes > block.start);
-
-    // Gruppo target dello swap: tutte le task che la task trascinata "coprirebbe" se ancorata
-    // all'inizio della task sotto il cursore (es. una task da 4h sopra due task da 2h le include entrambe).
-    const computeSwapTargetIds = (targetStart: number, targetEnd: number): number[] => {
-      const sourceBlock = timelineBlocks.find(
-        (block) => block.item.kind === "task" && block.item.work_item_id === draggingTaskId
-      );
-      const sourceDuration = sourceBlock
-        ? Math.max(CALENDAR_SLOT_MINUTES, sourceBlock.end - sourceBlock.start)
-        : Math.max(CALENDAR_SLOT_MINUTES, targetEnd - targetStart);
-      const windowStart = targetStart;
-      const windowEnd = windowStart + sourceDuration;
-      return timelineBlocks
-        .filter(
-          (block) =>
-            block.item.kind === "task" &&
-            typeof block.item.work_item_id === "number" &&
-            block.item.work_item_id !== draggingTaskId &&
-            block.start < windowEnd &&
-            block.end > windowStart
-        )
-        .map((block) => block.item.work_item_id as number);
-    };
-
-    const openCalendarQuickAdd = (preview: CalendarCreatePreview) => {
-      if (isRangeOccupied(preview.startMinutes, preview.endMinutes)) {
-        setCalendarCreatePreview(null);
-        calendarCreateDragStartRef.current = null;
-        toast.warning("Slot orario già occupato");
-        return;
-      }
-      const durationHours = (preview.endMinutes - preview.startMinutes) / 60;
-      setEditingItem(null);
-      setQuickAdd({
-        day: calendarData.selected_date,
-        userId: calendarData.user_id,
-        startTime: minutesToHHMM(preview.startMinutes),
-        estimatedHours: durationHours,
-      });
-      setCalendarCreatePreview(null);
-      calendarCreateDragStartRef.current = null;
-      setNewWorkModalOpen(true);
-    };
-
+    const summaryStatus = summaryByUserId.get(calendarData.user_id)?.workload_status ?? null;
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2">
-              {calendarData.avatar_url ? (
-                <img
-                  src={calendarData.avatar_url}
-                  alt={displayName}
-                  className="h-9 w-9 rounded-full object-cover border border-line dark:border-line-dark"
-                />
-              ) : (
-                <div className="h-9 w-9 rounded-full border border-line dark:border-line-dark bg-cream dark:bg-ink-2 text-[11px] font-semibold text-ink dark:text-paper flex items-center justify-center">
-                  {avatarInitials}
-                </div>
-              )}
-              <div>
-                <div className="text-sm font-semibold text-ink dark:text-paper">{displayName}</div>
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  {roleLabel || "Nessun ruolo"} · {dayMeta}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant={selectedSummary ? statusBadgeVariant(selectedSummary.workload_status) : "default"}>
-                {selectedSummary ? statusLabel(selectedSummary.workload_status) : "N/D"}
-              </Badge>
-              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-                {totalTaskHours > 0 ? `${formatHours(totalTaskHours)} task` : "Libero"}
-              </span>
-              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-                {calendarData.timeline.filter((item) => item.kind === "task").length} task · {calendarData.timeline.length} eventi
-              </span>
-              {calendarConflicts.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setCalendarConflictsModalOpen(true)}
-                  className="relative inline-flex items-center gap-1 rounded-md border border-warning/35 bg-warning/10 px-2 py-1 text-warning transition-colors hover:bg-warning/15"
-                  title="Mostra conflitti rilevati"
-                >
-                  <Icon name="alert-triangle" className="h-3.5 w-3.5" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider">Conflitti</span>
-                  <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-paper">
-                    {calendarConflicts.length}
-                  </span>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-          <div ref={calendarScrollRef} className="max-h-[70vh] overflow-y-auto">
-            <div className="grid grid-cols-[68px_1fr]">
-            <div className="relative border-r border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2">
-              {Array.from({ length: hourSlots }, (_, index) => {
-                const minutes = dayStartMinutes + (index * 60);
-                return (
-                  <div key={minutes} className="h-16 px-2 py-1 text-[10px] text-muted dark:text-muted-dark border-b border-line/50 dark:border-line-dark/60">
-                    {minutesToHHMM(minutes)}
-                  </div>
-                );
-              })}
-              {showEndLabel && (
-                <div className="absolute bottom-1 left-2 text-[10px] text-muted dark:text-muted-dark">
-                  {minutesToHHMM(dayEndMinutes)}
-                </div>
-              )}
-            </div>
-
-            <div
-              className={`relative ${draggingTaskId == null ? "cursor-copy" : ""} ${activeDropTarget === "cal-time-grid" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/30 dark:bg-amber-900/15" : ""}`}
-              style={{ height: `${(totalMinutes / 60) * CALENDAR_HOUR_HEIGHT_PX}px` }}
-              onMouseMove={(event) => {
-                if (draggingTaskId != null || isCalendarCreationBlocked(event)) return;
-                const minutes = getCalendarGridMinutes(event);
-                const anchorMinutes = calendarCreateDragStartRef.current;
-                if (anchorMinutes != null) {
-                  const range = normalizeCalendarCreateRange(anchorMinutes, minutes, dayEndMinutes);
-                  // Niente anteprima se la selezione si sovrappone a uno slot occupato.
-                  setCalendarCreatePreview(
-                    isRangeOccupied(range.startMinutes, range.endMinutes) ? null : range
-                  );
-                  return;
-                }
-                const slotEnd = Math.min(dayEndMinutes, minutes + CALENDAR_CREATE_SLOT_MINUTES);
-                if (isRangeOccupied(minutes, slotEnd)) {
-                  setCalendarCreatePreview(null);
-                  return;
-                }
-                setCalendarCreatePreview({
-                  startMinutes: minutes,
-                  endMinutes: slotEnd,
-                  isDragging: false,
-                });
-              }}
-              onMouseDown={(event) => {
-                if (event.button !== 0 || draggingTaskId != null || isCalendarCreationBlocked(event)) return;
-                const minutes = getCalendarGridMinutes(event);
-                const slotEnd = Math.min(dayEndMinutes, minutes + CALENDAR_CREATE_SLOT_MINUTES);
-                // Non avviare la creazione partendo da uno slot già occupato.
-                if (isRangeOccupied(minutes, slotEnd)) return;
-                event.preventDefault();
-                calendarCreateDragStartRef.current = minutes;
-                setCalendarCreatePreview({
-                  startMinutes: minutes,
-                  endMinutes: slotEnd,
-                  isDragging: true,
-                });
-              }}
-              onMouseUp={(event) => {
-                if (draggingTaskId != null || isCalendarCreationBlocked(event)) return;
-                const anchorMinutes = calendarCreateDragStartRef.current;
-                if (anchorMinutes == null) return;
-                const minutes = getCalendarGridMinutes(event);
-                openCalendarQuickAdd(normalizeCalendarCreateRange(anchorMinutes, minutes, dayEndMinutes));
-              }}
-              onMouseLeave={() => {
-                calendarCreateDragStartRef.current = null;
-                setCalendarCreatePreview(null);
-              }}
-              onDragOver={(event) => {
-                if (draggingTaskId == null) return;
-                event.preventDefault();
-                // Sopra lo spazio vuoto della griglia: è uno spostamento, non uno swap.
-                clearSwapPreview();
-                setActiveDropTarget("cal-time-grid");
-
-                const container = event.currentTarget;
-                const rect = container.getBoundingClientRect();
-                const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
-                setCalendarDropPreviewMinutes(snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes));
-              }}
-              onDragLeave={() => {
-                setActiveDropTarget((current) => (current === "cal-time-grid" ? null : current));
-                setCalendarDropPreviewMinutes(null);
-                if (calendarCreateDragStartRef.current == null) {
-                  setCalendarCreatePreview(null);
-                }
-              }}
-              onDrop={(event) => {
-                const container = event.currentTarget;
-                const rect = container.getBoundingClientRect();
-                const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
-                const minutes = calendarDropPreviewMinutes ?? snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes);
-                const payload: MoveWorkItemPayload = {
-                  ...buildCalendarDayMovePayload(calendarData.selected_date),
-                  start_time: minutesToHHMM(minutes),
-                };
-                void moveTaskByDrop(event, payload, "cal-time-grid");
-              }}
-            >
-              {Array.from({ length: hourSlots }, (_, index) => (
-                <div key={`hour-${index}`} className="absolute left-0 right-0 border-b border-line/40 dark:border-line-dark/50" style={{ top: `${index * CALENDAR_HOUR_HEIGHT_PX}px` }} />
-              ))}
-              {Array.from({ length: halfSlots }, (_, index) => {
-                if (index % 2 === 0) return null;
-                return (
-                  <div key={`half-${index}`} className="absolute left-0 right-0 border-b border-dashed border-line/30 dark:border-line-dark/40" style={{ top: `${(index * CALENDAR_HOUR_HEIGHT_PX) / 2}px` }} />
-                );
-              })}
-
-              {showOpeningLine && (
-                <div
-                  className="pointer-events-none absolute left-0 right-0 border-t-2 border-dashed border-emerald-500"
-                  style={{ top: `${((openingMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX}px`, zIndex: 40 }}
-                >
-                  <span
-                    className="absolute left-2 -top-3 rounded bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
-                    style={{ zIndex: 41 }}
-                  >
-                    Apertura {minutesToHHMM(openingMinutes)}
-                  </span>
-                </div>
-              )}
-
-              {closingMinutes != null && closingMinutes > dayStartMinutes && closingMinutes < dayEndMinutes && (
-                <div
-                  className="absolute left-0 right-0 border-t-2 border-dashed border-danger"
-                  style={{ top: `${((Math.min(dayEndMinutes, closingMinutes + 30) - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX}px`, zIndex: 40 }}
-                >
-                  <span
-                    className="absolute right-2 -top-3 rounded bg-danger px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
-                    style={{ zIndex: 41 }}
-                  >
-                    Limite orario {minutesToHHMM(closingMinutes)}
-                  </span>
-                </div>
-              )}
-
-              {showNowLine && (
-                <div
-                  className="pointer-events-none absolute left-0 right-0 border-t-2 border-solid border-red-600"
-                  style={{ top: `${nowTopPx}px`, zIndex: 45 }}
-                >
-                  <span className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-red-600 shadow" />
-                  <span
-                    className="absolute right-2 -top-3 rounded bg-red-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
-                    style={{ zIndex: 46 }}
-                  >
-                    Ora {minutesToHHMM(nowMinutes)}
-                  </span>
-                </div>
-              )}
-
-              {draggingTaskId != null && previewTopPx != null && (
-                <div
-                  className="pointer-events-none absolute left-2 right-2 rounded-md border border-amber-500 bg-amber-200/45 dark:bg-amber-800/35"
-                  style={{ top: `${previewTopPx}px`, height: `${previewHeightPx}px` }}
-                >
-                  <div className="px-2 py-1 text-[10px] font-semibold text-amber-900 dark:text-amber-100">
-                    {minutesToHHMM(calendarDropPreviewMinutes ?? 0)}
-                  </div>
-                </div>
-              )}
-
-              {draggingTaskId == null && createPreviewTopPx != null && createPreviewHeightPx != null && calendarCreatePreview && !isRangeOccupied(calendarCreatePreview.startMinutes, calendarCreatePreview.endMinutes) && (
-                <div
-                  className="pointer-events-none absolute left-2 right-2 rounded-md border-2 border-dashed border-emerald-500 bg-emerald-500/10 shadow-sm"
-                  style={{ top: `${createPreviewTopPx}px`, height: `${createPreviewHeightPx}px`, zIndex: 35 }}
-                >
-                  <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-paper">+</span>
-                    {minutesToHHMM(calendarCreatePreview.startMinutes)} - {minutesToHHMM(calendarCreatePreview.endMinutes)}
-                  </div>
-                </div>
-              )}
-
-              {laidOutTimelineBlocks.map(({ item, start, end, column, totalColumns }, idx) => {
-                const top = ((start - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
-                const activeResize = item.kind === "task" && item.work_item_id === calendarResizeState?.workItemId ? calendarResizeState : null;
-                const isResizing = activeResize != null;
-                const renderEnd = activeResize ? activeResize.currentEndMinutes : end;
-                const height = Math.max(28, ((renderEnd - start) / 60) * CALENDAR_HOUR_HEIGHT_PX);
-                const itemKey = `${item.kind}-${item.source_id ?? idx}-${start}`;
-                const isDone = isCalendarTaskDone(item);
-                const isExiting = item.kind === "task" && getCalendarTaskUiState(item.work_item_id) === "exiting";
-                const isPriority = item.kind === "task" && isTimelineTaskPriority(item);
-                const scheduleState = item.kind === "task" ? resolveTimelineScheduleState(item) : null;
-                const isCarriedOver = scheduleState?.delay_code === "carried_over";
-                const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
-                const isNonDeferrable = item.kind === "task" && isTimelineNonDeferrable(item);
-                const taskColor = item.kind === "task" ? resolveTimelineTaskColor(item) : null;
-                const taskEstimatedHours = item.kind === "task" ? resolveTimelineEstimatedHours(item) : null;
-                const taskEffectiveHours = item.kind === "task" ? resolveTimelineEffectiveHours(item) : null;
-                const taskEffectiveWeight = item.kind === "task" ? resolveTimelineEffectiveWeight(item) : null;
-                const taskStyle = item.kind === "task" && taskColor
-                  ? { backgroundColor: taskColor, borderColor: taskColor }
-                  : undefined;
-                const delayStyle = isSevereDelay
-                  ? { backgroundColor: "rgba(220, 38, 38, 0.14)", borderColor: "#DC2626", color: "#7f1d1d" }
-                  : isCarriedOver
-                    ? { backgroundColor: "rgba(245, 158, 11, 0.16)", borderColor: "#F59E0B", color: "#78350f" }
-                    : undefined;
-                const priorityStyle = isPriority
-                  ? { boxShadow: "inset 3px 0 0 #E91E8A", borderLeftColor: "#E91E8A" }
-                  : undefined;
-                const itemStyle = item.kind === "task"
-                  ? { ...taskStyle, ...delayStyle, ...priorityStyle }
-                  : timelineItemStyle(item);
-                const readableText = item.kind === "task"
-                  ? isSevereDelay
-                    ? { primary: "#7f1d1d", secondary: "rgba(127,29,29,0.72)" }
-                    : isCarriedOver
-                      ? { primary: "#78350f", secondary: "rgba(120,53,15,0.72)" }
-                      : getReadableTaskTextColors(taskColor)
-                  : { primary: undefined, secondary: undefined };
-                const isTaskColumned = item.kind === "task" && totalColumns > 1;
-                const isTinyTask = item.kind === "task" && height < 38;
-                const isCompactTask = item.kind === "task" && height < 56;
-                const taskColumnStyle = isTaskColumned
-                  ? {
-                    left: `calc(8px + ((100% - 16px) / ${totalColumns}) * ${column} + ${column > 0 ? 2 : 0}px)`,
-                    right: `calc(8px + ((100% - 16px) / ${totalColumns}) * ${totalColumns - column - 1} + ${column < totalColumns - 1 ? 2 : 0}px)`,
-                  }
-                  : undefined;
-                const resizeWorkItemId = item.kind === "task" && typeof item.work_item_id === "number" ? item.work_item_id : null;
-                const swapWorkItemId = item.kind === "task" && typeof item.work_item_id === "number" ? item.work_item_id : null;
-                const isSwapTarget = swapWorkItemId != null && !!swapPreview?.targetIds.includes(swapWorkItemId);
-                const swapRingClass = isSwapTarget
-                  ? swapPreview?.canSwap === true
-                    ? "ring-2 ring-emerald-500"
-                    : swapPreview?.canSwap === false
-                      ? "ring-2 ring-danger"
-                      : "ring-2 ring-amber-400"
-                  : "";
-                const isSwapDropTarget = (eventClientItemId: number | null) =>
-                  draggingTaskId != null && eventClientItemId != null && eventClientItemId !== draggingTaskId;
-                return (
-                  <div
-                    key={itemKey}
-                    data-calendar-task-block={item.kind === "task" ? "true" : undefined}
-                    className={`group absolute left-2 right-2 overflow-hidden px-2 pr-8 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id && !isSevereDelay ? "cursor-grab active:cursor-grabbing" : ""} ${isDone ? "opacity-70" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${isPriority ? "border-l-[3px] border-l-[#E91E8A]" : ""} ${isResizing ? "ring-2 ring-emerald-500" : ""} ${swapRingClass}`}
-                    style={{
-                      top: `${top}px`,
-                      height: `${height}px`,
-                      zIndex: timelineItemZIndex(item.kind),
-                      ...taskColumnStyle,
-                      ...itemStyle,
-                    }}
-                    onDragOver={(event) => {
-                      if (!isSwapDropTarget(swapWorkItemId)) return; // hover su se stessa / blocco non-task → bubbling al move sulla griglia
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setCalendarDropPreviewMinutes(null);
-                      setActiveDropTarget(null);
-                      void requestSwapPreview(draggingTaskId as number, computeSwapTargetIds(start, end));
-                    }}
-                    onDrop={(event) => {
-                      if (!isSwapDropTarget(swapWorkItemId)) return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void handleSwapDrop(draggingTaskId as number, computeSwapTargetIds(start, end));
-                    }}
-                    draggable={item.kind === "task" && !!item.work_item_id && !isSevereDelay && !getCalendarTaskUiState(item.work_item_id)}
-                    onDragStart={(event) => {
-                      if (item.kind !== "task" || !item.work_item_id || isSevereDelay) return;
-                      onTaskDragStart(event, item.work_item_id, calendarData.user_id);
-                    }}
-                    onDragEnd={onTaskDragEnd}
-                    onClick={(event) => {
-                      if (isCalendarTaskActionClick(event)) return;
-                      if (item.kind === "task" && item.work_item_id) {
-                        void openEditWorkItemModal(item.work_item_id);
-                      }
-                    }}
-                  >
-                    {item.kind === "task" && item.work_item_id && (
-                      <button
-                        type="button"
-                        data-cal-complete-btn="true"
-                        className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-bold transition-transform hover:scale-110 ${isDone ? "border-success bg-success text-paper" : "border-line bg-paper text-muted dark:border-line-dark dark:bg-ink-2 dark:text-muted-dark"}`}
-                        title={isDone ? "Segna non completata" : "Segna completata"}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void toggleCalendarTaskCompleted(item);
-                        }}
-                        disabled={!!getCalendarTaskUiState(item.work_item_id)}
-                      >
-                        {isDone ? "✓" : ""}
-                      </button>
-                    )}
-                    {item.kind === "task" ? (
-                      <>
-                        {!isTinyTask && (
-                          <div className="truncate text-[10px] uppercase tracking-wider" style={{ color: readableText.secondary }}>
-                            {resolveTimelineClientLabel(item)}
-                          </div>
-                        )}
-                        <div className={`flex min-w-0 items-center gap-1 ${isDone ? "line-through" : ""}`} style={{ color: readableText.primary }}>
-                          <span className="truncate font-semibold">{resolveTimelineTaskTitle(item)}</span>
-                          {isPriority && <Icon name="star" className="h-3 w-3 text-[#E91E8A]" />}
-                        </div>
-                        {!isTinyTask && (
-                          <div className="mt-0.5 truncate text-[10px]" style={{ color: readableText.secondary }}>
-                            {isResizing ? `${formatHours((renderEnd - start) / 60)} stimate` : taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
-                          </div>
-                        )}
-                        {!isCompactTask && (isCarriedOver || isSevereDelay || isNonDeferrable) && (
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            {isCarriedOver && (
-                              <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200">
-                                In ritardo
-                              </span>
-                            )}
-                            {isSevereDelay && (
-                              <span className="inline-flex items-center rounded-full border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
-                                Ritardo grave
-                              </span>
-                            )}
-                            {isNonDeferrable && (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
-                                <Icon name="shield" className="h-2.5 w-2.5" />
-                                Non derogabile
-                              </span>
-                            )}
-                            {(isCarriedOver || isSevereDelay) && taskEffectiveHours != null && taskEffectiveWeight != null && (
-                              <span className="text-[9px] font-semibold opacity-80">
-                                {formatHours(taskEffectiveHours)} eff · peso {taskEffectiveWeight.toFixed(2)}x
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div className={`font-semibold truncate ${isDone ? "line-through" : ""}`}>{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
-                        <div className="mt-0.5 text-[10px] opacity-80">{item.start_time} - {item.end_time}</div>
-                      </>
-                    )}
-                    {resizeWorkItemId != null && !isSevereDelay && !getCalendarTaskUiState(resizeWorkItemId) && (
-                      <button
-                        type="button"
-                        aria-label="Ridimensiona task"
-                        title="Trascina per ridimensionare"
-                        className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setDraggingTaskId(null);
-                          setCalendarDropPreviewMinutes(null);
-                          calendarCreateDragStartRef.current = null;
-                          setCalendarCreatePreview(null);
-                          setCalendarResizeState({
-                            workItemId: resizeWorkItemId,
-                            startMinutes: start,
-                            originalEndMinutes: end,
-                            currentEndMinutes: end,
-                            minEndMinutes: Math.min(dayEndMinutes, start + CALENDAR_CREATE_SLOT_MINUTES),
-                            maxEndMinutes: dayEndMinutes,
-                            startClientY: event.clientY,
-                          });
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        draggable={false}
-                      >
-                        <span className="absolute bottom-1 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-emerald-500/90 shadow" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {overCapacity && overCapacity.total_tasks_count > 0 && (
-          <div className="rounded-lg border border-warning/35 bg-warning/10 p-3 dark:bg-warning/15">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="flex min-w-0 items-start gap-2">
-                <Icon name="alert-triangle" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div>
-                  <div className="text-sm font-semibold text-ink dark:text-paper">
-                    Oltre capacità — {overCapacity.total_tasks_count} lavorazion{overCapacity.total_tasks_count === 1 ? "e" : "i"} ({formatHours(overCapacity.overflow_tasks_effective_hours)}) che non rientr{overCapacity.total_tasks_count === 1 ? "a" : "ano"} nella giornata.
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted dark:text-muted-dark">
-                    Capacità {formatHours(overCapacity.capacity_hours)} · pianificate {formatHours(overCapacity.planned_hours)} · overload {formatHours(overCapacity.overload_hours)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-              {overCapacity.tasks.map((task) => {
-                const areaColor = task.work_areas.find((area) => area.color)?.color ?? null;
-                const readableText = getReadableTaskTextColors(areaColor);
-                const isSaving = !!getCalendarTaskUiState(task.work_item_id);
-                const canRescheduleOverflowTask = !!task.task?.deadline_date;
-                return (
-                  <div
-                    key={task.work_item_id}
-                    className="flex items-center gap-2 rounded-md border border-warning/25 bg-paper p-2 text-xs shadow-sm dark:bg-ink-soft"
-                  >
-                    <button
-                      type="button"
-                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition-transform hover:scale-110 ${isSaving ? "border-muted text-muted" : "border-line bg-paper text-muted hover:border-success hover:text-success dark:border-line-dark dark:bg-ink-2 dark:text-muted-dark"}`}
-                      title="Segna fatta"
-                      disabled={isSaving}
-                      onClick={() => void completeOverCapacityTask(task.work_item_id)}
-                    >
-                      {isSaving ? "…" : ""}
-                    </button>
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 rounded px-2 py-1 text-left transition hover:bg-cream/70 dark:hover:bg-ink-2"
-                      onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                    >
-                      <div className="truncate font-semibold text-ink dark:text-paper">
-                        [{resolveWorkItemClientLabel(task.task, task.client_name)}] {task.title}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
-                        {task.start_time && task.end_time && <span>{task.start_time} - {task.end_time}</span>}
-                        <span>{formatHours(task.effective_load_hours)} workload</span>
-                        <span>{formatHours(task.overflow_hours)} oltre limite</span>
-                      </div>
-                    </button>
-                    {areaColor && (
-                      <span
-                        className="h-6 min-w-10 rounded-full border px-2 text-center text-[10px] font-semibold leading-6"
-                        style={{ backgroundColor: areaColor, borderColor: areaColor, color: readableText.primary }}
-                        title={task.work_areas.map((area) => area.name).join(", ")}
-                      >
-                        {task.work_areas[0]?.icon || "•"}
-                      </span>
-                    )}
-                    <span className="shrink-0 rounded-full bg-warning/15 px-2 py-1 text-[10px] font-semibold text-warning">
-                      {formatHours(task.effective_load_hours)}
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded border border-warning/35 bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning hover:bg-warning/15 disabled:opacity-50"
-                      disabled={!canRescheduleOverflowTask || reschedulingTaskId === task.work_item_id}
-                      title={canRescheduleOverflowTask ? "Riprogramma al primo slot libero" : "Serve una scadenza per riprogrammare automaticamente"}
-                      onClick={() => void rescheduleTaskToNextAvailable(task.work_item_id)}
-                    >
-                      {reschedulingTaskId === task.work_item_id ? "..." : canRescheduleOverflowTask ? "Riprogramma" : "No scadenza"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {unscheduledTaskItems.length > 0 && (
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-3">
-            <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Senza orario</div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {unscheduledTaskItems.map((item, index) => {
-                const scheduleState = resolveTimelineScheduleState(item);
-                const isCarriedOver = scheduleState?.delay_code === "carried_over";
-                const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
-                const isNonDeferrable = isTimelineNonDeferrable(item);
-                const isPriority = isTimelineTaskPriority(item);
-                const taskColor = resolveTimelineTaskColor(item);
-                const taskEstimatedHours = resolveTimelineEstimatedHours(item);
-                const taskEffectiveHours = resolveTimelineEffectiveHours(item);
-                const taskEffectiveWeight = resolveTimelineEffectiveWeight(item);
-                const readableText = isSevereDelay
-                  ? { primary: "#7f1d1d", secondary: "rgba(127,29,29,0.72)" }
-                  : isCarriedOver
-                    ? { primary: "#78350f", secondary: "rgba(120,53,15,0.72)" }
-                    : getReadableTaskTextColors(taskColor);
-                return (
-                  <button
-                    key={`${item.kind}-${item.source_id ?? index}-unscheduled`}
-                    type="button"
-                    onClick={() => {
-                      if (item.work_item_id) void openEditWorkItemModal(item.work_item_id);
-                    }}
-                    className={`relative rounded-md border px-3 py-2 pr-8 text-left text-xs shadow-sm transition hover:-translate-y-px hover:shadow-md ${isSevereDelay ? "border-danger bg-danger/10" : isCarriedOver ? "border-warning bg-warning/10" : "border-line bg-cream dark:border-line-dark dark:bg-ink-2"}`}
-                    style={taskColor ? { borderColor: taskColor, backgroundColor: taskColor } : undefined}
-                  >
-                    {isPriority && <Icon name="star" className="absolute right-2 top-2 h-3.5 w-3.5 text-[#E91E8A]" />}
-                    <div className="text-[10px] uppercase tracking-wider" style={{ color: readableText.secondary }}>
-                      {resolveTimelineClientLabel(item)}
-                    </div>
-                    <div className="mt-0.5 font-semibold" style={{ color: readableText.primary }}>
-                      {resolveTimelineTaskTitle(item)}
-                    </div>
-                    <div className="mt-0.5 text-[10px]" style={{ color: readableText.secondary }}>
-                      {taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
-                    </div>
-                    {(isCarriedOver || isSevereDelay || isNonDeferrable) && (
-                      <div className="mt-2 flex flex-wrap items-center gap-1">
-                        {isCarriedOver && <span className="rounded-full border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">In ritardo</span>}
-                        {isSevereDelay && <span className="rounded-full border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">Ritardo grave</span>}
-                        {isNonDeferrable && (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
-                            <Icon name="shield" className="h-2.5 w-2.5" />
-                            Non derogabile
-                          </span>
-                        )}
-                        {(isCarriedOver || isSevereDelay) && (
-                          <span className="text-[9px] font-semibold" style={{ color: readableText.secondary }}>
-                            {formatHours(taskEffectiveHours)} eff · peso {taskEffectiveWeight.toFixed(2)}x
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-      </div>
+      <OperatorCalendarColumn
+        data={calendarData}
+        bounds={calendarBounds}
+        nowMinutes={nowMinutes}
+        summaryStatus={summaryStatus}
+        draggedTaskId={draggingTaskId}
+        draggedFromOperatorId={calendarData.user_id}
+        onTaskDragStart={(taskId) => { setDraggingTaskId(taskId); setDragSourceAssigneeId(calendarData.user_id); }}
+        onTaskDragEnd={onTaskDragEnd}
+        onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
+        onCreateByDrag={({ startTime, estimatedHours }) => {
+          setEditingItem(null);
+          setQuickAdd({ day: calendarData.selected_date, userId: calendarData.user_id, startTime, estimatedHours });
+          setNewWorkModalOpen(true);
+        }}
+        onMove={(taskId, startTime) => { void moveCalendarTaskToSlot(taskId, startTime, calendarData.user_id); }}
+        onReassign={(taskId, _fromOperatorId, startTime) => { void moveCalendarTaskToSlot(taskId, startTime, calendarData.user_id); }}
+        previewSwap={(sourceId, targetIds) => previewSwapApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds }).then((res) => res?.can_swap ?? false)}
+        onSwap={(sourceId, targetIds) => { void handleSwapDrop(sourceId, targetIds); }}
+        onResize={(taskId, endTime) => { void resizeCalendarTask(taskId, endTime); }}
+        onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
+        onCompleteOverCapacity={(taskId) => { void completeOverCapacityTask(taskId); }}
+        onRescheduleOverflow={(taskId) => { void rescheduleTaskToNextAvailable(taskId); }}
+        reschedulingTaskId={reschedulingTaskId}
+        taskUiState={calendarTaskUiState}
+        onOpenConflicts={() => setCalendarConflictsModalOpen(true)}
+      />
     );
   };
 
@@ -2974,7 +2346,13 @@ export function WorkloadPage() {
         selectedDate={selectedDay}
         companyId={selectedCompanyId}
         bounds={calendarBounds}
+        nowMinutes={nowMinutes}
         onOpenTask={(id) => { void openEditWorkItemModal(id); }}
+        onCreateTask={({ day, userId, startTime, estimatedHours }) => {
+          setEditingItem(null);
+          setQuickAdd({ day, userId, startTime, estimatedHours });
+          setNewWorkModalOpen(true);
+        }}
         onAfterChange={() => { void loadMain({ silent: true }); }}
         reloadToken={multiReloadToken}
       />
