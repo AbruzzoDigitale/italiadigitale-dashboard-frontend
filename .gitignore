@@ -25,3 +25,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code local state (worktrees, etc.)
+.claude/
+
+# Local reference material / artifacts (not part of the app)
+preventivatore-abruzzo-digitale*/
+preventivatore-abruzzo-digitale-*.zip
+Pacchetti Social Media (standalone).html
+handoff.md
