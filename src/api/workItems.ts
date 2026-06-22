@@ -5,8 +5,10 @@ function parseApiError(body: unknown, fallback: string): string {
     const detail = (body as { detail?: unknown }).detail;
     const message = (body as { message?: unknown }).message;
     const error = (body as { error?: unknown }).error;
+    const detailMessage = detail && typeof detail === "object" ? (detail as { message?: unknown }).message : null;
     return (
       (typeof detail === "string" && detail) ||
+      (typeof detailMessage === "string" && detailMessage) ||
       (typeof message === "string" && message) ||
       (typeof error === "string" && error) ||
       fallback
@@ -22,6 +24,55 @@ export type UrgencyLevel = "low" | "normal" | "high" | "critical";
 export type WorkItemTaskType = "standard" | "quick";
 export type LeftBehindReason = "operator_responsibility" | "client_protection" | "justified_delay" | "other";
 export type WorkItemRecurrenceType = "daily_interval" | "monthly_day";
+export type WorkItemScheduleDelayCode = "carried_over" | "non_deferrable_overdue" | null;
+
+export interface WorkItemOverlapConflict {
+  work_item_id: number;
+  title: string;
+  start_time: string | null;
+  end_time: string | null;
+  overlap_start_time: string;
+  overlap_end_time: string;
+  overlap_minutes: number;
+  assignee_ids: number[];
+}
+
+export interface WorkItemOverlapApiError extends Error {
+  status: 409;
+  backendMessage: string;
+  conflicts: WorkItemOverlapConflict[];
+}
+
+export function isWorkItemOverlapApiError(error: unknown): error is WorkItemOverlapApiError {
+  return error instanceof Error && (error as Partial<WorkItemOverlapApiError>).status === 409 && Array.isArray((error as Partial<WorkItemOverlapApiError>).conflicts);
+}
+
+function buildApiError(res: Response, body: unknown, fallback: string): Error {
+  const message = parseApiError(body, fallback);
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : null;
+  const conflicts = detail && typeof detail === "object" ? (detail as { conflicts?: unknown }).conflicts : null;
+  if (res.status === 409 && Array.isArray(conflicts)) {
+    const error = new Error(`[${res.status}] ${message}`) as WorkItemOverlapApiError;
+    error.status = 409;
+    error.backendMessage = message;
+    error.conflicts = conflicts as WorkItemOverlapConflict[];
+    return error;
+  }
+  return new Error(`[${res.status}] ${message}`);
+}
+
+export interface WorkItemScheduleState {
+  is_overdue: boolean;
+  overdue_days: number;
+  is_left_behind: boolean;
+  is_severe_delay: boolean;
+  effective_work_date: string | null;
+  effective_load_weight_factor: number;
+  effective_load_hours: number;
+  delay_code: WorkItemScheduleDelayCode;
+  should_force_today: boolean;
+  schedule_date: string;
+}
 
 export interface TimeSlot {
   id: number;
@@ -119,10 +170,8 @@ export interface WorkItem {
   progress_percent: number;
   is_completed: boolean;
   estimated_hours: number | null;
-  workload_strategy: string | null;
-  workload_strategy_version: string | null;
   is_fractionable: boolean;
-  force_today: boolean;
+  is_deadline_locked: boolean;
   affects_daily_load: boolean;
   load_weight_factor: number;
   effective_load_hours: number;
@@ -133,9 +182,7 @@ export interface WorkItem {
   urgency_level: UrgencyLevel | null;
   task_type?: WorkItemTaskType;
   is_priority: boolean;
-  workload_conflict_code?: string | null;
-  workload_overload_hours?: number | null;
-  workload_result_json?: Record<string, unknown> | null;
+  schedule_state?: WorkItemScheduleState | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
@@ -186,6 +233,7 @@ export interface ListWorkItemsParams {
   to_date?: string;
   status?: WorkItemStatus;
   is_completed?: boolean;
+  is_deadline_locked?: boolean;
   task_type?: WorkItemTaskType;
   affects_daily_load?: boolean;
   is_left_behind?: boolean;
@@ -234,10 +282,8 @@ export interface CreateWorkItemPayload {
   progress_percent?: number;
   is_completed?: boolean;
   estimated_hours?: number | null;
-  workload_strategy?: string | null;
-  workload_strategy_version?: string | null;
   is_fractionable?: boolean;
-  force_today?: boolean;
+  is_deadline_locked?: boolean;
   affects_daily_load?: boolean;
   load_weight_factor?: number;
   is_left_behind?: boolean;
@@ -246,9 +292,6 @@ export interface CreateWorkItemPayload {
   actual_hours_spent?: number | null;
   urgency_level?: UrgencyLevel | null;
   is_priority?: boolean;
-  workload_conflict_code?: string | null;
-  workload_overload_hours?: number | null;
-  workload_result_json?: Record<string, unknown> | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
@@ -286,10 +329,8 @@ export interface InstantiateTemplatePayload {
   progress_percent?: number;
   is_completed?: boolean;
   estimated_hours?: number | null;
-  workload_strategy?: string | null;
-  workload_strategy_version?: string | null;
   is_fractionable?: boolean;
-  force_today?: boolean;
+  is_deadline_locked?: boolean;
   affects_daily_load?: boolean;
   load_weight_factor?: number;
   is_left_behind?: boolean;
@@ -298,9 +339,6 @@ export interface InstantiateTemplatePayload {
   actual_hours_spent?: number | null;
   urgency_level?: UrgencyLevel | null;
   is_priority?: boolean;
-  workload_conflict_code?: string | null;
-  workload_overload_hours?: number | null;
-  workload_result_json?: Record<string, unknown> | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
@@ -342,6 +380,7 @@ export async function listWorkItemsApi(params: ListWorkItemsParams = {}): Promis
   if (params.to_date) query.set("to_date", params.to_date);
   if (params.status) query.set("status", params.status);
   if (params.is_completed != null) query.set("is_completed", String(params.is_completed));
+  if (params.is_deadline_locked != null) query.set("is_deadline_locked", String(params.is_deadline_locked));
   if (params.task_type) query.set("task_type", params.task_type);
   if (params.affects_daily_load != null) query.set("affects_daily_load", String(params.affects_daily_load));
   if (params.is_left_behind != null) query.set("is_left_behind", String(params.is_left_behind));
@@ -374,7 +413,7 @@ export async function createWorkItemApi(payload: CreateWorkItemPayload): Promise
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore nella creazione lavorazione")}`);
+    throw buildApiError(res, body, "Errore nella creazione lavorazione");
   }
   return res.json();
 }
@@ -386,7 +425,7 @@ export async function updateWorkItemApi(id: number, payload: UpdateWorkItemPaylo
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore nell'aggiornamento lavorazione")}`);
+    throw buildApiError(res, body, "Errore nell'aggiornamento lavorazione");
   }
   return res.json();
 }
@@ -452,6 +491,11 @@ export interface MoveWorkItemPayload {
   start_time?: string | null;
 }
 
+export interface RescheduleNextAvailablePayload {
+  from_date: string;
+  slot_minutes?: number;
+}
+
 export async function moveWorkItemApi(id: number, payload: MoveWorkItemPayload): Promise<WorkItem> {
   const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/move`, {
     method: "PATCH",
@@ -459,7 +503,82 @@ export async function moveWorkItemApi(id: number, payload: MoveWorkItemPayload):
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore nello spostamento lavorazione")}`);
+    throw buildApiError(res, body, "Errore nello spostamento lavorazione");
+  }
+  return res.json();
+}
+
+export async function rescheduleNextAvailableWorkItemApi(
+  id: number,
+  payload: RescheduleNextAvailablePayload
+): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/reschedule-next-available`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw buildApiError(res, body, "Errore nella riprogrammazione automatica");
+  }
+  return res.json();
+}
+
+// ── Swap posizioni (drag-and-drop di scambio) ────────────────────────────────────
+
+export type SwapBlockerReason = "overlap" | "out_of_working_hours";
+
+export interface WorkItemSwapPosition {
+  work_item_id: number;
+  title: string;
+  old_start_time: string | null; // "HH:MM"
+  new_start_time: string;        // "HH:MM"
+  new_end_time: string;          // "HH:MM"
+}
+
+export interface WorkItemSwapConflict {
+  work_item_id: number;
+  reason: SwapBlockerReason;
+  conflicts: Array<Record<string, unknown>>;
+}
+
+export interface WorkItemSwapPreviewResponse {
+  can_swap: boolean;
+  work_date: string | null;
+  user_id: number | null;
+  positions: WorkItemSwapPosition[];
+  blockers: WorkItemSwapConflict[];
+}
+
+export interface WorkItemSwapRequest {
+  source_work_item_ids: number[];
+  target_work_item_ids: number[];
+}
+
+export async function swapWorkItemsPreviewApi(
+  body: WorkItemSwapRequest
+): Promise<WorkItemSwapPreviewResponse> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/swap-preview`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(e, "Impossibile verificare lo scambio")}`);
+  }
+  return res.json();
+}
+
+export async function swapWorkItemsApi(
+  body: WorkItemSwapRequest
+): Promise<WorkItemSwapPreviewResponse> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/swap`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    // 409 → e.detail = { message, blockers }
+    throw new Error(`[${res.status}] ${parseApiError(e, "Scambio non possibile")}`);
   }
   return res.json();
 }

@@ -19,12 +19,8 @@ import {
   createCompanyScheduleWindowApi,
   updateCompanyScheduleWindowApi,
   deleteCompanyScheduleWindowApi,
-  listCompanyWorkloadPoliciesApi,
-  createCompanyWorkloadPolicyApi,
-  updateCompanyWorkloadPolicyApi,
-  deleteCompanyWorkloadPolicyApi,
-  type CompanyWorkloadPolicy,
-  type CompanyWorkloadPolicyCreate,
+  getCompanyApi,
+  updateCompanyApi,
   type CompanyScheduleWindow,
   type CompanyScheduleWindowKind,
   type CompanyScheduleWindowPayload,
@@ -97,12 +93,6 @@ const SCHEDULE_KIND_FILTER_OPTIONS: Array<{ value: "all" | CompanyScheduleWindow
   ...SCHEDULE_KIND_OPTIONS,
 ];
 
-const WORKLOAD_STRATEGY_OPTIONS = [
-  { value: "spread_by_deadline", label: "Distribuzione per scadenza" },
-  { value: "fifo", label: "FIFO" },
-  { value: "balanced", label: "Bilanciata" },
-];
-
 const WEEKDAY_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 0, label: "Lun" },
   { value: 1, label: "Mar" },
@@ -128,16 +118,6 @@ interface ScheduleWindowFormState {
   is_active: boolean;
 }
 
-interface WorkloadPolicyFormState {
-  name: string;
-  strategy: string;
-  strategy_version: string;
-  default_is_fractionable: boolean;
-  daily_capacity_hours: string;
-  settings_json: string;
-  is_active: boolean;
-}
-
 const EMPTY_SCHEDULE_WINDOW_FORM: ScheduleWindowFormState = {
   kind: "break",
   title: "",
@@ -153,16 +133,6 @@ const EMPTY_SCHEDULE_WINDOW_FORM: ScheduleWindowFormState = {
   is_active: true,
 };
 
-const EMPTY_WORKLOAD_POLICY_FORM: WorkloadPolicyFormState = {
-  name: "",
-  strategy: "spread_by_deadline",
-  strategy_version: "",
-  default_is_fractionable: true,
-  daily_capacity_hours: "",
-  settings_json: "",
-  is_active: true,
-};
-
 function isValidHexColor(value: string) {
   return /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(value);
 }
@@ -173,6 +143,13 @@ function isValidDateIso(value: string) {
 
 function isValidTimeHHMM(value: string) {
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function toTimeHHMM(value: string | null | undefined) {
+  if (!value) return "";
+  const [hours, minutes] = value.split(":");
+  if (!hours || !minutes) return "";
+  return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}`;
 }
 
 function toScheduleWindowPayload(form: ScheduleWindowFormState): CompanyScheduleWindowPayload {
@@ -680,148 +657,6 @@ function ScheduleWindowModal({ open, isEdit, saving, initial, onClose, onSubmit 
   );
 }
 
-interface WorkloadPolicyModalProps {
-  open: boolean;
-  isEdit: boolean;
-  saving: boolean;
-  initial: WorkloadPolicyFormState;
-  onClose: () => void;
-  onSubmit: (payload: CompanyWorkloadPolicyCreate) => Promise<void>;
-}
-
-function WorkloadPolicyModal({ open, isEdit, saving, initial, onClose, onSubmit }: WorkloadPolicyModalProps) {
-  const [form, setForm] = useState<WorkloadPolicyFormState>(initial);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setForm(initial);
-      setError(null);
-    }
-  }, [initial, open]);
-
-  const handleSubmit = async () => {
-    if (!form.name.trim()) {
-      setError("Il nome è obbligatorio");
-      return;
-    }
-    if (!form.strategy.trim()) {
-      setError("La strategia è obbligatoria");
-      return;
-    }
-
-    let parsedSettings: Record<string, unknown> | null = null;
-    const settingsRaw = form.settings_json.trim();
-    if (settingsRaw) {
-      try {
-        const parsed = JSON.parse(settingsRaw) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          setError("settings_json deve essere un oggetto JSON valido");
-          return;
-        }
-        parsedSettings = parsed as Record<string, unknown>;
-      } catch {
-        setError("settings_json non è un JSON valido");
-        return;
-      }
-    }
-
-    const capacityRaw = form.daily_capacity_hours.trim();
-    let dailyCapacity: number | null = null;
-    if (capacityRaw) {
-      const parsedCapacity = Number(capacityRaw);
-      if (!Number.isFinite(parsedCapacity) || parsedCapacity < 0) {
-        setError("La capacità giornaliera deve essere un numero >= 0");
-        return;
-      }
-      dailyCapacity = parsedCapacity;
-    }
-
-    setError(null);
-    await onSubmit({
-      name: form.name.trim(),
-      strategy: form.strategy.trim(),
-      strategy_version: form.strategy_version.trim() || null,
-      default_is_fractionable: form.default_is_fractionable,
-      daily_capacity_hours: dailyCapacity,
-      settings_json: parsedSettings,
-      is_active: form.is_active,
-    });
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isEdit ? "Modifica workload policy" : "Nuova workload policy"}
-      description="Definisci la policy di distribuzione carico per l'azienda"
-      size="xl"
-      footer={(
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Annulla</Button>
-          <Button variant="primary" onClick={handleSubmit} loading={saving}>Salva</Button>
-        </>
-      )}
-    >
-      <div className="flex flex-col gap-4">
-        {error && <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</div>}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input label="Nome" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Default Social Ops" />
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">Strategia</label>
-            <SearchableSelect
-              value={form.strategy}
-              onChange={(next) => setForm((c) => ({ ...c, strategy: next }))}
-              options={WORKLOAD_STRATEGY_OPTIONS}
-              placeholder="Seleziona strategia"
-              searchPlaceholder="Cerca strategia..."
-            />
-          </div>
-          <Input
-            label="Versione strategia"
-            value={form.strategy_version}
-            onChange={(e) => setForm((c) => ({ ...c, strategy_version: e.target.value }))}
-            placeholder="v1"
-          />
-          <Input
-            label="Capacità giornaliera (ore)"
-            type="number"
-            min={0}
-            step="0.25"
-            value={form.daily_capacity_hours}
-            onChange={(e) => setForm((c) => ({ ...c, daily_capacity_hours: e.target.value }))}
-            placeholder="8"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="flex items-center gap-2 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2.5">
-            <Checkbox checked={form.default_is_fractionable} onChange={(v) => setForm((c) => ({ ...c, default_is_fractionable: v }))} />
-            <span className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">Frazionabile di default</span>
-          </label>
-          <label className="flex items-center gap-2 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2.5">
-            <Checkbox checked={form.is_active} onChange={(v) => setForm((c) => ({ ...c, is_active: v }))} />
-            <span className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">Attiva</span>
-          </label>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">settings_json</label>
-          <textarea
-            value={form.settings_json}
-            onChange={(e) => setForm((c) => ({ ...c, settings_json: e.target.value }))}
-            placeholder='{"allow_overbooking": false}'
-            rows={6}
-            className="w-full rounded-md border px-3 py-2.5 text-sm font-body bg-paper text-ink placeholder:text-muted border-line focus:border-ink focus:outline-none transition-colors duration-150 dark:bg-ink-soft dark:text-paper dark:border-line-dark dark:placeholder:text-muted-dark dark:focus:border-paper"
-          />
-          <p className="text-xs text-muted dark:text-[#9999a0]">Opzionale. Inserisci un oggetto JSON valido.</p>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 type FormState = UpdateCompanyBrandPayload & { notif_sound_enabled?: boolean | null };
@@ -890,14 +725,11 @@ export function CompanyBrandPage() {
   const [scheduleDeleteTarget, setScheduleDeleteTarget] = useState<CompanyScheduleWindow | null>(null);
   const [scheduleDeleting, setScheduleDeleting] = useState(false);
   const [holidaySyncing, setHolidaySyncing] = useState(false);
-  const [workloadPolicies, setWorkloadPolicies] = useState<CompanyWorkloadPolicy[]>([]);
-  const [workloadLoading, setWorkloadLoading] = useState(false);
-  const [workloadError, setWorkloadError] = useState<string | null>(null);
-  const [workloadModalOpen, setWorkloadModalOpen] = useState(false);
-  const [workloadModalSaving, setWorkloadModalSaving] = useState(false);
-  const [workloadEditing, setWorkloadEditing] = useState<CompanyWorkloadPolicy | null>(null);
-  const [workloadDeleteTarget, setWorkloadDeleteTarget] = useState<CompanyWorkloadPolicy | null>(null);
-  const [workloadDeleting, setWorkloadDeleting] = useState(false);
+  const [openingTime, setOpeningTime] = useState("");
+  const [closingTime, setClosingTime] = useState("");
+  const [companyTimeError, setCompanyTimeError] = useState<string | null>(null);
+  const [companyTimeSaving, setCompanyTimeSaving] = useState(false);
+  const [companyTimeLoading, setCompanyTimeLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<BrandTab>("login");
   const canEditSettings = !!user?.is_admin;
   const canManageRoles = !!permissions?.can_manage_roles || !!permissions?.is_admin;
@@ -922,6 +754,21 @@ export function CompanyBrandPage() {
       })
       .catch(() => toast.error("Impossibile caricare il brand"))
       .finally(() => setIsLoading(false));
+  }, [companyId, toast]);
+
+  useEffect(() => {
+    setCompanyTimeLoading(true);
+    getCompanyApi(companyId)
+      .then((company) => {
+        setOpeningTime(toTimeHHMM(company.opening_time));
+        setClosingTime(toTimeHHMM(company.closing_time));
+      })
+      .catch(() => {
+        setOpeningTime("");
+        setClosingTime("");
+        toast.error("Impossibile recuperare gli orari aziendali");
+      })
+      .finally(() => setCompanyTimeLoading(false));
   }, [companyId, toast]);
 
   const set = useCallback((k: string, v: unknown) =>
@@ -1014,25 +861,6 @@ export function CompanyBrandPage() {
     loadScheduleWindows();
   }, [loadScheduleWindows]);
 
-  const loadWorkloadPolicies = useCallback(async () => {
-    setWorkloadLoading(true);
-    setWorkloadError(null);
-    try {
-      const items = await listCompanyWorkloadPoliciesApi(companyId);
-      setWorkloadPolicies(items);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossibile recuperare le workload policies";
-      setWorkloadError(message);
-      toast.error(message);
-    } finally {
-      setWorkloadLoading(false);
-    }
-  }, [companyId, toast]);
-
-  useEffect(() => {
-    loadWorkloadPolicies();
-  }, [loadWorkloadPolicies]);
-
   const handleSyncItalianHolidays = useCallback(async () => {
     if (!canEditSettings) return;
     setHolidaySyncing(true);
@@ -1112,59 +940,42 @@ export function CompanyBrandPage() {
     }
   }, [canEditSettings, companyId, toast]);
 
-  const openNewWorkloadPolicy = useCallback(() => {
-    setWorkloadEditing(null);
-    setWorkloadModalOpen(true);
-  }, []);
-
-  const openEditWorkloadPolicy = useCallback((policy: CompanyWorkloadPolicy) => {
-    setWorkloadEditing(policy);
-    setWorkloadModalOpen(true);
-  }, []);
-
-  const handleSaveWorkloadPolicy = useCallback(async (payload: CompanyWorkloadPolicyCreate) => {
+  const handleSaveCompanyTimes = useCallback(async () => {
     if (!canEditSettings) return;
-    setWorkloadModalSaving(true);
-    try {
-      const saved = workloadEditing
-        ? await updateCompanyWorkloadPolicyApi(companyId, workloadEditing.id, payload)
-        : await createCompanyWorkloadPolicyApi(companyId, payload);
-      setWorkloadPolicies((current) => {
-        const next = current.filter((item) => item.id !== saved.id);
-        return [...next, saved].sort((a, b) => {
-          if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        });
-      });
-      setWorkloadModalOpen(false);
-      setWorkloadEditing(null);
-      toast.success(workloadEditing ? "Workload policy aggiornata" : "Workload policy creata");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Errore salvataggio workload policy";
-      if (message.includes("[409]")) {
-        toast.error("Nome policy già presente per questa azienda");
-      } else {
-        toast.error(message);
-      }
-    } finally {
-      setWorkloadModalSaving(false);
-    }
-  }, [canEditSettings, companyId, workloadEditing, toast]);
+    const hasOpening = !!openingTime;
+    const hasClosing = !!closingTime;
 
-  const handleDeleteWorkloadPolicy = useCallback(async () => {
-    if (!canEditSettings || !workloadDeleteTarget) return;
-    setWorkloadDeleting(true);
-    try {
-      await deleteCompanyWorkloadPolicyApi(companyId, workloadDeleteTarget.id);
-      setWorkloadPolicies((current) => current.filter((item) => item.id !== workloadDeleteTarget.id));
-      setWorkloadDeleteTarget(null);
-      toast.success("Workload policy eliminata");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Errore eliminazione workload policy");
-    } finally {
-      setWorkloadDeleting(false);
+    if (hasOpening !== hasClosing) {
+      setCompanyTimeError("Orario di apertura e chiusura devono essere entrambi valorizzati o entrambi vuoti");
+      return;
     }
-  }, [canEditSettings, companyId, workloadDeleteTarget, toast]);
+
+    if (hasOpening && (!isValidTimeHHMM(openingTime) || !isValidTimeHHMM(closingTime))) {
+      setCompanyTimeError("Formato orario non valido (HH:MM)");
+      return;
+    }
+
+    if (hasOpening && closingTime <= openingTime) {
+      setCompanyTimeError("L'orario di chiusura deve essere dopo quello di apertura");
+      return;
+    }
+
+    setCompanyTimeError(null);
+    setCompanyTimeSaving(true);
+    try {
+      const updated = await updateCompanyApi(companyId, {
+        opening_time: hasOpening ? openingTime : null,
+        closing_time: hasClosing ? closingTime : null,
+      });
+      setOpeningTime(toTimeHHMM(updated.opening_time));
+      setClosingTime(toTimeHHMM(updated.closing_time));
+      toast.success("Orari azienda aggiornati");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore aggiornamento orari azienda");
+    } finally {
+      setCompanyTimeSaving(false);
+    }
+  }, [canEditSettings, closingTime, companyId, openingTime, toast]);
 
   const openNewSetting = useCallback(() => {
     setSettingEditingKey(null);
@@ -1267,17 +1078,6 @@ export function CompanyBrandPage() {
     ? scheduleWindows
     : scheduleWindows.filter((item) => item.kind === scheduleKindFilter);
   const scheduleKindLabels = new Map(SCHEDULE_KIND_OPTIONS.map((item) => [item.value, item.label]));
-  const workloadModalInitial: WorkloadPolicyFormState = workloadEditing
-    ? {
-      name: workloadEditing.name,
-      strategy: workloadEditing.strategy,
-      strategy_version: workloadEditing.strategy_version ?? "",
-      default_is_fractionable: workloadEditing.default_is_fractionable,
-      daily_capacity_hours: workloadEditing.daily_capacity_hours != null ? String(workloadEditing.daily_capacity_hours) : "",
-      settings_json: workloadEditing.settings_json ? JSON.stringify(workloadEditing.settings_json, null, 2) : "",
-      is_active: workloadEditing.is_active,
-    }
-    : EMPTY_WORKLOAD_POLICY_FORM;
 
   return (
     <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
@@ -1743,6 +1543,62 @@ export function CompanyBrandPage() {
 
         {activeTab === "operations" && (
           <>
+          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6 mb-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
+              <div>
+                <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1" style={{ fontSize: "17px" }}>
+                  Orari azienda
+                </h2>
+                <p className="font-body text-[13px] text-muted dark:text-[#9999a0]">
+                  Orari usati per calcolo carico e disponibilita.
+                </p>
+              </div>
+              {canEditSettings && (
+                <Button
+                  variant="primary"
+                  onClick={handleSaveCompanyTimes}
+                  loading={companyTimeSaving}
+                  disabled={companyTimeLoading}
+                >
+                  Salva
+                </Button>
+              )}
+            </div>
+
+            {companyTimeError && (
+              <div className="mb-4 rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
+                {companyTimeError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Orario apertura"
+                type="time"
+                value={openingTime}
+                onChange={(e) => {
+                  setOpeningTime(e.target.value);
+                  setCompanyTimeError(null);
+                }}
+                disabled={!canEditSettings || companyTimeLoading}
+              />
+              <Input
+                label="Orario chiusura"
+                type="time"
+                value={closingTime}
+                onChange={(e) => {
+                  setClosingTime(e.target.value);
+                  setCompanyTimeError(null);
+                }}
+                disabled={!canEditSettings || companyTimeLoading}
+              />
+            </div>
+
+            <p className="mt-3 text-xs text-muted dark:text-[#9999a0]">
+              Inserisci entrambi gli orari oppure lasciali vuoti.
+            </p>
+          </div>
+
           <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
               <div>
@@ -1847,89 +1703,6 @@ export function CompanyBrandPage() {
             )}
           </div>
 
-          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
-              <div>
-                <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1" style={{ fontSize: "17px" }}>
-                  Workload policies
-                </h2>
-                <p className="font-body text-[13px] text-muted dark:text-[#9999a0]">
-                  Policy per strategia assegnazione carico e capacità giornaliera.
-                </p>
-              </div>
-              {canEditSettings && (
-                <Button variant="primary" onClick={openNewWorkloadPolicy} leftIcon={<Icon name="plus" className="w-3.5 h-3.5" />}>
-                  Nuova policy
-                </Button>
-              )}
-            </div>
-
-            {workloadError && (
-              <div className="mb-4 rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
-                {workloadError}
-              </div>
-            )}
-
-            {workloadLoading ? (
-              <div className="flex items-center justify-center py-10"><Spinner size="md" /></div>
-            ) : workloadPolicies.length === 0 ? (
-              <div className="rounded-md border border-dashed border-line dark:border-[#2a2a2e] px-4 py-8 text-sm text-muted dark:text-[#9999a0]">
-                Nessuna workload policy configurata.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-separate border-spacing-y-2">
-                  <thead>
-                    <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
-                      <th className="px-3 py-1">Nome</th>
-                      <th className="px-3 py-1">Strategia</th>
-                      <th className="px-3 py-1">Versione</th>
-                      <th className="px-3 py-1">Capacità giornaliera</th>
-                      <th className="px-3 py-1">Frazionabile</th>
-                      <th className="px-3 py-1">Attiva</th>
-                      {canEditSettings && <th className="px-3 py-1 text-right">Azioni</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workloadPolicies.map((policy) => (
-                      <tr key={policy.id} className="align-top bg-cream dark:bg-[#1c1c20]">
-                        <td className="px-3 py-3 rounded-l-md text-sm font-semibold text-ink dark:text-[#f4f4f7]">{policy.name}</td>
-                        <td className="px-3 py-3 text-sm text-muted dark:text-[#9999a0]">{policy.strategy}</td>
-                        <td className="px-3 py-3 text-sm text-muted dark:text-[#9999a0]">{policy.strategy_version ?? "—"}</td>
-                        <td className="px-3 py-3 text-sm text-muted dark:text-[#9999a0]">{policy.daily_capacity_hours ?? "—"}</td>
-                        <td className="px-3 py-3 text-sm text-muted dark:text-[#9999a0]">{policy.default_is_fractionable ? "Si" : "No"}</td>
-                        <td className="px-3 py-3">
-                          <Badge variant={policy.is_active ? "success" : "default"}>{policy.is_active ? "Attiva" : "Disattiva"}</Badge>
-                        </td>
-                        {canEditSettings && (
-                          <td className="px-3 py-3 rounded-r-md">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openEditWorkloadPolicy(policy)}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink transition-colors hover:bg-paper dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
-                              >
-                                <Icon name="pencil" className="w-3.5 h-3.5" />
-                                Modifica
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setWorkloadDeleteTarget(policy)}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-danger/20 bg-danger/5 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-danger transition-colors hover:bg-danger/10"
-                              >
-                                <Icon name="trash" className="w-3.5 h-3.5" />
-                                Elimina
-                              </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
           </>
         )}
 
@@ -1979,37 +1752,6 @@ export function CompanyBrandPage() {
           }}
           onSubmit={handleSaveScheduleWindow}
         />
-
-        <WorkloadPolicyModal
-          open={workloadModalOpen}
-          isEdit={!!workloadEditing}
-          saving={workloadModalSaving}
-          initial={workloadModalInitial}
-          onClose={() => {
-            if (workloadModalSaving) return;
-            setWorkloadModalOpen(false);
-            setWorkloadEditing(null);
-          }}
-          onSubmit={handleSaveWorkloadPolicy}
-        />
-
-        <Modal
-          open={!!workloadDeleteTarget}
-          onClose={() => setWorkloadDeleteTarget(null)}
-          title="Elimina workload policy"
-          description="L'operazione rimuove definitivamente la workload policy selezionata."
-          size="md"
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setWorkloadDeleteTarget(null)} disabled={workloadDeleting}>Annulla</Button>
-              <Button variant="danger" onClick={handleDeleteWorkloadPolicy} loading={workloadDeleting}>Elimina</Button>
-            </>
-          }
-        >
-          <p className="text-sm text-muted dark:text-[#9999a0]">
-            Vuoi eliminare <span className="font-semibold text-ink dark:text-[#f4f4f7]">{workloadDeleteTarget?.name}</span>?
-          </p>
-        </Modal>
 
         <Modal
           open={!!scheduleDeleteTarget}

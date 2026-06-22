@@ -23,7 +23,7 @@ export function leftBehindReasonLabel(reason: LeftBehindReason | null): string {
 
 export function effectiveHoursLabel(item: WorkItem): string {
   if (!item.affects_daily_load) return "0h effettive";
-  return `${fmtHours(item.effective_load_hours)} effettive`;
+  return `${fmtHours(item.schedule_state?.effective_load_hours ?? item.effective_load_hours)} effettive`;
 }
 
 export function hoursWeightClass(h: number | null): string {
@@ -95,6 +95,9 @@ export function WorkItemCard({
   const tags = workTags.filter((t) => tagIds.includes(t.id));
   const overdue = !item.is_completed && isOverdue(item.deadline_date);
   const isDone = item.is_completed || item.status === "completed";
+  const scheduleState = item.schedule_state ?? null;
+  const isCarriedOver = scheduleState?.delay_code === "carried_over";
+  const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
   const aiSourceContractId = item.ai_source_contract_id ?? null;
   const aiJobId = item.ai_generation_job_id ?? null;
   const aiJobItemId = item.ai_generation_job_item_id ?? null;
@@ -118,6 +121,8 @@ export function WorkItemCard({
       title="Apri dettaglio lavorazione"
       className={`group relative flex cursor-grab flex-col gap-2 rounded-lg border bg-paper p-3 transition-all active:cursor-grabbing active:opacity-50 hover:-translate-y-px hover:shadow-md
         ${item.is_priority ? "border-l-[3px] border-l-[#E91E8A] border-r-line border-t-line border-b-line dark:border-l-[#E91E8A] dark:border-r-line-dark dark:border-t-line-dark dark:border-b-line-dark" : "border-line dark:border-line-dark"}
+        ${isSevereDelay ? "ring-1 ring-danger/40 bg-danger/5 dark:bg-danger/10" : ""}
+        ${isCarriedOver ? "ring-1 ring-warning/35 bg-warning/5 dark:bg-warning/10" : ""}
         ${item.is_PED ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}
         ${isDone ? "opacity-70" : ""}
         dark:bg-[#131316]`}
@@ -175,12 +180,20 @@ export function WorkItemCard({
               PED
             </span>
           )}
-          {item.force_today && (
-            <span
-              className="inline-flex rounded-pill border border-[#a32d2d]/35 bg-[#a32d2d]/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#a32d2d] dark:border-[#f47070]/35 dark:bg-[#3d1212] dark:text-[#f47070]"
-              title="Il motore workload alloca questa task esclusivamente su oggi"
-            >
-              Forzato a oggi
+          {isCarriedOver && (
+            <span className="inline-flex rounded-pill border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
+              In ritardo
+            </span>
+          )}
+          {isSevereDelay && (
+            <span className="inline-flex rounded-pill border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+              Ritardo grave
+            </span>
+          )}
+          {item.is_deadline_locked && (
+            <span className="inline-flex items-center gap-1 rounded-pill border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
+              <Icon name="shield" className="h-3 w-3" />
+              Non derogabile
             </span>
           )}
           {isAiGenerated && (
@@ -307,6 +320,22 @@ export function WorkItemCard({
             <span className="text-[10px] text-muted dark:text-muted-dark">
               {leftBehindReasonLabel(item.left_behind_reason)}
             </span>
+          )}
+        </div>
+      )}
+
+      {scheduleState?.delay_code && (
+        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted dark:text-muted-dark">
+          <span>
+            Peso effettivo {scheduleState.effective_load_weight_factor.toFixed(2)}x
+          </span>
+          <span>·</span>
+          <span>{fmtHours(scheduleState.effective_load_hours)} effettive</span>
+          {scheduleState.overdue_days > 0 && (
+            <>
+              <span>·</span>
+              <span>{scheduleState.overdue_days}g ritardo</span>
+            </>
           )}
         </div>
       )}

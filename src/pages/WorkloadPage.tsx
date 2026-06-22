@@ -1,23 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { getUsersApi, type User } from "../api/users";
 import { listRolesApi, type Role } from "../api/roles";
-import { getWorkItemApi, moveWorkItemApi, type MoveWorkItemPayload, type WorkItem } from "../api/workItems";
+import {
+  getWorkItemApi,
+  isWorkItemOverlapApiError,
+  moveWorkItemApi,
+  rescheduleNextAvailableWorkItemApi,
+  updateWorkItemApi,
+  type MoveWorkItemPayload,
+  type WorkItem,
+  type WorkItemOverlapConflict,
+  type WorkItemScheduleState,
+} from "../api/workItems";
+import { getCompanyApi } from "../api/companies";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
+import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
 import {
-  applyWorkloadEngineRunApi,
-  getWorkloadAllocationGridApi,
   getWorkloadUserCalendarDayApi,
   listWorkloadUsersApi,
   listWorkloadUsersGroupedByAreaAndDayApi,
-  previewWorkloadEngineRunApi,
-  type WorkloadAllocationGrid,
   type WorkloadComputedStatus,
-  type WorkloadDayStatus,
-  type WorkloadEngineRunResponse,
   type WorkloadGroupedByAreaAndDayResponse,
   type WorkloadTaskSummary,
   type WorkloadTimelineItem,
+  type WorkloadCalendarConflict,
   type WorkloadUserByDay,
   type WorkloadUserCalendarDayResponse,
   type WorkloadUserSummary,
@@ -27,14 +34,28 @@ import { Badge } from "../components/ui/Badge";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
+import { MultiSelect } from "../components/ui/MultiSelect";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../hooks/useAuth";
+import { useOverdueTasks } from "../hooks/useOverdueTasks";
+import { useWorkItemSwap } from "../hooks/useWorkItemSwap";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import "./workload-page.css";
 
 type RangeMode = "day" | "week" | "month" | "custom";
-type ViewMode = "accordion" | "complete" | "heatmap" | "calendar" | "griglia";
+type ViewMode = "accordion" | "complete" | "heatmap" | "calendar";
+type CalendarCreatePreview = { startMinutes: number; endMinutes: number; isDragging: boolean };
+type CalendarTimelineBlock = { item: WorkloadTimelineItem; start: number; end: number; originalIndex: number; column: number; totalColumns: number };
+type CalendarResizeState = {
+  workItemId: number;
+  startMinutes: number;
+  originalEndMinutes: number;
+  currentEndMinutes: number;
+  minEndMinutes: number;
+  maxEndMinutes: number;
+  startClientY: number;
+};
 
 const RANGE_MODE_OPTIONS: Array<{ value: Exclude<RangeMode, "custom">; label: string }> = [
   { value: "day", label: "Giorno" },
@@ -47,10 +68,12 @@ const VIEW_MODE_OPTIONS: Array<{ value: ViewMode; label: string; icon: IconName 
   { value: "complete", label: "Vista completa", icon: "document-text" },
   { value: "heatmap", label: "Heatmap", icon: "activity" },
   { value: "calendar", label: "Calendario", icon: "annotation" },
-  { value: "griglia", label: "Griglia allocazioni", icon: "grid" },
 ];
 
 const CALENDAR_SLOT_MINUTES = 30;
+const CALENDAR_CREATE_SLOT_MINUTES = 15;
+const CALENDAR_HOUR_HEIGHT_PX = 64;
+const CALENDAR_INITIAL_SCROLL_OFFSET_PX = 16;
 
 function dateFromIso(iso: string): Date {
   const [year, month, day] = iso.split("-").map(Number);
@@ -224,14 +247,12 @@ function formatTaskStartTime(value: string | null): string | null {
 
 function hhmmToMinutes(value: string | null | undefined): number | null {
   if (!value) return null;
-  const [h, m] = value.split(":").map(Number);
+  const [h, m] = value.split(":").slice(0, 2).map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
 }
 
-function clampTimeline(start: number, end: number): { start: number; end: number } {
-  const min = 0;
-  const max = 24 * 60;
+function clampTimelineInRange(start: number, end: number, min: number, max: number): { start: number; end: number } {
   const safeStart = Math.min(max, Math.max(min, start));
   const safeEnd = Math.min(max, Math.max(min, end));
   if (safeEnd <= safeStart) {
@@ -247,15 +268,32 @@ function minutesToHHMM(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function snapMinutesToSlot(totalMinutes: number, slotMinutes = CALENDAR_SLOT_MINUTES): number {
-  const max = (24 * 60) - slotMinutes;
-  const bounded = Math.max(0, Math.min(max, totalMinutes));
-  return Math.round(bounded / slotMinutes) * slotMinutes;
+function snapMinutesToSlotInRange(totalMinutes: number, min: number, max: number, slotMinutes = CALENDAR_SLOT_MINUTES): number {
+  const maxStart = Math.max(min, max - slotMinutes);
+  const bounded = Math.max(min, Math.min(maxStart, totalMinutes));
+  const offset = Math.round((bounded - min) / slotMinutes) * slotMinutes;
+  return min + offset;
+}
+
+function snapBoundaryMinutesInRange(totalMinutes: number, min: number, max: number, slotMinutes = CALENDAR_CREATE_SLOT_MINUTES): number {
+  const bounded = Math.max(min, Math.min(max, totalMinutes));
+  const offset = Math.round((bounded - min) / slotMinutes) * slotMinutes;
+  return min + offset;
+}
+
+function normalizeCalendarCreateRange(anchorMinutes: number, currentMinutes: number, dayEndMinutes: number): CalendarCreatePreview {
+  const start = Math.min(anchorMinutes, currentMinutes);
+  const end = Math.min(dayEndMinutes, Math.max(anchorMinutes, currentMinutes) + CALENDAR_CREATE_SLOT_MINUTES);
+  return {
+    startMinutes: start,
+    endMinutes: Math.max(start + CALENDAR_CREATE_SLOT_MINUTES, end),
+    isDragging: true,
+  };
 }
 
 function timelineItemClass(kind: WorkloadTimelineItem["kind"]) {
   if (kind === "break") return "border-amber-400 text-amber-900 dark:border-amber-700 dark:text-amber-100";
-  if (kind === "remote") return "border-sky-300 bg-sky-100/80 text-sky-900 dark:border-sky-700 dark:bg-sky-900/35 dark:text-sky-100";
+  if (kind === "remote") return "border-sky-300 text-sky-900 dark:border-sky-700 dark:text-sky-100";
   if (kind === "holiday" || kind === "day_off") return "border-rose-300 bg-rose-100/80 text-rose-900 dark:border-rose-700 dark:bg-rose-900/35 dark:text-rose-100";
   return "border-line bg-paper/90 text-ink dark:border-line-dark dark:bg-ink-soft/90 dark:text-paper";
 }
@@ -268,10 +306,163 @@ function timelineItemStyle(item: WorkloadTimelineItem) {
         "repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0px, rgba(245, 158, 11, 0.18) 8px, rgba(245, 158, 11, 0.36) 8px, rgba(245, 158, 11, 0.36) 16px)",
     };
   }
+  if (item.kind === "remote") {
+    const stripe = item.color ?? "#3b82f6";
+    return {
+      backgroundColor: `${stripe}22`,
+      backgroundImage:
+        `repeating-linear-gradient(135deg, ${stripe}20 0px, ${stripe}20 8px, ${stripe}44 8px, ${stripe}44 16px)`,
+      borderColor: `${stripe}66`,
+    };
+  }
   if (item.color) {
     return { backgroundColor: item.color };
   }
   return undefined;
+}
+
+function timelineItemZIndex(kind: WorkloadTimelineItem["kind"]) {
+  if (kind === "task") return 30;
+  if (kind === "break") return 20;
+  return 10;
+}
+
+function parseHexColor(color: string | null): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  const normalized = color.trim();
+  const short = /^#([0-9a-fA-F]{3})$/.exec(normalized);
+  if (short) {
+    const [r, g, b] = short[1].split("").map((value) => parseInt(`${value}${value}`, 16));
+    return { r, g, b };
+  }
+  const full = /^#([0-9a-fA-F]{6})$/.exec(normalized);
+  if (!full) return null;
+  return {
+    r: parseInt(full[1].slice(0, 2), 16),
+    g: parseInt(full[1].slice(2, 4), 16),
+    b: parseInt(full[1].slice(4, 6), 16),
+  };
+}
+
+function getReadableTaskTextColors(backgroundColor: string | null) {
+  const rgb = parseHexColor(backgroundColor);
+  if (!rgb) {
+    return { primary: undefined, secondary: undefined };
+  }
+  const srgb = [rgb.r, rgb.g, rgb.b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = (0.2126 * srgb[0]) + (0.7152 * srgb[1]) + (0.0722 * srgb[2]);
+  const useDarkText = luminance > 0.48;
+  return {
+    primary: useDarkText ? "#0a0a0a" : "#ffffff",
+    secondary: useDarkText ? "rgba(10,10,10,0.72)" : "rgba(255,255,255,0.82)",
+  };
+}
+
+function layoutCalendarTimelineBlocks(blocks: Array<{ item: WorkloadTimelineItem; start: number; end: number }>): CalendarTimelineBlock[] {
+  const laidOut = blocks.map((block, originalIndex) => ({ ...block, originalIndex, column: 0, totalColumns: 1 }));
+  const taskBlocks = laidOut
+    .filter((block) => block.item.kind === "task")
+    .sort((left, right) => left.start - right.start || left.end - right.end || left.originalIndex - right.originalIndex);
+
+  const layoutGroup = (group: CalendarTimelineBlock[]) => {
+    const columnEnds: number[] = [];
+    group.forEach((block) => {
+      const reusableColumn = columnEnds.findIndex((end) => block.start >= end);
+      const column = reusableColumn >= 0 ? reusableColumn : columnEnds.length;
+      block.column = column;
+      columnEnds[column] = block.end;
+    });
+    const totalColumns = Math.max(1, columnEnds.length);
+    group.forEach((block) => {
+      block.totalColumns = totalColumns;
+    });
+  };
+
+  let group: CalendarTimelineBlock[] = [];
+  let groupEnd = -1;
+  taskBlocks.forEach((block) => {
+    if (group.length === 0 || block.start < groupEnd) {
+      group.push(block);
+      groupEnd = Math.max(groupEnd, block.end);
+      return;
+    }
+    layoutGroup(group);
+    group = [block];
+    groupEnd = block.end;
+  });
+  if (group.length > 0) layoutGroup(group);
+
+  return laidOut;
+}
+
+function resolveTimelineTaskColor(item: WorkloadTimelineItem) {
+  const areaColor = item.work_areas?.find((area) => area.color)?.color;
+  return areaColor ?? item.color ?? null;
+}
+
+function isTimelineTaskPriority(item: WorkloadTimelineItem) {
+  const task = resolveTimelineTask(item);
+  return !!task?.is_priority;
+}
+
+function resolveTimelineTask(item: WorkloadTimelineItem) {
+  return (item as { task?: (WorkItem & { client?: { commercial_name?: string | null; name?: string | null } | null }) | null }).task ?? null;
+}
+
+function resolveTimelineScheduleState(item: WorkloadTimelineItem): WorkItemScheduleState | null {
+  return resolveTimelineTask(item)?.schedule_state ?? item.schedule_state ?? null;
+}
+
+function resolveTimelineTaskTitle(item: WorkloadTimelineItem) {
+  const task = resolveTimelineTask(item);
+  return task?.title ?? item.title;
+}
+
+function resolveTimelineClientLabel(item: WorkloadTimelineItem) {
+  const task = resolveTimelineTask(item);
+  const client = task?.client ?? null;
+  return client?.commercial_name || client?.name || item.client_name || "Senza cliente";
+}
+
+function resolveWorkItemClientLabel(task: WorkItem | null | undefined, fallback?: string | null) {
+  const client = (task as (WorkItem & { client?: { commercial_name?: string | null; name?: string | null } | null }) | null | undefined)?.client ?? null;
+  return client?.commercial_name || client?.name || fallback || "Senza cliente";
+}
+
+function resolveTimelineEstimatedHours(item: WorkloadTimelineItem) {
+  const task = resolveTimelineTask(item);
+  return task?.estimated_hours ?? item.estimated_hours ?? null;
+}
+
+function resolveTimelineEffectiveHours(item: WorkloadTimelineItem) {
+  const state = resolveTimelineScheduleState(item);
+  if (typeof state?.effective_load_hours === "number") return state.effective_load_hours;
+  if (item.affects_daily_load === false) return 0;
+  return item.effective_load_hours ?? item.estimated_hours ?? 0;
+}
+
+function resolveTimelineEffectiveWeight(item: WorkloadTimelineItem) {
+  const state = resolveTimelineScheduleState(item);
+  return state?.effective_load_weight_factor ?? item.load_weight_factor ?? 1;
+}
+
+function isTimelineNonDeferrable(item: WorkloadTimelineItem) {
+  return !!resolveTimelineTask(item)?.is_deadline_locked;
+}
+
+function calendarConflictClass(conflict: WorkloadCalendarConflict) {
+  if (conflict.severity === "danger") return "border-danger/35 bg-danger/10 text-danger";
+  if (conflict.severity === "warning") return "border-warning/35 bg-warning/10 text-warning";
+  return "border-info/30 bg-info/10 text-info";
+}
+
+function calendarConflictIcon(conflict: WorkloadCalendarConflict) {
+  if (conflict.severity === "danger") return "alert-triangle" as const;
+  if (conflict.severity === "warning") return "alert-triangle" as const;
+  return "info" as const;
 }
 
 function extractCalendarOperators(groups: WorkloadGroupedByAreaAndDayResponse | null): WorkloadUserByDay[] {
@@ -291,6 +482,11 @@ export function WorkloadPage() {
   const toast = useToast();
   const { user, permissions } = useAuth();
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
+  const toastRef = useRef(toast);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const [rangeMode, setRangeMode] = useState<RangeMode>("week");
   const [anchorDate, setAnchorDate] = useState(getTodayDate());
@@ -320,7 +516,7 @@ export function WorkloadPage() {
 
   const [newWorkModalOpen, setNewWorkModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
-  const [quickAdd, setQuickAdd] = useState<{ day: string; userId: number } | null>(null);
+  const [quickAdd, setQuickAdd] = useState<{ day: string; userId: number; startTime?: string; estimatedHours?: number } | null>(null);
   const [openingEditTaskId, setOpeningEditTaskId] = useState<number | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [dragSourceAssigneeId, setDragSourceAssigneeId] = useState<number | null | undefined>(undefined);
@@ -330,31 +526,120 @@ export function WorkloadPage() {
   const moveInFlightRef = useRef(false);
   const completeScrollRef = useRef<HTMLDivElement | null>(null);
   const dropHoverRef = useRef<{ key: string | null; sinceMs: number }>({ key: null, sinceMs: 0 });
+  const calendarScrollRef = useRef<HTMLDivElement | null>(null);
+  const calendarInitialScrollKeyRef = useRef<string | null>(null);
   const [unassignedOpen, setUnassignedOpen] = useState(false);
-  const [calendarOperatorId, setCalendarOperatorId] = useState<number | null>(null);
+  // Operatori selezionati nel calendario: 1 → vista singola (com'era), >1 → colonne affiancate.
+  const [calendarOperatorIds, setCalendarOperatorIds] = useState<number[]>([]);
+  const calendarOperatorId = calendarOperatorIds[0] ?? null; // operatore primario (vista singola)
+  // Bump per forzare il refetch del calendario multi-operatore dopo modifiche esterne (es. nuova task).
+  const [multiReloadToken, setMultiReloadToken] = useState(0);
   const [calendarData, setCalendarData] = useState<WorkloadUserCalendarDayResponse | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [calendarDropPreviewMinutes, setCalendarDropPreviewMinutes] = useState<number | null>(null);
+  const [calendarCreatePreview, setCalendarCreatePreview] = useState<CalendarCreatePreview | null>(null);
+  const [calendarResizeState, setCalendarResizeState] = useState<CalendarResizeState | null>(null);
+  const [calendarTaskUiState, setCalendarTaskUiState] = useState<Record<number, "saving" | "exiting">>({});
+  const [calendarConflictModal, setCalendarConflictModal] = useState<{ message: string; conflicts: WorkItemOverlapConflict[] } | null>(null);
+  const [calendarConflictsModalOpen, setCalendarConflictsModalOpen] = useState(false);
+  const [conflictsModalTab, setConflictsModalTab] = useState<"conflitti" | "arretrate">("conflitti");
+  const [reschedulingTaskId, setReschedulingTaskId] = useState<number | null>(null);
   const calendarRequestSeqRef = useRef(0);
+  const calendarCreateDragStartRef = useRef<number | null>(null);
+  // ── Swap posizioni via drag-and-drop (rilascio di una task sopra un'altra) ──────
+  const { preview: previewSwapApi, apply: applySwapApi, error: swapError } = useWorkItemSwap();
+  const [swapPreview, setSwapPreview] = useState<{ targetIds: number[]; canSwap: boolean | null } | null>(null);
+  const swapPreviewSeqRef = useRef(0);
+  const swapHoverKeyRef = useRef<string | null>(null);
+  // Spring-open: trascinando una task sopra un box-giorno della strip, dopo una breve attesa
+  // il calendario apre quel giorno così la si può rilasciare in uno slot orario (stile AD4).
+  const daySpringTimerRef = useRef<number | null>(null);
+  const daySpringDayRef = useRef<string | null>(null);
+  const [companyOpeningTime, setCompanyOpeningTime] = useState<string | null>(null);
+  const [companyClosingTime, setCompanyClosingTime] = useState<string | null>(null);
+  // Minuti dall'inizio del giorno per la linea "ora corrente"; aggiornato ogni minuto.
+  const [nowMinutes, setNowMinutes] = useState(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  });
 
-  // ── Workload Engine State ──────────────────────────────────────────────────
-  const [engineRunning, setEngineRunning] = useState(false);
-  const [engineResult, setEngineResult] = useState<WorkloadEngineRunResponse | null>(null);
-  const [engineError, setEngineError] = useState<string | null>(null);
-  const [engineModalOpen, setEngineModalOpen] = useState(false);
-
-  // ── Allocation Grid State ──────────────────────────────────────────────────
-  const [allocationGrid, setAllocationGrid] = useState<WorkloadAllocationGrid | null>(null);
-  const [allocationGridLoading, setAllocationGridLoading] = useState(false);
-  const [allocationGridError, setAllocationGridError] = useState<string | null>(null);
-  const [allocationGridView, setAllocationGridView] = useState<"globale" | "operatore" | "area">("globale");
+  // ── Arretrati (overdue tasks) per l'operatore selezionato in calendario ──────
+  const {
+    data: overdueData,
+    isLoading: overdueLoading,
+    error: overdueError,
+  } = useOverdueTasks(
+    {
+      company_id: selectedCompanyId ?? undefined,
+      user_id: calendarOperatorId ?? undefined,
+      days: 7,
+    },
+    { enabled: calendarConflictsModalOpen && !!selectedCompanyId && !!calendarOperatorId }
+  );
 
   const canManageProfiles = !!permissions?.is_admin;
+  // Vista ristretta (solo calendario, solo se stessi) per i soli operatori.
+  // Admin e Project Manager vedono/gestiscono tutti gli operatori e tutte le viste.
+  const isOperatorView = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
 
   const visibleDays = useMemo(() => getVisibleDays(rangeMode, anchorDate, weekOffset), [anchorDate, rangeMode, weekOffset]);
   const calendarOperators = useMemo(() => extractCalendarOperators(heatmap), [heatmap]);
   const summaryByUserId = useMemo(() => new Map(summary.map((item) => [item.user_id, item])), [summary]);
+  // Statistiche per-giorno (ore, n. task, arretrate) dell'operatore del calendario, ricavate dalla
+  // heatmap raggruppata già caricata: ogni task porta schedule_state.delay_code → "arretrata".
+  const calendarDayStats = useMemo(() => {
+    const map = new Map<string, { hours: number; tasks: number; overdue: number }>();
+    if (!heatmap || calendarOperatorId == null) return map;
+    const seenByDate = new Map<string, Set<number>>();
+    for (const group of heatmap.groups) {
+      for (const operator of group.users) {
+        if (operator.user_id !== calendarOperatorId) continue;
+        for (const cell of operator.days) {
+          let entry = map.get(cell.date);
+          if (!entry) {
+            entry = { hours: 0, tasks: 0, overdue: 0 };
+            map.set(cell.date, entry);
+          }
+          let seen = seenByDate.get(cell.date);
+          if (!seen) {
+            seen = new Set<number>();
+            seenByDate.set(cell.date, seen);
+          }
+          for (const task of cell.tasks ?? []) {
+            if (seen.has(task.work_item_id)) continue;
+            seen.add(task.work_item_id);
+            entry.tasks += 1;
+            entry.hours += task.effective_load_hours ?? 0;
+            if (task.schedule_state?.delay_code) entry.overdue += 1;
+          }
+        }
+      }
+    }
+    return map;
+  }, [heatmap, calendarOperatorId]);
+  const calendarBounds = useMemo(() => {
+    const openingMinutes = hhmmToMinutes(companyOpeningTime);
+    const closingMinutes = hhmmToMinutes(companyClosingTime);
+    const hasCompanyHours = openingMinutes != null && closingMinutes != null && closingMinutes > openingMinutes;
+    const rawStartMinutes = hasCompanyHours ? Math.max(0, openingMinutes - 60) : 0;
+    const rawEndMinutes = hasCompanyHours ? Math.min(24 * 60, closingMinutes + 60) : 24 * 60;
+    // Allinea sempre la griglia a orari "tondi" (08:00, 09:00, ...)
+    const dayStartMinutes = Math.floor(rawStartMinutes / 60) * 60;
+    const dayEndMinutes = Math.min(24 * 60, Math.ceil(rawEndMinutes / 60) * 60);
+    const totalMinutes = Math.max(60, dayEndMinutes - dayStartMinutes);
+    const hourSlots = Math.ceil(totalMinutes / 60);
+    const halfSlots = Math.ceil(totalMinutes / CALENDAR_SLOT_MINUTES);
+    return {
+      dayStartMinutes,
+      dayEndMinutes,
+      totalMinutes,
+      hourSlots,
+      halfSlots,
+      openingMinutes,
+      closingMinutes,
+    };
+  }, [companyClosingTime, companyOpeningTime]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -362,6 +647,16 @@ export function WorkloadPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Aggiorna la posizione della linea "ora corrente" ogni minuto.
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setNowMinutes(now.getHours() * 60 + now.getMinutes());
+    };
+    const timer = setInterval(tick, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (visibleDays.length === 0) return;
@@ -376,6 +671,13 @@ export function WorkloadPage() {
     }
   }, [rangeMode]);
 
+  // L'operatore può vedere solo il calendario: forza la vista e blocca gli altri tab.
+  useEffect(() => {
+    if (isOperatorView && viewMode !== "calendar") {
+      setViewMode("calendar");
+    }
+  }, [isOperatorView, viewMode]);
+
   useEffect(() => {
     if (viewMode !== "calendar") return;
     if (!calendarData?.selected_date) return;
@@ -384,21 +686,32 @@ export function WorkloadPage() {
 
   useEffect(() => {
     if (viewMode !== "calendar") return;
+
+    // Operatore: vista bloccata su se stesso, indipendentemente dagli operatori in heatmap.
+    if (isOperatorView) {
+      if (user?.id != null && (calendarOperatorIds.length !== 1 || calendarOperatorIds[0] !== user.id)) {
+        setCalendarOperatorIds([user.id]);
+      }
+      return;
+    }
+
     if (calendarOperators.length === 0) {
-      setCalendarOperatorId(null);
+      if (calendarOperatorIds.length > 0) setCalendarOperatorIds([]);
       setCalendarData(null);
       return;
     }
 
-    if (calendarOperatorId != null && calendarOperators.some((op) => op.user_id === calendarOperatorId)) {
-      return;
+    // Mantieni solo gli operatori ancora presenti; se nessuno valido, parti da quello preferito.
+    const valid = calendarOperatorIds.filter((id) => calendarOperators.some((op) => op.user_id === id));
+    if (valid.length === 0) {
+      const preferred = user?.id != null
+        ? calendarOperators.find((op) => op.user_id === user.id)
+        : null;
+      setCalendarOperatorIds([(preferred ?? calendarOperators[0]).user_id]);
+    } else if (valid.length !== calendarOperatorIds.length) {
+      setCalendarOperatorIds(valid);
     }
-
-    const preferred = user?.id != null
-      ? calendarOperators.find((op) => op.user_id === user.id)
-      : null;
-    setCalendarOperatorId((preferred ?? calendarOperators[0]).user_id);
-  }, [calendarOperatorId, calendarOperators, user?.id, viewMode]);
+  }, [calendarOperatorIds, calendarOperators, isOperatorView, user?.id, viewMode]);
 
   const reloadCalendar = useCallback(async () => {
     if (viewMode !== "calendar") return;
@@ -417,6 +730,8 @@ export function WorkloadPage() {
         to_date: rangeMode === "custom" ? customToDate : undefined,
         week_offset: rangeMode === "week" ? weekOffset : undefined,
         company_id: selectedCompanyId,
+        // Backend support can expose completed tasks in timeline without UI changes.
+        include_completed: true,
       });
 
       if (requestSeq !== calendarRequestSeqRef.current) return;
@@ -452,7 +767,7 @@ export function WorkloadPage() {
         }
 
         const startMinutes = hhmmToMinutes(startTime) ?? 0;
-        const weightedHours = item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0;
+        const weightedHours = resolveTimelineEffectiveHours(item);
         const estimatedMinutes = Math.max(CALENDAR_SLOT_MINUTES, Math.round(weightedHours * 60));
         const endMinutes = Math.min((24 * 60) - 1, startMinutes + estimatedMinutes);
 
@@ -493,6 +808,29 @@ export function WorkloadPage() {
     weekOffset,
     reloadCalendar,
   ]);
+
+  useEffect(() => {
+    if (viewMode !== "calendar") return;
+    if (!calendarData) return;
+    const container = calendarScrollRef.current;
+    if (!container) return;
+
+    const dayKey = `${calendarData.user_id}-${calendarData.selected_date}`;
+    if (calendarInitialScrollKeyRef.current === dayKey) return;
+
+    const now = new Date();
+    const totalMinutes = now.getHours() * 60 + now.getMinutes();
+    const roundedDownMinutes = Math.floor(totalMinutes / CALENDAR_SLOT_MINUTES) * CALENDAR_SLOT_MINUTES;
+    const boundedMinutes = Math.max(
+      calendarBounds.dayStartMinutes,
+      Math.min(calendarBounds.dayEndMinutes - CALENDAR_SLOT_MINUTES, roundedDownMinutes)
+    );
+    const targetTop = ((boundedMinutes - calendarBounds.dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+
+    container.scrollTop = Math.max(0, Math.min(maxScrollTop, targetTop - CALENDAR_INITIAL_SCROLL_OFFSET_PX));
+    calendarInitialScrollKeyRef.current = dayKey;
+  }, [calendarBounds.dayEndMinutes, calendarBounds.dayStartMinutes, calendarData, viewMode]);
 
   const loadMain = useCallback(async (options?: { silent?: boolean }) => {
     const silent = !!options?.silent;
@@ -548,7 +886,7 @@ export function WorkloadPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Errore nel caricamento workload";
       setError(message);
-      toast.error(message);
+      toastRef.current.error(message);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -561,7 +899,6 @@ export function WorkloadPage() {
     selectedCompanyId,
     sortBy,
     sortDir,
-    toast,
     viewMode,
     weekOffset,
   ]);
@@ -582,9 +919,9 @@ export function WorkloadPage() {
       setRoles(rolesData);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Errore nel caricamento profili";
-      toast.error(message);
+      toastRef.current.error(message);
     }
-  }, [selectedCompanyId, toast]);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     loadMain();
@@ -593,6 +930,24 @@ export function WorkloadPage() {
   useEffect(() => {
     loadProfiles();
   }, [loadProfiles]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setCompanyOpeningTime(null);
+      setCompanyClosingTime(null);
+      return;
+    }
+
+    getCompanyApi(selectedCompanyId)
+      .then((company) => {
+        setCompanyOpeningTime(company.opening_time ?? null);
+        setCompanyClosingTime(company.closing_time ?? null);
+      })
+      .catch(() => {
+        setCompanyOpeningTime(null);
+        setCompanyClosingTime(null);
+      });
+  }, [selectedCompanyId]);
 
   const currentRangeLabel = useMemo(() => {
     if (rangeMode === "custom") {
@@ -648,156 +1003,6 @@ export function WorkloadPage() {
     }
   };
 
-  const resolvePlanningRange = useCallback((): { planningStart: string; planningEnd: string } => {
-    if (rangeMode === "day") {
-      return { planningStart: anchorDate, planningEnd: anchorDate };
-    }
-
-    if (rangeMode === "week") {
-      const shiftedAnchor = shiftIsoByDays(anchorDate, weekOffset * 7);
-      const planningStart = startOfIsoWeek(shiftedAnchor);
-      return { planningStart, planningEnd: shiftIsoByDays(planningStart, 6) };
-    }
-
-    if (rangeMode === "month") {
-      const date = dateFromIso(anchorDate);
-      const year = date.getFullYear();
-      const month = date.getMonth();
-      return {
-        planningStart: isoFromDate(new Date(year, month, 1)),
-        planningEnd: isoFromDate(new Date(year, month + 1, 0)),
-      };
-    }
-
-    return { planningStart: customFromDate, planningEnd: customToDate };
-  }, [anchorDate, customFromDate, customToDate, rangeMode, weekOffset]);
-
-  // ── Workload Engine Handlers ───────────────────────────────────────────────
-  const handlePreviewWorkload = useCallback(async () => {
-    if (!selectedCompanyId) {
-      toast.error("Seleziona un'azienda");
-      return;
-    }
-
-    setEngineRunning(true);
-    setEngineError(null);
-    setEngineResult(null);
-
-    try {
-      const { planningStart, planningEnd } = resolvePlanningRange();
-      const result = await previewWorkloadEngineRunApi({
-        company_id: selectedCompanyId,
-        planning_start_date: planningStart,
-        planning_end_date: planningEnd,
-      });
-
-      setEngineResult(result);
-      setEngineModalOpen(true);
-
-      toast.success(
-        `Preview: ${result.allocated_tasks}/${result.total_tasks} task allocate, ${result.total_overload_hours.toFixed(1)}h di overload`
-      );
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Errore sconosciuto";
-      setEngineError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setEngineRunning(false);
-    }
-  }, [resolvePlanningRange, selectedCompanyId, toast]);
-
-  const handleApplyWorkload = useCallback(async () => {
-    if (!selectedCompanyId || !canManageProfiles) {
-      toast.error(canManageProfiles ? "Seleziona un'azienda" : "Solo admin può applicare");
-      return;
-    }
-
-    setEngineRunning(true);
-    setEngineError(null);
-
-    try {
-      const { planningStart, planningEnd } = resolvePlanningRange();
-      const result = await applyWorkloadEngineRunApi({
-        company_id: selectedCompanyId,
-        planning_start_date: planningStart,
-        planning_end_date: planningEnd,
-      });
-
-      setEngineResult(result);
-
-      const [summaryData, grouped] = await Promise.all([
-        listWorkloadUsersApi({
-          range_mode: rangeMode === "custom" ? "custom" : rangeMode,
-          from_date: planningStart,
-          to_date: planningEnd,
-          company_id: selectedCompanyId,
-          q: searchQuery || undefined,
-          sort_by: sortBy,
-          sort_dir: sortDir,
-          include_tasks: viewMode === "accordion",
-        }),
-        listWorkloadUsersGroupedByAreaAndDayApi({
-          range_mode: rangeMode === "custom" ? "custom" : rangeMode,
-          from_date: planningStart,
-          to_date: planningEnd,
-          company_id: selectedCompanyId,
-          q: searchQuery || undefined,
-          sort_by: sortBy,
-          sort_dir: sortDir,
-          include_tasks: true,
-          include_task_details: true,
-        }),
-      ]);
-
-      setSummary(summaryData);
-      setHeatmap(grouped);
-
-      // Fetch allocation grid with the run_id from this apply so columns are precise
-      try {
-        const grid = await getWorkloadAllocationGridApi({
-          company_id: selectedCompanyId,
-          from_date: planningStart,
-          to_date: planningEnd,
-          run_id: result.run_id,
-        });
-        setAllocationGrid(grid);
-        setAllocationGridError(null);
-      } catch {
-        // fail silently – user can refresh manually in griglia view
-      }
-
-      toast.success(
-        `Workload applicato: ${result.allocated_tasks}/${result.total_tasks} task, ${result.total_overload_hours.toFixed(1)}h overload persistito`
-      );
-      setEngineModalOpen(false);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Errore sconosciuto";
-      setEngineError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setEngineRunning(false);
-    }
-  }, [
-    canManageProfiles,
-    rangeMode,
-    resolvePlanningRange,
-    searchQuery,
-    selectedCompanyId,
-    sortBy,
-    sortDir,
-    toast,
-    viewMode,
-  ]);
-
-  const shiftCalendarOperator = useCallback((direction: -1 | 1) => {
-    if (calendarOperators.length === 0) return;
-    const fallbackId = calendarOperators[0].user_id;
-    const currentId = calendarOperatorId ?? fallbackId;
-    const currentIndex = Math.max(0, calendarOperators.findIndex((op) => op.user_id === currentId));
-    const nextIndex = (currentIndex + direction + calendarOperators.length) % calendarOperators.length;
-    setCalendarOperatorId(calendarOperators[nextIndex].user_id);
-  }, [calendarOperatorId, calendarOperators]);
-
   const buildCalendarDayMovePayload = useCallback((day: string): MoveWorkItemPayload => {
     const fallbackOperatorId = calendarOperatorId ?? calendarData?.user_id ?? null;
     if (dragSourceAssigneeId === null) {
@@ -849,11 +1054,242 @@ export function WorkloadPage() {
     }
   };
 
+  const isCalendarTaskDone = (item: WorkloadTimelineItem) =>
+    item.kind === "task" && (item.status === "completed" || item.status === "done");
+
+  const isCalendarTaskActionClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    return !!target?.closest('[data-cal-complete-btn="true"]');
+  };
+
+  const getCalendarTaskUiState = (workItemId?: number | null) =>
+    typeof workItemId === "number" ? calendarTaskUiState[workItemId] : undefined;
+
+  const toggleCalendarTaskCompleted = useCallback(async (item: WorkloadTimelineItem) => {
+    if (item.kind !== "task" || !item.work_item_id) return;
+
+    const workItemId = item.work_item_id;
+    const isDone = item.status === "completed" || item.status === "done";
+    const nextStatus = isDone ? "planned" : "completed";
+
+    setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "saving" }));
+
+    try {
+      await updateWorkItemApi(workItemId, {
+        status: nextStatus,
+        is_completed: !isDone,
+      });
+
+      if (!isDone) {
+        setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "exiting" }));
+        // Backend calendar currently filters completed tasks: animate out then remove locally with a single timeline mutation.
+        window.setTimeout(() => {
+          setCalendarData((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              timeline: current.timeline.filter((timelineItem) => !(timelineItem.kind === "task" && timelineItem.work_item_id === workItemId)),
+            };
+          });
+          setCalendarTaskUiState((current) => {
+            const next = { ...current };
+            delete next[workItemId];
+            return next;
+          });
+        }, 320);
+      } else {
+        setCalendarData((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            timeline: current.timeline.map((timelineItem) => {
+              if (timelineItem.kind !== "task" || timelineItem.work_item_id !== workItemId) return timelineItem;
+              return { ...timelineItem, status: nextStatus };
+            }),
+          };
+        });
+        setCalendarTaskUiState((current) => {
+          const next = { ...current };
+          delete next[workItemId];
+          return next;
+        });
+      }
+
+      toast.success(isDone ? "Task riaperta" : "Task completata");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Impossibile aggiornare la task";
+      toast.error(message);
+      setCalendarTaskUiState((current) => {
+        const next = { ...current };
+        delete next[workItemId];
+        return next;
+      });
+    }
+  }, [toast]);
+
+  const completeOverCapacityTask = useCallback(async (workItemId: number) => {
+    setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "saving" }));
+    try {
+      await updateWorkItemApi(workItemId, {
+        status: "completed",
+        is_completed: true,
+      });
+      setCalendarData((current) => {
+        if (!current) return current;
+        const currentOverCapacity = current.over_capacity;
+        return {
+          ...current,
+          timeline: current.timeline.filter((item) => !(item.kind === "task" && item.work_item_id === workItemId)),
+          over_capacity: currentOverCapacity ? {
+            ...currentOverCapacity,
+            tasks: currentOverCapacity.tasks.filter((task) => task.work_item_id !== workItemId),
+            total_tasks_count: Math.max(0, currentOverCapacity.total_tasks_count - 1),
+          } : currentOverCapacity,
+        };
+      });
+      await reloadCalendar();
+      toast.success("Task completata");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile completare la task");
+    } finally {
+      setCalendarTaskUiState((current) => {
+        const next = { ...current };
+        delete next[workItemId];
+        return next;
+      });
+    }
+  }, [reloadCalendar, toast]);
+
+  const handleOverlapApiError = useCallback((err: unknown, fallbackMessage: string) => {
+    if (isWorkItemOverlapApiError(err)) {
+      setCalendarConflictModal({ message: err.backendMessage, conflicts: err.conflicts });
+      toast.error(err.backendMessage);
+      return true;
+    }
+    toast.error(err instanceof Error ? err.message : fallbackMessage);
+    return false;
+  }, [toast]);
+
+  const rescheduleTaskToNextAvailable = useCallback(async (workItemId: number) => {
+    const candidateTask =
+      calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === workItemId)?.task ??
+      calendarData?.over_capacity?.tasks.find((task) => task.work_item_id === workItemId)?.task ??
+      calendarData?.conflicts?.flatMap((conflict) => conflict.tasks).find((task) => task.id === workItemId) ??
+      null;
+
+    if (!candidateTask?.deadline_date) {
+      toast.error("Serve una scadenza per riprogrammare automaticamente la task");
+      return;
+    }
+
+    setReschedulingTaskId(workItemId);
+    try {
+      await rescheduleNextAvailableWorkItemApi(workItemId, {
+        from_date: calendarData?.selected_date ?? selectedDay,
+        slot_minutes: CALENDAR_CREATE_SLOT_MINUTES,
+      });
+      await loadMain({ silent: true });
+      await reloadCalendar();
+      toast.success("Task riprogrammata al primo slot libero");
+    } catch (err) {
+      handleOverlapApiError(err, "Impossibile riprogrammare la task");
+    } finally {
+      setReschedulingTaskId(null);
+    }
+  }, [calendarData, handleOverlapApiError, loadMain, reloadCalendar, selectedDay, toast]);
+
+  const saveCalendarResize = useCallback(async (resizeState: CalendarResizeState) => {
+    const durationHours = Math.max(CALENDAR_CREATE_SLOT_MINUTES / 60, (resizeState.currentEndMinutes - resizeState.startMinutes) / 60);
+    const endTime = minutesToHHMM(resizeState.currentEndMinutes);
+    const previousCalendarData = calendarData;
+    setCalendarTaskUiState((current) => ({ ...current, [resizeState.workItemId]: "saving" }));
+
+    setCalendarData((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        timeline: current.timeline.map((item) => {
+          if (item.kind !== "task" || item.work_item_id !== resizeState.workItemId) return item;
+          return {
+            ...item,
+            end_time: endTime,
+            estimated_hours: durationHours,
+            effective_load_hours: item.affects_daily_load === false ? 0 : durationHours,
+            task: item.task ? {
+              ...item.task,
+              estimated_hours: durationHours,
+              schedule_state: item.task.schedule_state ? {
+                ...item.task.schedule_state,
+                effective_load_hours: item.affects_daily_load === false ? 0 : durationHours,
+              } : item.task.schedule_state,
+            } : item.task,
+          };
+        }),
+      };
+    });
+
+    try {
+      await updateWorkItemApi(resizeState.workItemId, { estimated_hours: durationHours });
+      await reloadCalendar();
+      toast.success(`Durata aggiornata: ${formatHours(durationHours)}`);
+    } catch (err) {
+      setCalendarData(previousCalendarData);
+      await reloadCalendar();
+      handleOverlapApiError(err, "Impossibile ridimensionare la task");
+    } finally {
+      setCalendarTaskUiState((current) => {
+        const next = { ...current };
+        delete next[resizeState.workItemId];
+        return next;
+      });
+    }
+  }, [calendarData, handleOverlapApiError, reloadCalendar, toast]);
+
+  useEffect(() => {
+    if (!calendarResizeState) return;
+
+    const onMouseMove = (event: globalThis.MouseEvent) => {
+      const deltaMinutes = ((event.clientY - calendarResizeState.startClientY) / CALENDAR_HOUR_HEIGHT_PX) * 60;
+      const nextEndMinutes = snapBoundaryMinutesInRange(
+        calendarResizeState.originalEndMinutes + deltaMinutes,
+        calendarResizeState.minEndMinutes,
+        calendarResizeState.maxEndMinutes,
+        CALENDAR_CREATE_SLOT_MINUTES
+      );
+      setCalendarResizeState((current) => current ? { ...current, currentEndMinutes: nextEndMinutes } : current);
+    };
+
+    const onMouseUp = () => {
+      setCalendarResizeState(null);
+      if (calendarResizeState.currentEndMinutes !== calendarResizeState.originalEndMinutes) {
+        void saveCalendarResize(calendarResizeState);
+      }
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp, { once: true });
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [calendarResizeState, saveCalendarResize]);
+
   const onTaskDragStart = (event: DragEvent<HTMLElement>, workItemId: number, sourceAssigneeId?: number | null) => {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", String(workItemId));
+    calendarCreateDragStartRef.current = null;
+    setCalendarCreatePreview(null);
+    setCalendarResizeState(null);
     setDraggingTaskId(workItemId);
     setDragSourceAssigneeId(sourceAssigneeId);
+  };
+
+  const clearDaySpring = () => {
+    if (daySpringTimerRef.current != null) {
+      window.clearTimeout(daySpringTimerRef.current);
+      daySpringTimerRef.current = null;
+    }
+    daySpringDayRef.current = null;
   };
 
   const onTaskDragEnd = () => {
@@ -862,7 +1298,12 @@ export function WorkloadPage() {
     setActiveDropTarget(null);
     setHotDropTarget(null);
     setCalendarDropPreviewMinutes(null);
+    calendarCreateDragStartRef.current = null;
+    setCalendarCreatePreview(null);
+    setCalendarResizeState(null);
     dropHoverRef.current = { key: null, sinceMs: 0 };
+    clearSwapPreview();
+    clearDaySpring();
   };
 
   const autoScrollCompleteCalendar = (clientX: number) => {
@@ -922,6 +1363,19 @@ export function WorkloadPage() {
     setCalendarDropPreviewMinutes(null);
     dropHoverRef.current = { key: null, sinceMs: 0 };
     if (!taskId) return;
+    const draggedCalendarItem = calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === taskId) ?? null;
+    const draggedTask = draggedCalendarItem ? resolveTimelineTask(draggedCalendarItem) : null;
+    if (
+      draggedTask?.is_deadline_locked &&
+      payload.work_date &&
+      draggedTask.deadline_date &&
+      payload.work_date > draggedTask.deadline_date
+    ) {
+      toast.error("Task non derogabile: non puoi spostarla oltre la scadenza");
+      setDraggingTaskId(null);
+      setDragSourceAssigneeId(undefined);
+      return;
+    }
     if (
       payload.assignee_id == null &&
       payload.assignee_ids == null &&
@@ -933,16 +1387,18 @@ export function WorkloadPage() {
       return;
     }
 
+    const previousCalendarData = calendarData;
     try {
       moveInFlightRef.current = true;
       setMovingTaskId(taskId);
-      await moveWorkItemApi(taskId, payload);
       patchCalendarTaskLocally(taskId, payload);
+      await moveWorkItemApi(taskId, payload);
       await loadMain({ silent: true });
       await reloadCalendar();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossibile spostare la task";
-      toast.error(message);
+      setCalendarData(previousCalendarData);
+      await reloadCalendar();
+      handleOverlapApiError(err, "Impossibile spostare la task");
     } finally {
       moveInFlightRef.current = false;
       setMovingTaskId(null);
@@ -950,7 +1406,57 @@ export function WorkloadPage() {
       setDragSourceAssigneeId(undefined);
       setActiveDropTarget((current) => (current === dropTargetKey ? null : current));
     }
-  }, [loadMain, patchCalendarTaskLocally, reloadCalendar, toast]);
+  }, [calendarData, handleOverlapApiError, loadMain, patchCalendarTaskLocally, reloadCalendar, toast]);
+
+  const clearSwapPreview = useCallback(() => {
+    swapPreviewSeqRef.current += 1;
+    swapHoverKeyRef.current = null;
+    setSwapPreview(null);
+  }, []);
+
+  // Chiede l'anteprima dello scambio solo quando il gruppo target sotto il cursore cambia.
+  const requestSwapPreview = useCallback(async (sourceId: number, targetIds: number[]) => {
+    if (targetIds.length === 0) {
+      clearSwapPreview();
+      return;
+    }
+    const key = `${sourceId}->${[...targetIds].sort((a, b) => a - b).join(",")}`;
+    if (swapHoverKeyRef.current === key) return;
+    swapHoverKeyRef.current = key;
+    setSwapPreview({ targetIds, canSwap: null });
+
+    const seq = ++swapPreviewSeqRef.current;
+    const res = await previewSwapApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
+    if (seq !== swapPreviewSeqRef.current) return;
+    setSwapPreview({ targetIds, canSwap: res?.can_swap ?? false });
+  }, [clearSwapPreview, previewSwapApi]);
+
+  const handleSwapDrop = useCallback(async (sourceId: number, targetIds: number[]) => {
+    clearSwapPreview();
+    setDraggingTaskId(null);
+    setDragSourceAssigneeId(undefined);
+    if (targetIds.length === 0 || targetIds.includes(sourceId)) return;
+    if (moveInFlightRef.current) return;
+
+    try {
+      moveInFlightRef.current = true;
+      setMovingTaskId(sourceId);
+      const res = await applySwapApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
+      if (res?.can_swap) {
+        await loadMain({ silent: true });
+        await reloadCalendar();
+        toast.success("Posizioni scambiate");
+      }
+      // In caso di can_swap=false / errori, il messaggio backend è mostrato dall'effetto su swapError.
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingTaskId(null);
+    }
+  }, [applySwapApi, clearSwapPreview, loadMain, reloadCalendar, toast]);
+
+  useEffect(() => {
+    if (swapError) toast.error(swapError);
+  }, [swapError, toast]);
 
   const buildAccordionDayMovePayload = (day: string): MoveWorkItemPayload => {
     if (dragSourceAssigneeId === null) {
@@ -1721,473 +2227,6 @@ export function WorkloadPage() {
     );
   };
 
-  // ── Allocation Grid helpers ────────────────────────────────────────────────
-
-  const loadAllocationGrid = useCallback(async (runId?: string | null) => {
-    if (!selectedCompanyId) return;
-    const { planningStart, planningEnd } = resolvePlanningRange();
-    setAllocationGridLoading(true);
-    setAllocationGridError(null);
-    try {
-      const grid = await getWorkloadAllocationGridApi({
-        company_id: selectedCompanyId,
-        from_date: planningStart,
-        to_date: planningEnd,
-        run_id: runId ?? undefined,
-      });
-      setAllocationGrid(grid);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Errore griglia allocazioni";
-      setAllocationGridError(msg);
-      toast.error(msg);
-    } finally {
-      setAllocationGridLoading(false);
-    }
-  }, [resolvePlanningRange, selectedCompanyId, toast]);
-
-  // Auto-load when switching to griglia view
-  useEffect(() => {
-    if (viewMode === "griglia" && selectedCompanyId) {
-      void loadAllocationGrid(allocationGrid?.last_run_id);
-    }
-  }, [viewMode, selectedCompanyId, rangeMode]);
-
-  const dayStatusLabel = (status: WorkloadDayStatus) => {
-    if (status === "empty") return "text-muted dark:text-muted-dark";
-    if (status === "ok") return "text-green dark:text-green-light";
-    if (status === "warning") return "text-warning dark:text-warning-light";
-    return "text-danger dark:text-danger-light";
-  };
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // ALLOCATION GRID VIEWS
-  // ────────────────────────────────────────────────────────────────────────────
-
-  const renderAllocationGridGlobale = () => {
-    if (!allocationGrid) return null;
-
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return {
-        bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]",
-        border: "border-[#3b6d11] dark:border-[#5a9e22]",
-        text: "text-[#3b6d11] dark:text-[#8ed44f]",
-      };
-      if (status === "at_limit") return {
-        bg: "bg-[#faeeda] dark:bg-[#3d2e10]",
-        border: "border-[#854f0b] dark:border-[#c47a1a]",
-        text: "text-[#854f0b] dark:text-[#efb44a]",
-      };
-      return {
-        bg: "bg-[#fceaeb] dark:bg-[#3d1212]",
-        border: "border-[#a32d2d] dark:border-[#cc4444]",
-        text: "text-[#a32d2d] dark:text-[#f47070]",
-      };
-    };
-
-    return (
-      <div className="overflow-x-auto pb-3">
-        <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(allocationGrid.days.length * 150, 600)}px` }}>
-          <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-          </div>
-
-          {allocationGrid.days.map((day) => {
-            const chip = formatDayChip(day.date);
-            const isToday = day.date === today;
-            let cumulativeHours = 0;
-
-            return (
-              <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                  {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                </div>
-
-                <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                  <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                  <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                  {day.day_status === "empty" && (
-                    <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                  )}
-
-                  {day.allocations.map((alloc) => {
-                    const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                    const bottomPx = hoursToY(cumulativeHours);
-                    cumulativeHours += alloc.planned_hours;
-                    const c = allocColor(alloc.allocation_status);
-
-                    return (
-                      <button
-                        key={alloc.work_item_id}
-                        type="button"
-                        onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                        title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}${alloc.conflict_code ? `\nConflitto: ${alloc.conflict_code}` : ""}`}
-                        className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                        style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                      >
-                        <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                          <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                          <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                        </div>
-                        {alloc.overload_hours > 0 && (
-                          <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                  <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                  <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                  <span className="text-[10px] tabular-nums">
-                    {day.total_planned_hours.toFixed(1)}h
-                    {day.total_overload_hours > 0 && (
-                      <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                    )}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const renderAllocationGridOperatore = () => {
-    if (!allocationGrid) return null;
-
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return { bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]", border: "border-[#3b6d11] dark:border-[#5a9e22]", text: "text-[#3b6d11] dark:text-[#8ed44f]" };
-      if (status === "at_limit") return { bg: "bg-[#faeeda] dark:bg-[#3d2e10]", border: "border-[#854f0b] dark:border-[#c47a1a]", text: "text-[#854f0b] dark:text-[#efb44a]" };
-      return { bg: "bg-[#fceaeb] dark:bg-[#3d1212]", border: "border-[#a32d2d] dark:border-[#cc4444]", text: "text-[#a32d2d] dark:text-[#f47070]" };
-    };
-
-    return (
-      <div className="flex flex-col gap-3">
-        {allocationGrid.operators.map((op) => (
-          <div key={op.user_id} className="rounded-lg border border-line dark:border-line-dark overflow-hidden">
-            <div className="flex items-center justify-between gap-3 bg-cream/40 dark:bg-[#2a2a30] px-4 py-2.5 border-b border-line dark:border-line-dark">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex flex-col min-w-0">
-                  <span className="font-semibold text-sm text-ink dark:text-paper">{op.full_name || op.username}</span>
-                  <span className="text-[11px] text-muted dark:text-muted-dark">@{op.username}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-right">
-                <span className="text-[11px]">
-                  <span className="font-semibold text-ink dark:text-paper">{op.total_planned_hours.toFixed(1)}h</span>
-                  <span className="text-muted dark:text-muted-dark"> pianificate</span>
-                </span>
-                {op.total_overload_hours > 0 && (
-                  <span className="text-[11px] text-danger">
-                    <span className="font-semibold">+{op.total_overload_hours.toFixed(1)}h</span>
-                    <span> overload</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto p-3">
-              <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(op.days.length * 150, 600)}px` }}>
-                <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-                </div>
-
-                {op.days.map((day) => {
-                  const chip = formatDayChip(day.date);
-                  const isToday = day.date === today;
-                  let cumulativeHours = 0;
-
-                  return (
-                    <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                      <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                        {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                      </div>
-
-                      <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                        <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                        <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                        {day.day_status === "empty" && (
-                          <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                        )}
-
-                        {day.allocations.map((alloc) => {
-                          const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                          const bottomPx = hoursToY(cumulativeHours);
-                          cumulativeHours += alloc.planned_hours;
-                          const c = allocColor(alloc.allocation_status);
-
-                          return (
-                            <button
-                              key={alloc.work_item_id}
-                              type="button"
-                              onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                              title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}`}
-                              className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                              style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                            >
-                              <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                                <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                                <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                              </div>
-                              {alloc.overload_hours > 0 && (
-                                <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                        <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                        <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                        <span className="text-[10px] tabular-nums">
-                          {day.total_planned_hours.toFixed(1)}h
-                          {day.total_overload_hours > 0 && (
-                            <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderAllocationGridArea = () => {
-    if (!allocationGrid) return null;
-
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return { bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]", border: "border-[#3b6d11] dark:border-[#5a9e22]", text: "text-[#3b6d11] dark:text-[#8ed44f]" };
-      if (status === "at_limit") return { bg: "bg-[#faeeda] dark:bg-[#3d2e10]", border: "border-[#854f0b] dark:border-[#c47a1a]", text: "text-[#854f0b] dark:text-[#efb44a]" };
-      return { bg: "bg-[#fceaeb] dark:bg-[#3d1212]", border: "border-[#a32d2d] dark:border-[#cc4444]", text: "text-[#a32d2d] dark:text-[#f47070]" };
-    };
-
-    return (
-      <div className="flex flex-col gap-3">
-        {allocationGrid.work_areas.map((area) => (
-          <div key={area.area_id} className="rounded-lg border border-line dark:border-line-dark overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-line dark:border-line-dark" style={{ backgroundColor: area.area_color ? `${area.area_color}15` : undefined }}>
-              <div className="flex items-center gap-2.5 min-w-0">
-                {area.area_icon && <span className="text-lg shrink-0">{area.area_icon}</span>}
-                <div className="flex flex-col min-w-0">
-                  <span className="font-semibold text-sm text-ink dark:text-paper">{area.area_name}</span>
-                  {area.area_slug && <span className="text-[11px] text-muted dark:text-muted-dark">#{area.area_slug}</span>}
-                </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-right">
-                <span className="text-[11px]">
-                  <span className="font-semibold text-ink dark:text-paper">{area.total_planned_hours.toFixed(1)}h</span>
-                  <span className="text-muted dark:text-muted-dark"> pianificate</span>
-                </span>
-                {area.total_overload_hours > 0 && (
-                  <span className="text-[11px] text-danger">
-                    <span className="font-semibold">+{area.total_overload_hours.toFixed(1)}h</span>
-                    <span> overload</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto p-3">
-              <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(area.days.length * 150, 600)}px` }}>
-                <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-                </div>
-
-                {area.days.map((day) => {
-                  const chip = formatDayChip(day.date);
-                  const isToday = day.date === today;
-                  let cumulativeHours = 0;
-
-                  return (
-                    <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                      <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                        {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                      </div>
-
-                      <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                        <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                        <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                        {day.day_status === "empty" && (
-                          <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                        )}
-
-                        {day.allocations.map((alloc) => {
-                          const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                          const bottomPx = hoursToY(cumulativeHours);
-                          cumulativeHours += alloc.planned_hours;
-                          const c = allocColor(alloc.allocation_status);
-
-                          return (
-                            <button
-                              key={alloc.work_item_id}
-                              type="button"
-                              onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                              title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}`}
-                              className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                              style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                            >
-                              <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                                <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                                <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                              </div>
-                              {alloc.overload_hours > 0 && (
-                                <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                        <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                        <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                        <span className="text-[10px] tabular-nums">
-                          {day.total_planned_hours.toFixed(1)}h
-                          {day.total_overload_hours > 0 && (
-                            <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderGridView = () => {
-    if (allocationGridLoading) {
-      return <div className="flex items-center justify-center py-12"><Spinner size="md" /></div>;
-    }
-
-    if (allocationGridError) {
-      return (
-        <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-3 text-sm text-danger">
-          {allocationGridError}
-          <button type="button" className="ml-3 underline text-xs" onClick={() => void loadAllocationGrid()}>
-            Riprova
-          </button>
-        </div>
-      );
-    }
-
-    if (!allocationGrid) {
-      return (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-sm text-muted dark:text-muted-dark">
-          <p>Nessuna griglia allocazioni disponibile.</p>
-          <p className="text-xs">Esegui <strong>Simula workload</strong> e poi <strong>Applica</strong> per vedere la distribuzione delle ore per giorno.</p>
-          <Button size="sm" variant="secondary" onClick={() => void loadAllocationGrid()}>
-            Carica griglia
-          </Button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col gap-5">
-
-        {/* ── Summary bar ─────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-cream/60 px-4 py-3 dark:border-line-dark dark:bg-[#1c1c20]">
-          <div className="flex items-center gap-1.5">
-            <Icon name="activity" className="h-3.5 w-3.5 text-muted dark:text-muted-dark" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Strategia</span>
-            <span className="text-xs text-ink dark:text-paper">{allocationGrid.strategy}</span>
-          </div>
-          <span className="text-muted/40">·</span>
-          <span className="text-xs text-muted dark:text-muted-dark">Capacità <strong className="text-ink dark:text-paper">{allocationGrid.daily_capacity_hours}h</strong>/giorno</span>
-          <span className="text-muted/40">·</span>
-          <span className="text-xs text-muted dark:text-muted-dark">Task <strong className="text-ink dark:text-paper">{allocationGrid.total_tasks}</strong></span>
-          {allocationGrid.total_overload_hours > 0 && (
-            <>
-              <span className="text-muted/40">·</span>
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-danger">
-                <Icon name="alert-triangle" className="h-3.5 w-3.5" />
-                {allocationGrid.total_overload_hours.toFixed(1)}h overload totale
-              </span>
-            </>
-          )}
-          {allocationGrid.last_run_id && (
-            <span className="ml-auto text-[10px] font-mono text-muted dark:text-muted-dark">
-              run: {allocationGrid.last_run_id.slice(0, 8)}…
-            </span>
-          )}
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-            onClick={() => void loadAllocationGrid(allocationGrid.last_run_id)}
-          >
-            <Icon name="refresh-cw" className="h-3 w-3" />
-            Aggiorna
-          </button>
-        </div>
-
-        {/* ── View switcher tabs ──────────────────────────────── */}
-        <div className="flex gap-2">
-          {(["globale", "operatore", "area"] as const).map((viewType) => (
-            <button
-              key={viewType}
-              type="button"
-              onClick={() => setAllocationGridView(viewType)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
-                allocationGridView === viewType
-                  ? "bg-ink text-paper dark:bg-paper dark:text-ink"
-                  : "bg-cream/40 text-ink hover:bg-cream/60 dark:bg-[#2a2a30] dark:text-paper dark:hover:bg-[#3a3a40]"
-              }`}
-            >
-              {viewType === "globale" && "Globale"}
-              {viewType === "operatore" && "Per Operatore"}
-              {viewType === "area" && "Per Area"}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Content based on selected view ──────────────────── */}
-        {allocationGridView === "globale" && renderAllocationGridGlobale()}
-        {allocationGridView === "operatore" && renderAllocationGridOperatore()}
-        {allocationGridView === "area" && renderAllocationGridArea()}
-
-      </div>
-    );
-  };
 
   const renderCalendarView = () => {
     if (calendarOperators.length === 0) {
@@ -2228,26 +2267,39 @@ export function WorkloadPage() {
       .map((chunk) => chunk[0]?.toUpperCase() ?? "")
       .join("") || "?";
 
-    const allDayItems = calendarData.timeline.filter((item) => item.is_all_day || !item.start_time || !item.end_time);
     const timedItems = calendarData.timeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
+    const unscheduledTaskItems = calendarData.timeline.filter((item) => item.kind === "task" && (item.is_all_day || !item.start_time || !item.end_time));
+    const overCapacity = calendarData.over_capacity;
+    const calendarConflicts = calendarData.conflicts ?? [];
+
+    const {
+      dayStartMinutes,
+      dayEndMinutes,
+      totalMinutes,
+      hourSlots,
+      halfSlots,
+      openingMinutes,
+      closingMinutes,
+    } = calendarBounds;
+    const showEndLabel = closingMinutes != null && closingMinutes > dayStartMinutes && closingMinutes < dayEndMinutes;
+    const showOpeningLine = openingMinutes != null && openingMinutes > dayStartMinutes && openingMinutes < dayEndMinutes;
+    // Linea "ora corrente": solo se il giorno mostrato è oggi e l'ora rientra nella griglia.
+    const isToday = calendarData.selected_date === getTodayDate();
+    const showNowLine = isToday && nowMinutes >= dayStartMinutes && nowMinutes <= dayEndMinutes;
+    const nowTopPx = ((nowMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
 
     const timelineBlocks = timedItems.map((item) => {
       const start = hhmmToMinutes(item.start_time) ?? 0;
-      const end = hhmmToMinutes(item.end_time) ?? start + Math.max(30, Math.round(((item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0)) * 60));
-      const safe = clampTimeline(start, end);
+      const end = hhmmToMinutes(item.end_time) ?? start + Math.max(30, Math.round(resolveTimelineEffectiveHours(item) * 60));
+      const safe = clampTimelineInRange(start, end, dayStartMinutes, dayEndMinutes);
+      if (safe.end <= dayStartMinutes || safe.start >= dayEndMinutes) return null;
       return { item, start: safe.start, end: safe.end };
-    });
+    }).filter((item): item is { item: WorkloadTimelineItem; start: number; end: number } => !!item);
+    const laidOutTimelineBlocks = layoutCalendarTimelineBlocks(timelineBlocks);
 
     const totalTaskHours = calendarData.timeline
       .filter((item) => item.kind === "task")
-      .reduce((acc, item) => {
-        const start = hhmmToMinutes(item.start_time);
-        const end = hhmmToMinutes(item.end_time);
-        if (start != null && end != null && end > start) {
-          return acc + (end - start) / 60;
-        }
-        return acc + (item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0);
-      }, 0);
+      .reduce((acc, item) => acc + resolveTimelineEffectiveHours(item), 0);
 
     const dayMeta = dateFromIso(calendarData.selected_date).toLocaleDateString("it-IT", {
       weekday: "long",
@@ -2256,18 +2308,80 @@ export function WorkloadPage() {
     });
     const previewTopPx =
       calendarDropPreviewMinutes != null
-        ? (calendarDropPreviewMinutes / 60) * 64
+        ? ((calendarDropPreviewMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX
         : null;
-    const previewHeightPx = (CALENDAR_SLOT_MINUTES / 60) * 64;
+    const previewHeightPx = (CALENDAR_SLOT_MINUTES / 60) * CALENDAR_HOUR_HEIGHT_PX;
+    const createPreviewTopPx = calendarCreatePreview
+      ? ((calendarCreatePreview.startMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX
+      : null;
+    const createPreviewHeightPx = calendarCreatePreview
+      ? Math.max(18, ((calendarCreatePreview.endMinutes - calendarCreatePreview.startMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX)
+      : null;
+
+    const isCalendarCreationBlocked = (event: MouseEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      return !!target?.closest('[data-calendar-task-block="true"], [data-cal-complete-btn="true"]');
+    };
+
+    const getCalendarGridMinutes = (event: MouseEvent<HTMLElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
+      const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
+      return snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes, CALENDAR_CREATE_SLOT_MINUTES);
+    };
+
+    // True se l'intervallo [start, end) si sovrappone a un blocco già pianificato (task, pausa, ecc.)
+    const isRangeOccupied = (startMinutes: number, endMinutes: number) =>
+      timelineBlocks.some((block) => startMinutes < block.end && endMinutes > block.start);
+
+    // Gruppo target dello swap: tutte le task che la task trascinata "coprirebbe" se ancorata
+    // all'inizio della task sotto il cursore (es. una task da 4h sopra due task da 2h le include entrambe).
+    const computeSwapTargetIds = (targetStart: number, targetEnd: number): number[] => {
+      const sourceBlock = timelineBlocks.find(
+        (block) => block.item.kind === "task" && block.item.work_item_id === draggingTaskId
+      );
+      const sourceDuration = sourceBlock
+        ? Math.max(CALENDAR_SLOT_MINUTES, sourceBlock.end - sourceBlock.start)
+        : Math.max(CALENDAR_SLOT_MINUTES, targetEnd - targetStart);
+      const windowStart = targetStart;
+      const windowEnd = windowStart + sourceDuration;
+      return timelineBlocks
+        .filter(
+          (block) =>
+            block.item.kind === "task" &&
+            typeof block.item.work_item_id === "number" &&
+            block.item.work_item_id !== draggingTaskId &&
+            block.start < windowEnd &&
+            block.end > windowStart
+        )
+        .map((block) => block.item.work_item_id as number);
+    };
+
+    const openCalendarQuickAdd = (preview: CalendarCreatePreview) => {
+      if (isRangeOccupied(preview.startMinutes, preview.endMinutes)) {
+        setCalendarCreatePreview(null);
+        calendarCreateDragStartRef.current = null;
+        toast.warning("Slot orario già occupato");
+        return;
+      }
+      const durationHours = (preview.endMinutes - preview.startMinutes) / 60;
+      setEditingItem(null);
+      setQuickAdd({
+        day: calendarData.selected_date,
+        userId: calendarData.user_id,
+        startTime: minutesToHHMM(preview.startMinutes),
+        estimatedHours: durationHours,
+      });
+      setCalendarCreatePreview(null);
+      calendarCreateDragStartRef.current = null;
+      setNewWorkModalOpen(true);
+    };
 
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2">
-              <button type="button" className="wl-nav-btn" onClick={() => shiftCalendarOperator(-1)} aria-label="Operatore precedente">
-                <Icon name="chevron-right" className="w-4 h-4 rotate-180" />
-              </button>
               {calendarData.avatar_url ? (
                 <img
                   src={calendarData.avatar_url}
@@ -2285,9 +2399,6 @@ export function WorkloadPage() {
                   {roleLabel || "Nessun ruolo"} · {dayMeta}
                 </div>
               </div>
-              <button type="button" className="wl-nav-btn" onClick={() => shiftCalendarOperator(1)} aria-label="Operatore successivo">
-                <Icon name="chevron-right" className="w-4 h-4" />
-              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -2300,86 +2411,120 @@ export function WorkloadPage() {
               <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
                 {calendarData.timeline.filter((item) => item.kind === "task").length} task · {calendarData.timeline.length} eventi
               </span>
+              {calendarConflicts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCalendarConflictsModalOpen(true)}
+                  className="relative inline-flex items-center gap-1 rounded-md border border-warning/35 bg-warning/10 px-2 py-1 text-warning transition-colors hover:bg-warning/15"
+                  title="Mostra conflitti rilevati"
+                >
+                  <Icon name="alert-triangle" className="h-3.5 w-3.5" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider">Conflitti</span>
+                  <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-paper">
+                    {calendarConflicts.length}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {allDayItems.length > 0 && (
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-3">
-            <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Tutto il giorno</div>
-            <div
-              className={`flex flex-wrap gap-2 rounded-md ${activeDropTarget === "cal-all-day" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/50 dark:bg-amber-900/20" : ""}`}
-              onDragOver={(event) => {
-                if (draggingTaskId == null) return;
-                event.preventDefault();
-                setActiveDropTarget("cal-all-day");
-              }}
-              onDragLeave={() => {
-                setActiveDropTarget((current) => (current === "cal-all-day" ? null : current));
-              }}
-              onDrop={(event) => {
-                void moveTaskByDrop(event, buildCalendarDayMovePayload(calendarData.selected_date), "cal-all-day");
-              }}
-            >
-              {allDayItems.map((item, idx) => (
-                <div
-                  key={`${item.kind}-${item.source_id ?? idx}`}
-                  className={`px-2 py-1 text-xs ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)}`}
-                  style={timelineItemStyle(item)}
-                  draggable={item.kind === "task" && !!item.work_item_id}
-                  onDragStart={(event) => {
-                    if (item.kind !== "task" || !item.work_item_id) return;
-                    onTaskDragStart(event, item.work_item_id, calendarData.user_id);
-                  }}
-                  onDragEnd={onTaskDragEnd}
-                  onClick={() => {
-                    if (item.kind === "task" && item.work_item_id) {
-                      void openEditWorkItemModal(item.work_item_id);
-                    }
-                  }}
-                >
-                  <div className="font-semibold">{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
-                  {item.description && <div className="text-[11px] opacity-80">{item.description}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-          <div className="grid grid-cols-[68px_1fr]">
-            <div className="border-r border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2">
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={hour} className="h-16 px-2 py-1 text-[10px] text-muted dark:text-muted-dark border-b border-line/50 dark:border-line-dark/60">
-                  {String(hour).padStart(2, "0")}:00
+          <div ref={calendarScrollRef} className="max-h-[70vh] overflow-y-auto">
+            <div className="grid grid-cols-[68px_1fr]">
+            <div className="relative border-r border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2">
+              {Array.from({ length: hourSlots }, (_, index) => {
+                const minutes = dayStartMinutes + (index * 60);
+                return (
+                  <div key={minutes} className="h-16 px-2 py-1 text-[10px] text-muted dark:text-muted-dark border-b border-line/50 dark:border-line-dark/60">
+                    {minutesToHHMM(minutes)}
+                  </div>
+                );
+              })}
+              {showEndLabel && (
+                <div className="absolute bottom-1 left-2 text-[10px] text-muted dark:text-muted-dark">
+                  {minutesToHHMM(dayEndMinutes)}
                 </div>
-              ))}
+              )}
             </div>
 
             <div
-              className={`relative ${activeDropTarget === "cal-time-grid" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/30 dark:bg-amber-900/15" : ""}`}
-              style={{ height: `${24 * 64}px` }}
+              className={`relative ${draggingTaskId == null ? "cursor-copy" : ""} ${activeDropTarget === "cal-time-grid" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/30 dark:bg-amber-900/15" : ""}`}
+              style={{ height: `${(totalMinutes / 60) * CALENDAR_HOUR_HEIGHT_PX}px` }}
+              onMouseMove={(event) => {
+                if (draggingTaskId != null || isCalendarCreationBlocked(event)) return;
+                const minutes = getCalendarGridMinutes(event);
+                const anchorMinutes = calendarCreateDragStartRef.current;
+                if (anchorMinutes != null) {
+                  const range = normalizeCalendarCreateRange(anchorMinutes, minutes, dayEndMinutes);
+                  // Niente anteprima se la selezione si sovrappone a uno slot occupato.
+                  setCalendarCreatePreview(
+                    isRangeOccupied(range.startMinutes, range.endMinutes) ? null : range
+                  );
+                  return;
+                }
+                const slotEnd = Math.min(dayEndMinutes, minutes + CALENDAR_CREATE_SLOT_MINUTES);
+                if (isRangeOccupied(minutes, slotEnd)) {
+                  setCalendarCreatePreview(null);
+                  return;
+                }
+                setCalendarCreatePreview({
+                  startMinutes: minutes,
+                  endMinutes: slotEnd,
+                  isDragging: false,
+                });
+              }}
+              onMouseDown={(event) => {
+                if (event.button !== 0 || draggingTaskId != null || isCalendarCreationBlocked(event)) return;
+                const minutes = getCalendarGridMinutes(event);
+                const slotEnd = Math.min(dayEndMinutes, minutes + CALENDAR_CREATE_SLOT_MINUTES);
+                // Non avviare la creazione partendo da uno slot già occupato.
+                if (isRangeOccupied(minutes, slotEnd)) return;
+                event.preventDefault();
+                calendarCreateDragStartRef.current = minutes;
+                setCalendarCreatePreview({
+                  startMinutes: minutes,
+                  endMinutes: slotEnd,
+                  isDragging: true,
+                });
+              }}
+              onMouseUp={(event) => {
+                if (draggingTaskId != null || isCalendarCreationBlocked(event)) return;
+                const anchorMinutes = calendarCreateDragStartRef.current;
+                if (anchorMinutes == null) return;
+                const minutes = getCalendarGridMinutes(event);
+                openCalendarQuickAdd(normalizeCalendarCreateRange(anchorMinutes, minutes, dayEndMinutes));
+              }}
+              onMouseLeave={() => {
+                calendarCreateDragStartRef.current = null;
+                setCalendarCreatePreview(null);
+              }}
               onDragOver={(event) => {
                 if (draggingTaskId == null) return;
                 event.preventDefault();
+                // Sopra lo spazio vuoto della griglia: è uno spostamento, non uno swap.
+                clearSwapPreview();
                 setActiveDropTarget("cal-time-grid");
 
                 const container = event.currentTarget;
                 const rect = container.getBoundingClientRect();
                 const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / 64) * 60;
-                setCalendarDropPreviewMinutes(snapMinutesToSlot(rawMinutes));
+                const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
+                setCalendarDropPreviewMinutes(snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes));
               }}
               onDragLeave={() => {
                 setActiveDropTarget((current) => (current === "cal-time-grid" ? null : current));
                 setCalendarDropPreviewMinutes(null);
+                if (calendarCreateDragStartRef.current == null) {
+                  setCalendarCreatePreview(null);
+                }
               }}
               onDrop={(event) => {
                 const container = event.currentTarget;
                 const rect = container.getBoundingClientRect();
                 const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / 64) * 60;
-                const minutes = calendarDropPreviewMinutes ?? snapMinutesToSlot(rawMinutes);
+                const rawMinutes = (relativeY / CALENDAR_HOUR_HEIGHT_PX) * 60 + dayStartMinutes;
+                const minutes = calendarDropPreviewMinutes ?? snapMinutesToSlotInRange(rawMinutes, dayStartMinutes, dayEndMinutes);
                 const payload: MoveWorkItemPayload = {
                   ...buildCalendarDayMovePayload(calendarData.selected_date),
                   start_time: minutesToHHMM(minutes),
@@ -2387,12 +2532,58 @@ export function WorkloadPage() {
                 void moveTaskByDrop(event, payload, "cal-time-grid");
               }}
             >
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={hour} className="absolute left-0 right-0 border-b border-line/40 dark:border-line-dark/50" style={{ top: `${hour * 64}px` }} />
+              {Array.from({ length: hourSlots }, (_, index) => (
+                <div key={`hour-${index}`} className="absolute left-0 right-0 border-b border-line/40 dark:border-line-dark/50" style={{ top: `${index * CALENDAR_HOUR_HEIGHT_PX}px` }} />
               ))}
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={`half-${hour}`} className="absolute left-0 right-0 border-b border-dashed border-line/30 dark:border-line-dark/40" style={{ top: `${hour * 64 + 32}px` }} />
-              ))}
+              {Array.from({ length: halfSlots }, (_, index) => {
+                if (index % 2 === 0) return null;
+                return (
+                  <div key={`half-${index}`} className="absolute left-0 right-0 border-b border-dashed border-line/30 dark:border-line-dark/40" style={{ top: `${(index * CALENDAR_HOUR_HEIGHT_PX) / 2}px` }} />
+                );
+              })}
+
+              {showOpeningLine && (
+                <div
+                  className="pointer-events-none absolute left-0 right-0 border-t-2 border-dashed border-emerald-500"
+                  style={{ top: `${((openingMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX}px`, zIndex: 40 }}
+                >
+                  <span
+                    className="absolute left-2 -top-3 rounded bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
+                    style={{ zIndex: 41 }}
+                  >
+                    Apertura {minutesToHHMM(openingMinutes)}
+                  </span>
+                </div>
+              )}
+
+              {closingMinutes != null && closingMinutes > dayStartMinutes && closingMinutes < dayEndMinutes && (
+                <div
+                  className="absolute left-0 right-0 border-t-2 border-dashed border-danger"
+                  style={{ top: `${((Math.min(dayEndMinutes, closingMinutes + 30) - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX}px`, zIndex: 40 }}
+                >
+                  <span
+                    className="absolute right-2 -top-3 rounded bg-danger px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
+                    style={{ zIndex: 41 }}
+                  >
+                    Limite orario {minutesToHHMM(closingMinutes)}
+                  </span>
+                </div>
+              )}
+
+              {showNowLine && (
+                <div
+                  className="pointer-events-none absolute left-0 right-0 border-t-2 border-solid border-red-600"
+                  style={{ top: `${nowTopPx}px`, zIndex: 45 }}
+                >
+                  <span className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-red-600 shadow" />
+                  <span
+                    className="absolute right-2 -top-3 rounded bg-red-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper shadow"
+                    style={{ zIndex: 46 }}
+                  >
+                    Ora {minutesToHHMM(nowMinutes)}
+                  </span>
+                </div>
+              )}
 
               {draggingTaskId != null && previewTopPx != null && (
                 <div
@@ -2405,52 +2596,388 @@ export function WorkloadPage() {
                 </div>
               )}
 
-              {timelineBlocks.map(({ item, start, end }, idx) => {
-                const top = (start / 60) * 64;
-                const height = Math.max(28, ((end - start) / 60) * 64);
+              {draggingTaskId == null && createPreviewTopPx != null && createPreviewHeightPx != null && calendarCreatePreview && !isRangeOccupied(calendarCreatePreview.startMinutes, calendarCreatePreview.endMinutes) && (
+                <div
+                  className="pointer-events-none absolute left-2 right-2 rounded-md border-2 border-dashed border-emerald-500 bg-emerald-500/10 shadow-sm"
+                  style={{ top: `${createPreviewTopPx}px`, height: `${createPreviewHeightPx}px`, zIndex: 35 }}
+                >
+                  <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-paper">+</span>
+                    {minutesToHHMM(calendarCreatePreview.startMinutes)} - {minutesToHHMM(calendarCreatePreview.endMinutes)}
+                  </div>
+                </div>
+              )}
+
+              {laidOutTimelineBlocks.map(({ item, start, end, column, totalColumns }, idx) => {
+                const top = ((start - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
+                const activeResize = item.kind === "task" && item.work_item_id === calendarResizeState?.workItemId ? calendarResizeState : null;
+                const isResizing = activeResize != null;
+                const renderEnd = activeResize ? activeResize.currentEndMinutes : end;
+                const height = Math.max(28, ((renderEnd - start) / 60) * CALENDAR_HOUR_HEIGHT_PX);
                 const itemKey = `${item.kind}-${item.source_id ?? idx}-${start}`;
+                const isDone = isCalendarTaskDone(item);
+                const isExiting = item.kind === "task" && getCalendarTaskUiState(item.work_item_id) === "exiting";
+                const isPriority = item.kind === "task" && isTimelineTaskPriority(item);
+                const scheduleState = item.kind === "task" ? resolveTimelineScheduleState(item) : null;
+                const isCarriedOver = scheduleState?.delay_code === "carried_over";
+                const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
+                const isNonDeferrable = item.kind === "task" && isTimelineNonDeferrable(item);
+                const taskColor = item.kind === "task" ? resolveTimelineTaskColor(item) : null;
+                const taskEstimatedHours = item.kind === "task" ? resolveTimelineEstimatedHours(item) : null;
+                const taskEffectiveHours = item.kind === "task" ? resolveTimelineEffectiveHours(item) : null;
+                const taskEffectiveWeight = item.kind === "task" ? resolveTimelineEffectiveWeight(item) : null;
+                const taskStyle = item.kind === "task" && taskColor
+                  ? { backgroundColor: taskColor, borderColor: taskColor }
+                  : undefined;
+                const delayStyle = isSevereDelay
+                  ? { backgroundColor: "rgba(220, 38, 38, 0.14)", borderColor: "#DC2626", color: "#7f1d1d" }
+                  : isCarriedOver
+                    ? { backgroundColor: "rgba(245, 158, 11, 0.16)", borderColor: "#F59E0B", color: "#78350f" }
+                    : undefined;
+                const priorityStyle = isPriority
+                  ? { boxShadow: "inset 3px 0 0 #E91E8A", borderLeftColor: "#E91E8A" }
+                  : undefined;
+                const itemStyle = item.kind === "task"
+                  ? { ...taskStyle, ...delayStyle, ...priorityStyle }
+                  : timelineItemStyle(item);
+                const readableText = item.kind === "task"
+                  ? isSevereDelay
+                    ? { primary: "#7f1d1d", secondary: "rgba(127,29,29,0.72)" }
+                    : isCarriedOver
+                      ? { primary: "#78350f", secondary: "rgba(120,53,15,0.72)" }
+                      : getReadableTaskTextColors(taskColor)
+                  : { primary: undefined, secondary: undefined };
+                const isTaskColumned = item.kind === "task" && totalColumns > 1;
+                const isTinyTask = item.kind === "task" && height < 38;
+                const isCompactTask = item.kind === "task" && height < 56;
+                const taskColumnStyle = isTaskColumned
+                  ? {
+                    left: `calc(8px + ((100% - 16px) / ${totalColumns}) * ${column} + ${column > 0 ? 2 : 0}px)`,
+                    right: `calc(8px + ((100% - 16px) / ${totalColumns}) * ${totalColumns - column - 1} + ${column < totalColumns - 1 ? 2 : 0}px)`,
+                  }
+                  : undefined;
+                const resizeWorkItemId = item.kind === "task" && typeof item.work_item_id === "number" ? item.work_item_id : null;
+                const swapWorkItemId = item.kind === "task" && typeof item.work_item_id === "number" ? item.work_item_id : null;
+                const isSwapTarget = swapWorkItemId != null && !!swapPreview?.targetIds.includes(swapWorkItemId);
+                const swapRingClass = isSwapTarget
+                  ? swapPreview?.canSwap === true
+                    ? "ring-2 ring-emerald-500"
+                    : swapPreview?.canSwap === false
+                      ? "ring-2 ring-danger"
+                      : "ring-2 ring-amber-400"
+                  : "";
+                const isSwapDropTarget = (eventClientItemId: number | null) =>
+                  draggingTaskId != null && eventClientItemId != null && eventClientItemId !== draggingTaskId;
                 return (
                   <div
                     key={itemKey}
-                    className={`absolute left-2 right-2 px-2 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id ? "cursor-grab active:cursor-grabbing" : ""}`}
+                    data-calendar-task-block={item.kind === "task" ? "true" : undefined}
+                    className={`group absolute left-2 right-2 overflow-hidden px-2 pr-8 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id && !isSevereDelay ? "cursor-grab active:cursor-grabbing" : ""} ${isDone ? "opacity-70" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${isPriority ? "border-l-[3px] border-l-[#E91E8A]" : ""} ${isResizing ? "ring-2 ring-emerald-500" : ""} ${swapRingClass}`}
                     style={{
                       top: `${top}px`,
                       height: `${height}px`,
-                      ...timelineItemStyle(item),
+                      zIndex: timelineItemZIndex(item.kind),
+                      ...taskColumnStyle,
+                      ...itemStyle,
                     }}
-                    draggable={item.kind === "task" && !!item.work_item_id}
+                    onDragOver={(event) => {
+                      if (!isSwapDropTarget(swapWorkItemId)) return; // hover su se stessa / blocco non-task → bubbling al move sulla griglia
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setCalendarDropPreviewMinutes(null);
+                      setActiveDropTarget(null);
+                      void requestSwapPreview(draggingTaskId as number, computeSwapTargetIds(start, end));
+                    }}
+                    onDrop={(event) => {
+                      if (!isSwapDropTarget(swapWorkItemId)) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleSwapDrop(draggingTaskId as number, computeSwapTargetIds(start, end));
+                    }}
+                    draggable={item.kind === "task" && !!item.work_item_id && !isSevereDelay && !getCalendarTaskUiState(item.work_item_id)}
                     onDragStart={(event) => {
-                      if (item.kind !== "task" || !item.work_item_id) return;
+                      if (item.kind !== "task" || !item.work_item_id || isSevereDelay) return;
                       onTaskDragStart(event, item.work_item_id, calendarData.user_id);
                     }}
                     onDragEnd={onTaskDragEnd}
-                    onClick={() => {
+                    onClick={(event) => {
+                      if (isCalendarTaskActionClick(event)) return;
                       if (item.kind === "task" && item.work_item_id) {
                         void openEditWorkItemModal(item.work_item_id);
                       }
                     }}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold truncate">{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
-                      <div className="text-[10px] opacity-80">{item.start_time} - {item.end_time}</div>
-                    </div>
-
-                    {item.kind === "task" && (
-                      <div className="mt-1 text-[11px] opacity-90">
-                        {item.client_name || "Senza cliente"}
-                        {item.status ? ` · ${item.status}` : ""}
-                        {(item.effective_load_hours != null || item.estimated_hours != null) ? ` · ${formatHours(item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0)} eff${item.estimated_hours != null ? ` · ${formatHours(item.estimated_hours)} st` : ""}` : ""}
-                      </div>
+                    {item.kind === "task" && item.work_item_id && (
+                      <button
+                        type="button"
+                        data-cal-complete-btn="true"
+                        className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-bold transition-transform hover:scale-110 ${isDone ? "border-success bg-success text-paper" : "border-line bg-paper text-muted dark:border-line-dark dark:bg-ink-2 dark:text-muted-dark"}`}
+                        title={isDone ? "Segna non completata" : "Segna completata"}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void toggleCalendarTaskCompleted(item);
+                        }}
+                        disabled={!!getCalendarTaskUiState(item.work_item_id)}
+                      >
+                        {isDone ? "✓" : ""}
+                      </button>
                     )}
-
-                    {item.kind === "task" && item.work_item_id && <div className="mt-1 text-[10px] underline underline-offset-2">Apri task</div>}
+                    {item.kind === "task" ? (
+                      <>
+                        {!isTinyTask && (
+                          <div className="truncate text-[10px] uppercase tracking-wider" style={{ color: readableText.secondary }}>
+                            {resolveTimelineClientLabel(item)}
+                          </div>
+                        )}
+                        <div className={`flex min-w-0 items-center gap-1 ${isDone ? "line-through" : ""}`} style={{ color: readableText.primary }}>
+                          <span className="truncate font-semibold">{resolveTimelineTaskTitle(item)}</span>
+                          {isPriority && <Icon name="star" className="h-3 w-3 text-[#E91E8A]" />}
+                        </div>
+                        {!isTinyTask && (
+                          <div className="mt-0.5 truncate text-[10px]" style={{ color: readableText.secondary }}>
+                            {isResizing ? `${formatHours((renderEnd - start) / 60)} stimate` : taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
+                          </div>
+                        )}
+                        {!isCompactTask && (isCarriedOver || isSevereDelay || isNonDeferrable) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {isCarriedOver && (
+                              <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200">
+                                In ritardo
+                              </span>
+                            )}
+                            {isSevereDelay && (
+                              <span className="inline-flex items-center rounded-full border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+                                Ritardo grave
+                              </span>
+                            )}
+                            {isNonDeferrable && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
+                                <Icon name="shield" className="h-2.5 w-2.5" />
+                                Non derogabile
+                              </span>
+                            )}
+                            {(isCarriedOver || isSevereDelay) && taskEffectiveHours != null && taskEffectiveWeight != null && (
+                              <span className="text-[9px] font-semibold opacity-80">
+                                {formatHours(taskEffectiveHours)} eff · peso {taskEffectiveWeight.toFixed(2)}x
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className={`font-semibold truncate ${isDone ? "line-through" : ""}`}>{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
+                        <div className="mt-0.5 text-[10px] opacity-80">{item.start_time} - {item.end_time}</div>
+                      </>
+                    )}
+                    {resizeWorkItemId != null && !isSevereDelay && !getCalendarTaskUiState(resizeWorkItemId) && (
+                      <button
+                        type="button"
+                        aria-label="Ridimensiona task"
+                        title="Trascina per ridimensionare"
+                        className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDraggingTaskId(null);
+                          setCalendarDropPreviewMinutes(null);
+                          calendarCreateDragStartRef.current = null;
+                          setCalendarCreatePreview(null);
+                          setCalendarResizeState({
+                            workItemId: resizeWorkItemId,
+                            startMinutes: start,
+                            originalEndMinutes: end,
+                            currentEndMinutes: end,
+                            minEndMinutes: Math.min(dayEndMinutes, start + CALENDAR_CREATE_SLOT_MINUTES),
+                            maxEndMinutes: dayEndMinutes,
+                            startClientY: event.clientY,
+                          });
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        draggable={false}
+                      >
+                        <span className="absolute bottom-1 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-emerald-500/90 shadow" />
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
+
+        {overCapacity && overCapacity.total_tasks_count > 0 && (
+          <div className="rounded-lg border border-warning/35 bg-warning/10 p-3 dark:bg-warning/15">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 items-start gap-2">
+                <Icon name="alert-triangle" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <div>
+                  <div className="text-sm font-semibold text-ink dark:text-paper">
+                    Oltre capacità — {overCapacity.total_tasks_count} lavorazion{overCapacity.total_tasks_count === 1 ? "e" : "i"} ({formatHours(overCapacity.overflow_tasks_effective_hours)}) che non rientr{overCapacity.total_tasks_count === 1 ? "a" : "ano"} nella giornata.
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted dark:text-muted-dark">
+                    Capacità {formatHours(overCapacity.capacity_hours)} · pianificate {formatHours(overCapacity.planned_hours)} · overload {formatHours(overCapacity.overload_hours)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+              {overCapacity.tasks.map((task) => {
+                const areaColor = task.work_areas.find((area) => area.color)?.color ?? null;
+                const readableText = getReadableTaskTextColors(areaColor);
+                const isSaving = !!getCalendarTaskUiState(task.work_item_id);
+                const canRescheduleOverflowTask = !!task.task?.deadline_date;
+                return (
+                  <div
+                    key={task.work_item_id}
+                    className="flex items-center gap-2 rounded-md border border-warning/25 bg-paper p-2 text-xs shadow-sm dark:bg-ink-soft"
+                  >
+                    <button
+                      type="button"
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition-transform hover:scale-110 ${isSaving ? "border-muted text-muted" : "border-line bg-paper text-muted hover:border-success hover:text-success dark:border-line-dark dark:bg-ink-2 dark:text-muted-dark"}`}
+                      title="Segna fatta"
+                      disabled={isSaving}
+                      onClick={() => void completeOverCapacityTask(task.work_item_id)}
+                    >
+                      {isSaving ? "…" : ""}
+                    </button>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 rounded px-2 py-1 text-left transition hover:bg-cream/70 dark:hover:bg-ink-2"
+                      onClick={() => void openEditWorkItemModal(task.work_item_id)}
+                    >
+                      <div className="truncate font-semibold text-ink dark:text-paper">
+                        [{resolveWorkItemClientLabel(task.task, task.client_name)}] {task.title}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
+                        {task.start_time && task.end_time && <span>{task.start_time} - {task.end_time}</span>}
+                        <span>{formatHours(task.effective_load_hours)} workload</span>
+                        <span>{formatHours(task.overflow_hours)} oltre limite</span>
+                      </div>
+                    </button>
+                    {areaColor && (
+                      <span
+                        className="h-6 min-w-10 rounded-full border px-2 text-center text-[10px] font-semibold leading-6"
+                        style={{ backgroundColor: areaColor, borderColor: areaColor, color: readableText.primary }}
+                        title={task.work_areas.map((area) => area.name).join(", ")}
+                      >
+                        {task.work_areas[0]?.icon || "•"}
+                      </span>
+                    )}
+                    <span className="shrink-0 rounded-full bg-warning/15 px-2 py-1 text-[10px] font-semibold text-warning">
+                      {formatHours(task.effective_load_hours)}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border border-warning/35 bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning hover:bg-warning/15 disabled:opacity-50"
+                      disabled={!canRescheduleOverflowTask || reschedulingTaskId === task.work_item_id}
+                      title={canRescheduleOverflowTask ? "Riprogramma al primo slot libero" : "Serve una scadenza per riprogrammare automaticamente"}
+                      onClick={() => void rescheduleTaskToNextAvailable(task.work_item_id)}
+                    >
+                      {reschedulingTaskId === task.work_item_id ? "..." : canRescheduleOverflowTask ? "Riprogramma" : "No scadenza"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {unscheduledTaskItems.length > 0 && (
+          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-3">
+            <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Senza orario</div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {unscheduledTaskItems.map((item, index) => {
+                const scheduleState = resolveTimelineScheduleState(item);
+                const isCarriedOver = scheduleState?.delay_code === "carried_over";
+                const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
+                const isNonDeferrable = isTimelineNonDeferrable(item);
+                const isPriority = isTimelineTaskPriority(item);
+                const taskColor = resolveTimelineTaskColor(item);
+                const taskEstimatedHours = resolveTimelineEstimatedHours(item);
+                const taskEffectiveHours = resolveTimelineEffectiveHours(item);
+                const taskEffectiveWeight = resolveTimelineEffectiveWeight(item);
+                const readableText = isSevereDelay
+                  ? { primary: "#7f1d1d", secondary: "rgba(127,29,29,0.72)" }
+                  : isCarriedOver
+                    ? { primary: "#78350f", secondary: "rgba(120,53,15,0.72)" }
+                    : getReadableTaskTextColors(taskColor);
+                return (
+                  <button
+                    key={`${item.kind}-${item.source_id ?? index}-unscheduled`}
+                    type="button"
+                    onClick={() => {
+                      if (item.work_item_id) void openEditWorkItemModal(item.work_item_id);
+                    }}
+                    className={`relative rounded-md border px-3 py-2 pr-8 text-left text-xs shadow-sm transition hover:-translate-y-px hover:shadow-md ${isSevereDelay ? "border-danger bg-danger/10" : isCarriedOver ? "border-warning bg-warning/10" : "border-line bg-cream dark:border-line-dark dark:bg-ink-2"}`}
+                    style={taskColor ? { borderColor: taskColor, backgroundColor: taskColor } : undefined}
+                  >
+                    {isPriority && <Icon name="star" className="absolute right-2 top-2 h-3.5 w-3.5 text-[#E91E8A]" />}
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: readableText.secondary }}>
+                      {resolveTimelineClientLabel(item)}
+                    </div>
+                    <div className="mt-0.5 font-semibold" style={{ color: readableText.primary }}>
+                      {resolveTimelineTaskTitle(item)}
+                    </div>
+                    <div className="mt-0.5 text-[10px]" style={{ color: readableText.secondary }}>
+                      {taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
+                    </div>
+                    {(isCarriedOver || isSevereDelay || isNonDeferrable) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                        {isCarriedOver && <span className="rounded-full border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">In ritardo</span>}
+                        {isSevereDelay && <span className="rounded-full border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">Ritardo grave</span>}
+                        {isNonDeferrable && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
+                            <Icon name="shield" className="h-2.5 w-2.5" />
+                            Non derogabile
+                          </span>
+                        )}
+                        {(isCarriedOver || isSevereDelay) && (
+                          <span className="text-[9px] font-semibold" style={{ color: readableText.secondary }}>
+                            {formatHours(taskEffectiveHours)} eff · peso {taskEffectiveWeight.toFixed(2)}x
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
+      </div>
+    );
+  };
+
+  const renderMultiOperatorCalendar = () => {
+    const operatorMetas: MultiOperatorMeta[] = calendarOperatorIds
+      .map((id) => calendarOperators.find((op) => op.user_id === id))
+      .filter((op): op is NonNullable<typeof op> => !!op)
+      .map((op) => ({ id: op.user_id, name: op.full_name || op.username, avatarUrl: op.avatar_url ?? null }));
+    if (!selectedCompanyId || operatorMetas.length === 0) return null;
+    return (
+      <MultiOperatorCalendar
+        operators={operatorMetas}
+        selectedDate={selectedDay}
+        companyId={selectedCompanyId}
+        bounds={calendarBounds}
+        onOpenTask={(id) => { void openEditWorkItemModal(id); }}
+        onAfterChange={() => { void loadMain({ silent: true }); }}
+        reloadToken={multiReloadToken}
+      />
     );
   };
 
@@ -2462,7 +2989,8 @@ export function WorkloadPage() {
     if (viewMode === "accordion") return renderAccordionView();
     if (viewMode === "complete") return renderCompleteView();
     if (viewMode === "heatmap") return renderHeatmapView();
-    if (viewMode === "griglia") return renderGridView();
+    // Più operatori selezionati → vista a colonne affiancate (solo admin/PM).
+    if (!isOperatorView && calendarOperatorIds.length > 1) return renderMultiOperatorCalendar();
     return renderCalendarView();
   };
 
@@ -2572,19 +3100,33 @@ export function WorkloadPage() {
             />
           </label>
 
-          <div className="wl-segmented wl-segmented--view">
-            {VIEW_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setViewMode(option.value)}
-                className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === option.value ? "is-active" : ""}`}
-              >
-                <Icon name={option.icon} className="w-3.5 h-3.5" />
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {!isOperatorView && (
+            <div className="wl-segmented wl-segmented--view">
+              {VIEW_MODE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setViewMode(option.value)}
+                  className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === option.value ? "is-active" : ""}`}
+                >
+                  <Icon name={option.icon} className="w-3.5 h-3.5" />
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!isOperatorView && viewMode === "calendar" && (
+            <div className="min-w-[220px]">
+              <MultiSelect
+                value={calendarOperatorIds}
+                onChange={setCalendarOperatorIds}
+                options={calendarOperators.map((op) => ({ id: op.user_id, label: op.full_name || op.username }))}
+                placeholder="Operatori in calendario..."
+                searchPlaceholder="Cerca operatore..."
+              />
+            </div>
+          )}
 
           <button
             type="button"
@@ -2594,39 +3136,16 @@ export function WorkloadPage() {
             <Icon name="plus" className="w-3.5 h-3.5" />
             Nuova lavorazione
           </button>
-          <button
-            type="button"
-            className="wl-new-task-btn"
-            onClick={() => setTeamModalOpen(true)}
-          >
-            <Icon name="users" className="w-3.5 h-3.5" />
-            Team e capacità
-          </button>
-
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-cream p-2 dark:border-line-dark dark:bg-[#1c1c20]">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void handlePreviewWorkload()}
-              loading={engineRunning}
-              disabled={!selectedCompanyId}
+          {!isOperatorView && (
+            <button
+              type="button"
+              className="wl-new-task-btn"
+              onClick={() => setTeamModalOpen(true)}
             >
-              <Icon name="eye" className="h-3.5 w-3.5" />
-              Simula workload
-            </Button>
-            {canManageProfiles && (
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => void handleApplyWorkload()}
-                loading={engineRunning}
-                disabled={!selectedCompanyId}
-              >
-                <Icon name="check" className="h-3.5 w-3.5" />
-                Applica workload
-              </Button>
-            )}
-          </div>
+              <Icon name="users" className="w-3.5 h-3.5" />
+              Team e capacità
+            </button>
+          )}
         </div>
 
         <div className="wl-day-row">
@@ -2635,7 +3154,6 @@ export function WorkloadPage() {
             {viewMode === "complete" && "Vista completa per area"}
             {viewMode === "heatmap" && "Heatmap per area e giorno"}
             {viewMode === "calendar" && "Calendario workload"}
-            {viewMode === "griglia" && "Griglia allocazioni per giorno"}
             {viewMode === "accordion" && (
               <div className="mt-1 text-[11px] normal-case tracking-normal font-normal text-muted dark:text-muted-dark">
                 La percentuale di carico indica le ore occupate rispetto alla capacità nel periodo selezionato: giorno, settimana o mese.
@@ -2643,11 +3161,13 @@ export function WorkloadPage() {
             )}
           </div>
 
-          <div className="wl-day-strip">
+          <div className={`wl-day-strip ${viewMode === "calendar" ? "wl-day-strip--cal" : ""}`}>
             {(viewMode === "calendar" && calendarData ? calendarData.days.map((d) => d.date) : visibleDays).map((day) => {
               const meta = formatDayChip(day);
               const isActive = selectedDay === day;
               const calendarDay = viewMode === "calendar" ? calendarData?.days.find((d) => d.date === day) : undefined;
+              const dayStats = viewMode === "calendar" ? calendarDayStats.get(day) : undefined;
+              const dayTaskCount = dayStats?.tasks ?? calendarDay?.tasks_count ?? 0;
               return (
                 <button
                   key={day}
@@ -2667,6 +3187,20 @@ export function WorkloadPage() {
                     }
                     if (viewMode === "calendar") {
                       setActiveDropTarget(`cal-day-${day}`);
+                      // Spring-open: dopo una breve attesa apre il giorno sotto il cursore,
+                      // mantenendo attivo il drag così la task si può rilasciare in uno slot.
+                      if (day !== selectedDay) {
+                        if (daySpringDayRef.current !== day) {
+                          daySpringDayRef.current = day;
+                          if (daySpringTimerRef.current != null) window.clearTimeout(daySpringTimerRef.current);
+                          daySpringTimerRef.current = window.setTimeout(() => {
+                            daySpringTimerRef.current = null;
+                            setSelectedDay(day);
+                          }, 450);
+                        }
+                      } else {
+                        clearDaySpring();
+                      }
                     }
                   }}
                   onDragLeave={() => {
@@ -2676,6 +3210,7 @@ export function WorkloadPage() {
                     }
                     if (viewMode === "calendar") {
                       setActiveDropTarget((current) => (current === `cal-day-${day}` ? null : current));
+                      if (daySpringDayRef.current === day) clearDaySpring();
                     }
                   }}
                   onDrop={(event) => {
@@ -2685,18 +3220,36 @@ export function WorkloadPage() {
                       return;
                     }
                     if (viewMode === "calendar") {
+                      // Rilascio sul box-giorno: naviga al giorno (senza spostarla come "tutto il giorno"),
+                      // così la task può essere posizionata in uno slot orario di quel giorno.
+                      event.preventDefault();
+                      event.stopPropagation();
+                      clearDaySpring();
                       setSelectedDay(day);
-                      void moveTaskByDrop(event, buildCalendarDayMovePayload(day), `cal-day-${day}`);
+                      setActiveDropTarget((current) => (current === `cal-day-${day}` ? null : current));
                     }
                   }}
-                  className={`wl-day-chip ${isActive ? "is-active" : ""} ${(viewMode === "accordion" && activeDropTarget === `acc-day-${day}`) || (viewMode === "calendar" && activeDropTarget === `cal-day-${day}`) ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
+                  className={`wl-day-chip ${viewMode === "calendar" ? "wl-day-chip--cal" : ""} ${isActive ? "is-active" : ""} ${(viewMode === "accordion" && activeDropTarget === `acc-day-${day}`) || (viewMode === "calendar" && activeDropTarget === `cal-day-${day}`) ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
                 >
                   <div className="text-[10px] uppercase tracking-wider">{meta.weekday}</div>
                   <div className="text-xs font-semibold">{meta.day}</div>
-                  {calendarDay && (
-                    <div className="text-[10px] text-muted dark:text-muted-dark">
-                      {calendarDay.tasks_count}t · {calendarDay.schedule_windows_count}r
-                    </div>
+                  {viewMode === "calendar" ? (
+                    <>
+                      <div className="wl-day-chip__meta">
+                        {dayStats ? `${formatHours(dayStats.hours)} · ${dayTaskCount} task` : "— · 0 task"}
+                      </div>
+                      {dayStats && dayStats.overdue > 0 && (
+                        <div className="wl-day-chip__overdue" title={`${dayStats.overdue} task arretrate in questo giorno`}>
+                          ⟳ {dayStats.overdue} arretr.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    calendarDay && (
+                      <div className="text-[10px] text-muted dark:text-muted-dark">
+                        {calendarDay.tasks_count}t · {calendarDay.schedule_windows_count}r
+                      </div>
+                    )
                   )}
                 </button>
               );
@@ -2734,111 +3287,235 @@ export function WorkloadPage() {
         canManage={canManageProfiles}
       />
 
-      {engineModalOpen && engineResult && (
-        <Modal
-          open={engineModalOpen}
-          onClose={() => setEngineModalOpen(false)}
-          title="Risultati Workload Engine"
-          size="lg"
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setEngineModalOpen(false)}>
-                Chiudi
-              </Button>
-              {canManageProfiles && (
-                <Button
-                  variant="primary"
-                  onClick={() => void handleApplyWorkload()}
-                  loading={engineRunning}
-                >
-                  Applica allocazioni
-                </Button>
-              )}
-            </>
-          }
-        >
-          <div className="flex flex-col gap-4">
-            {engineError && (
-              <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
-                {engineError}
-              </div>
-            )}
+      <Modal
+        open={calendarConflictsModalOpen}
+        onClose={() => {
+          setCalendarConflictsModalOpen(false);
+          setConflictsModalTab("conflitti");
+        }}
+        title={conflictsModalTab === "conflitti" ? "Conflitti rilevati" : "Task arretrate"}
+        description={
+          conflictsModalTab === "conflitti"
+            ? "Elenco dei problemi individuati nel giorno selezionato."
+            : "Attività in ritardo per l'operatore selezionato (ultimi 7 giorni)."
+        }
+        size="lg"
+        footer={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setCalendarConflictsModalOpen(false);
+              setConflictsModalTab("conflitti");
+            }}
+          >
+            Chiudi
+          </Button>
+        }
+      >
+        <div className="mb-3 flex items-center gap-1 border-b border-line dark:border-line-dark">
+          <button
+            type="button"
+            onClick={() => setConflictsModalTab("conflitti")}
+            className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              conflictsModalTab === "conflitti"
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            }`}
+          >
+            Conflitti ({(calendarData?.conflicts ?? []).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setConflictsModalTab("arretrate")}
+            className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              conflictsModalTab === "arretrate"
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            }`}
+          >
+            Arretrate ({overdueData?.total_tasks_count ?? 0})
+          </button>
+        </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Totali</p>
-                <p className="mt-1 text-lg font-bold text-ink dark:text-paper">{engineResult.total_tasks}</p>
-              </div>
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Allocate</p>
-                <p className="mt-1 text-lg font-bold text-success">{engineResult.allocated_tasks}</p>
-              </div>
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Ore totali</p>
-                <p className="mt-1 text-lg font-bold text-ink dark:text-paper">{engineResult.total_effective_hours.toFixed(1)}h</p>
-              </div>
-              <div
-                className={`rounded-lg border p-3 ${
-                  engineResult.total_overload_hours > 0
-                    ? "border-danger/30 bg-danger/5"
-                    : "border-success/30 bg-success/5"
-                }`}
-              >
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Overload</p>
-                <p
-                  className={`mt-1 text-lg font-bold ${
-                    engineResult.total_overload_hours > 0 ? "text-danger" : "text-success"
-                  }`}
-                >
-                  {engineResult.total_overload_hours.toFixed(1)}h
-                </p>
-              </div>
+        {conflictsModalTab === "conflitti" && (
+        <div className="flex flex-col gap-3">
+          {(calendarData?.conflicts ?? []).length === 0 ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Nessun conflitto rilevato.
             </div>
-
-            <div className="rounded-md border border-line bg-cream/60 px-3 py-2 dark:border-line-dark dark:bg-[#1c1c20]">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Strategia</p>
-              <p className="mt-1 text-sm text-ink dark:text-paper">
-                {engineResult.strategy} {engineResult.strategy_version && `(${engineResult.strategy_version})`}
-              </p>
-              <p className="text-xs text-muted dark:text-muted-dark">
-                Capacità giornaliera: {engineResult.daily_capacity_hours}h
-              </p>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Allocazioni task ({engineResult.tasks.length})
-              </p>
-              <div className="flex flex-col gap-2">
-                {engineResult.tasks.map((task) => (
-                  <div
-                    key={task.task_id}
-                    className={`rounded-md border p-2.5 text-xs ${
-                      task.conflict_code
-                        ? "border-danger/30 bg-danger/5"
-                        : "border-success/30 bg-success/5"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-ink dark:text-paper">#{task.task_id} {task.title}</p>
-                        <p className="mt-1 text-[11px] text-muted dark:text-muted-dark">
-                          {task.start_date} → {task.end_date} · {task.estimated_hours}h stimate · {task.effective_hours.toFixed(1)}h effettive
-                        </p>
+          ) : (
+            (calendarData?.conflicts ?? []).map((conflict, index) => {
+              const primaryTaskId = conflict.work_item_ids[0] ?? conflict.tasks[0]?.id ?? null;
+              const primaryTask = primaryTaskId != null
+                ? conflict.tasks.find((task) => task.id === primaryTaskId) ??
+                  calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === primaryTaskId)?.task ??
+                  calendarData?.over_capacity?.tasks.find((task) => task.work_item_id === primaryTaskId)?.task ??
+                  null
+                : null;
+              const canReschedule = primaryTaskId != null && conflict.conflict_type !== "severe_delay" && !!primaryTask?.deadline_date;
+              return (
+                <div
+                  key={`${conflict.conflict_type}-${index}`}
+                  className={`rounded-md border px-3 py-2 ${calendarConflictClass(conflict)}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <Icon name={calendarConflictIcon(conflict)} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold uppercase tracking-wider">{conflict.title}</div>
+                      <p className="mt-1 text-[12px] leading-5 text-ink dark:text-paper">{conflict.message}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
+                        {conflict.start_time && conflict.end_time && <span>{conflict.start_time} - {conflict.end_time}</span>}
+                        {conflict.overlap_minutes != null && <span>{conflict.overlap_minutes} min sovrapposti</span>}
+                        {conflict.overload_hours != null && <span>{formatHours(conflict.overload_hours)} oltre capacità</span>}
+                        {conflict.effective_load_hours != null && <span>{formatHours(conflict.effective_load_hours)} workload</span>}
                       </div>
-                      {task.overload_hours > 0 && (
-                        <span className="inline-flex items-center rounded-full bg-danger/10 px-2 py-1 text-[10px] font-semibold text-danger">
-                          +{task.overload_hours.toFixed(1)}h
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      {primaryTaskId != null && (
+                        <button
+                          type="button"
+                          className="rounded border border-line bg-paper px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink hover:bg-cream dark:border-line-dark dark:bg-ink-2 dark:text-paper dark:hover:bg-ink-soft"
+                          onClick={() => void openEditWorkItemModal(primaryTaskId)}
+                        >
+                          Apri
+                        </button>
+                      )}
+                      {canReschedule && (
+                        <button
+                          type="button"
+                          className="rounded border border-warning/35 bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning hover:bg-warning/15 disabled:opacity-50"
+                          disabled={reschedulingTaskId === primaryTaskId}
+                          onClick={() => void rescheduleTaskToNextAvailable(primaryTaskId)}
+                        >
+                          {reschedulingTaskId === primaryTaskId ? "..." : "Riprogramma"}
+                        </button>
+                      )}
+                      {primaryTaskId != null && conflict.conflict_type !== "severe_delay" && !primaryTask?.deadline_date && (
+                        <span className="rounded border border-line px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:border-line-dark dark:text-muted-dark" title="Serve una scadenza per riprogrammare automaticamente">
+                          No scadenza
                         </span>
                       )}
                     </div>
                   </div>
-                ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+        )}
+
+        {conflictsModalTab === "arretrate" && (
+        <div className="flex flex-col gap-3">
+          {!calendarOperatorId ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Seleziona un operatore per vedere le task arretrate.
+            </div>
+          ) : overdueLoading ? (
+            <div className="flex items-center justify-center px-3 py-6">
+              <Spinner />
+            </div>
+          ) : overdueError ? (
+            <div className="rounded-md border border-danger/35 bg-danger/10 px-3 py-3 text-sm text-danger">
+              {overdueError}
+            </div>
+          ) : (overdueData?.tasks ?? []).length === 0 ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Nessuna task arretrata.
+            </div>
+          ) : (
+            (overdueData?.tasks ?? []).map((item) => {
+              const isSevere = item.is_severe_delay || item.delay_code === "non_deferrable_overdue";
+              const cardClass = isSevere
+                ? "border-danger/35 bg-danger/10 text-danger"
+                : "border-warning/35 bg-warning/10 text-warning";
+              return (
+                <div
+                  key={item.work_item_id}
+                  className={`rounded-md border px-3 py-2 ${cardClass}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <Icon name="alert-triangle" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider">{item.title}</span>
+                        {item.is_deadline_locked && (
+                          <span className="rounded border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+                            Non derogabile
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
+                        {item.days_overdue > 0 && <span>{item.days_overdue} gg di ritardo</span>}
+                        {item.deadline_date && <span>Scadenza {item.deadline_date}</span>}
+                        {item.work_date && <span>Pianificata {item.work_date}</span>}
+                        <span>{formatHours(item.effective_load_hours)} workload</span>
+                        {item.client_name && <span>{item.client_name}</span>}
+                      </div>
+                      {item.work_areas.length > 0 && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {item.work_areas.map((area) => (
+                            <span
+                              key={area.id}
+                              className="inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[9px] font-medium text-muted dark:border-line-dark dark:text-muted-dark"
+                            >
+                              {area.icon && <span>{area.icon}</span>}
+                              {area.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      <button
+                        type="button"
+                        className="rounded border border-line bg-paper px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink hover:bg-cream dark:border-line-dark dark:bg-ink-2 dark:text-paper dark:hover:bg-ink-soft"
+                        onClick={() => void openEditWorkItemModal(item.work_item_id)}
+                      >
+                        Apri
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!calendarConflictModal}
+        onClose={() => setCalendarConflictModal(null)}
+        title="Slot orario occupato"
+        description={calendarConflictModal?.message ?? "Una o più task si sovrappongono allo slot selezionato."}
+        size="lg"
+        footer={
+          <Button variant="primary" onClick={() => setCalendarConflictModal(null)}>
+            Ho capito
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {(calendarConflictModal?.conflicts ?? []).map((conflict) => (
+            <div key={`${conflict.work_item_id}-${conflict.overlap_start_time}`} className="rounded-md border border-warning/35 bg-warning/10 px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink dark:text-paper">{conflict.title}</p>
+                  <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                    Occupa {conflict.start_time ?? "—"} - {conflict.end_time ?? "—"}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-warning">
+                    Accavallamento: {conflict.overlap_start_time} - {conflict.overlap_end_time} ({conflict.overlap_minutes} min)
+                  </p>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => void openEditWorkItemModal(conflict.work_item_id)}>
+                  Apri task
+                </Button>
               </div>
             </div>
-          </div>
-        </Modal>
-      )}
+          ))}
+        </div>
+      </Modal>
 
       <WorkItemFormModal
         open={newWorkModalOpen}
@@ -2847,8 +3524,11 @@ export function WorkloadPage() {
         companyId={selectedCompanyId!}
         isAdmin={!!permissions?.is_admin}
         defaultWorkDate={quickAdd?.day ?? selectedDay ?? getTodayDate()}
+        defaultStartTime={quickAdd?.startTime}
+        defaultEstimatedHours={quickAdd?.estimatedHours}
         defaultAssigneeIds={quickAdd ? [quickAdd.userId] : undefined}
-        onSaved={() => { setQuickAdd(null); setEditingItem(null); loadMain(); }}
+        onOverlapConflict={(message, conflicts) => setCalendarConflictModal({ message, conflicts })}
+        onSaved={() => { setQuickAdd(null); setEditingItem(null); void loadMain(); void reloadCalendar(); setMultiReloadToken((t) => t + 1); }}
       />
 
       {openingEditTaskId != null && (

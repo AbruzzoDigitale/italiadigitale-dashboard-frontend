@@ -43,12 +43,16 @@ export interface LoginPayload {
 }
 
 /** Profilo utente completo — identico al payload di /users/me e /auth/login */
+export type AccessLevel = "admin" | "project_manager" | "operator";
+
 export interface AuthUser {
   id: number;
   username: string;
   email: string;
   full_name: string | null;
   is_admin: boolean;
+  /** "admin" | "project_manager" | "operator" (is_admin resta sincronizzato: true ⇔ "admin") */
+  access_level?: AccessLevel;
   is_active: boolean;
   company_id: number | null;
   company_ids: number[] | null;

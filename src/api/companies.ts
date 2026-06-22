@@ -28,6 +28,8 @@ export interface Company {
   parent_id: number | null;
   is_active?: boolean;
   created_at?: string;
+  opening_time?: string | null;
+  closing_time?: string | null;
   primary_color: string | null;
   login_title: string | null;
   logo_dark: string | null;
@@ -77,6 +79,11 @@ export interface SwitchActiveCompanyRequest {
 export interface SwitchActiveCompanyResponse {
   status: "ok";
   active_company_id: number;
+}
+
+export interface UpdateCompanyPayload {
+  opening_time?: string | null;
+  closing_time?: string | null;
 }
 
 export interface UpdateCompanyBrandPayload {
@@ -174,32 +181,6 @@ export interface CompanyHolidaySyncResponse {
   items: CompanyHolidaySyncItem[];
 }
 
-export interface CompanyWorkloadPolicy {
-  id: number;
-  company_id: number;
-  name: string;
-  strategy: string;
-  strategy_version: string | null;
-  default_is_fractionable: boolean;
-  daily_capacity_hours: number | null;
-  settings_json: Record<string, unknown> | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CompanyWorkloadPolicyCreate {
-  name: string;
-  strategy: string;
-  strategy_version?: string | null;
-  default_is_fractionable?: boolean;
-  daily_capacity_hours?: number | null;
-  settings_json?: Record<string, unknown> | null;
-  is_active?: boolean;
-}
-
-export type CompanyWorkloadPolicyUpdate = Partial<CompanyWorkloadPolicyCreate>;
-
 /** Campi upload asset brand */
 export type CompanyAssetField =
   | "logo_dark"
@@ -240,6 +221,30 @@ export async function getMyCompaniesApi(): Promise<Company[]> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Impossibile recuperare le aziende assegnate"));
+  }
+  return res.json();
+}
+
+export async function getCompanyApi(id: number): Promise<Company> {
+  const res = await authFetch(`${API_BASE}/api/v1/companies/${id}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile recuperare l'azienda"));
+  }
+  return res.json();
+}
+
+export async function updateCompanyApi(
+  id: number,
+  payload: UpdateCompanyPayload
+): Promise<Company> {
+  const res = await authFetch(`${API_BASE}/api/v1/companies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore nell'aggiornamento azienda"));
   }
   return res.json();
 }
@@ -447,67 +452,3 @@ export async function syncCompanyItalianHolidaysApi(
   return res.json();
 }
 
-export async function listCompanyWorkloadPoliciesApi(companyId: number): Promise<CompanyWorkloadPolicy[]> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(parseApiError(body, "Impossibile recuperare le workload policies"));
-  }
-  return res.json();
-}
-
-export async function getCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(parseApiError(body, "Workload policy non trovata"));
-  }
-  return res.json();
-}
-
-export async function createCompanyWorkloadPolicyApi(
-  companyId: number,
-  payload: CompanyWorkloadPolicyCreate
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore creazione workload policy")}`);
-  }
-  return res.json();
-}
-
-export async function updateCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number,
-  payload: CompanyWorkloadPolicyUpdate
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore aggiornamento workload policy")}`);
-  }
-  return res.json();
-}
-
-export async function deleteCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number
-): Promise<void> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`, {
-    method: "DELETE",
-  });
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore eliminazione workload policy")}`);
-  }
-}

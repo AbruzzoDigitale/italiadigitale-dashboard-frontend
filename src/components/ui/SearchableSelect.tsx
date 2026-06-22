@@ -161,7 +161,7 @@ export function SearchableSelect({
                 role="option"
                 aria-selected={isSelected}
               >
-                <span className="inline-flex items-center gap-2 min-w-0">
+                <span className="flex w-full min-w-0 items-center gap-2">
                   {option.avatarUrl ? (
                     <img
                       src={option.avatarUrl}
@@ -175,7 +175,7 @@ export function SearchableSelect({
                       {getInitials(option.label)}
                     </span>
                   )}
-                  <span className="truncate">{option.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 </span>
               </button>
             );
@@ -195,7 +195,7 @@ export function SearchableSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`inline-flex items-center gap-2 min-w-0 ${selected ? "text-current" : "text-current/65"}`}>
+        <span className={`flex w-full min-w-0 items-center gap-2 pr-6 ${selected ? "text-current" : "text-current/65"}`}>
           {selected ? (
             selected.avatarUrl ? (
               <img
@@ -211,7 +211,7 @@ export function SearchableSelect({
               </span>
             )
           ) : null}
-          <span className="truncate">{selected?.label ?? placeholder}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
         </span>
         <Icon
           name="chevron-down"

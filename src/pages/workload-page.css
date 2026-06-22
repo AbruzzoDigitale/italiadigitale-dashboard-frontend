@@ -651,6 +651,63 @@
   color: theme(colors.ink.DEFAULT);
 }
 
+/* ── Calendario: box giorni grandi e separati (stile AD4) ─────────────────── */
+.wl-day-strip--cal {
+  gap: 8px;
+}
+
+.wl-day-strip--cal .wl-day-chip {
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(10, 10, 10, 0.18);
+  border-radius: 12px;
+}
+
+/* Annulla l'aspetto "connesso" della strip compatta quando i box sono grandi */
+.wl-day-strip--cal .wl-day-chip,
+.wl-day-strip--cal .wl-day-chip:first-child,
+.wl-day-strip--cal .wl-day-chip:last-child {
+  border-right: 1px solid rgba(10, 10, 10, 0.18);
+  border-radius: 12px;
+}
+
+.dark .wl-day-strip--cal .wl-day-chip,
+.dark .wl-day-strip--cal .wl-day-chip:first-child,
+.dark .wl-day-strip--cal .wl-day-chip:last-child {
+  border-color: theme(colors.line.dark);
+}
+
+.wl-day-chip__meta {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  white-space: nowrap;
+}
+
+.dark .wl-day-chip__meta {
+  color: theme(colors.muted.dark);
+}
+
+.wl-day-chip__overdue {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.dark .wl-day-chip__overdue {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.18);
+}
+
 @media (max-width: 900px) {
   .wl-day-row {
     flex-direction: column;
@@ -660,5 +717,41 @@
   .wl-sort-btn {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* ============================================================
+   Calendario workload — animazioni completion task
+   ============================================================ */
+
+.wl-cal-check-anim {
+  animation: wl-cal-check-pop 260ms ease-out;
+}
+
+@keyframes wl-cal-check-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.24);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.wl-cal-task-exit {
+  pointer-events: none;
+  animation: wl-cal-task-slide-out 320ms ease-in forwards;
+}
+
+@keyframes wl-cal-task-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(18px);
   }
 }

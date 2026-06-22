@@ -212,14 +212,6 @@ function TemplateSidebarCard({
               PED
             </span>
           )}
-          {item.force_today && (
-            <span
-              className="inline-flex rounded-pill border border-[#a32d2d]/35 bg-[#a32d2d]/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#a32d2d] dark:border-[#f47070]/35 dark:bg-[#3d1212] dark:text-[#f47070]"
-              title="Il motore workload alloca questa task esclusivamente su oggi"
-            >
-              Forzato a oggi
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           {overdue && (
@@ -961,11 +953,12 @@ export function WorkItemsPage() {
             Template
           </Button>
         )}
-        {isAdmin && (
+        {canUseManualTasks && (
           <Button
             variant="primary"
             leftIcon={<Icon name="plus" className="w-4 h-4" />}
             onClick={openCreate}
+            disabled={companyId == null}
           >
             Nuova lavorazione
           </Button>

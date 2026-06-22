@@ -33,9 +33,13 @@ export function canAccessRoute(
     case "clients-situation":
       return permissions.is_admin;
     case "workload":
-      return permissions.allowed_views.includes("workload") || permissions.is_admin;
+      // Admins get the full workload page; every other authenticated user (operatore)
+      // gets the restricted calendar-only / self-only view enforced inside WorkloadPage.
+      return true;
     case "daily-tasks":
-      return permissions.allowed_views.includes("daily-tasks") || permissions.is_admin || permissions.allowed_views.includes("workload");
+      // Come per il workload: ogni utente autenticato (operatore) accede. La pagina mostra
+      // di default la vista "Mie task"; il toggle "Team" resta riservato agli admin.
+      return true;
     case "configurator":
       return permissions.allowed_views.includes("configurator");
     case "preventivo":
