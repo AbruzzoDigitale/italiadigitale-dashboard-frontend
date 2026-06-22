@@ -345,49 +345,85 @@ export function OperatorCalendarColumn({
   return (
     <div className={`flex flex-col gap-4 ${compact ? "min-w-[320px] flex-1" : ""}`}>
       {/* Intestazione operatore */}
-      <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2">
-            {data.avatar_url ? (
-              <img src={data.avatar_url} alt={displayName} className="h-9 w-9 rounded-full object-cover border border-line dark:border-line-dark" />
-            ) : (
-              <div className="h-9 w-9 rounded-full border border-line dark:border-line-dark bg-cream dark:bg-ink-2 text-[11px] font-semibold text-ink dark:text-paper flex items-center justify-center">
-                {avatarInitials}
-              </div>
-            )}
-            <div>
-              <div className="text-sm font-semibold text-ink dark:text-paper">{displayName}</div>
-              <div className="text-xs text-muted dark:text-muted-dark">{roleLabel || "Nessun ruolo"} · {dayMeta}</div>
+      {compact ? (
+        // Multi-vista: header ad altezza FISSA e riga singola, così tutte le colonne
+        // affiancate hanno la stessa altezza e le griglie restano allineate.
+        <div className="flex h-[60px] items-center gap-2 rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-3">
+          {data.avatar_url ? (
+            <img src={data.avatar_url} alt={displayName} className="h-8 w-8 shrink-0 rounded-full object-cover border border-line dark:border-line-dark" />
+          ) : (
+            <div className="h-8 w-8 shrink-0 rounded-full border border-line dark:border-line-dark bg-cream dark:bg-ink-2 text-[11px] font-semibold text-ink dark:text-paper flex items-center justify-center">
+              {avatarInitials}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-ink dark:text-paper">{displayName}</div>
+            <div className="truncate text-[11px] text-muted dark:text-muted-dark">
+              {taskCount} task · {totalTaskHours > 0 ? formatHours(totalTaskHours) : "Libero"}
             </div>
           </div>
+          {summaryStatus && (
+            <Badge variant={statusBadgeVariant(summaryStatus)}>{statusLabel(summaryStatus)}</Badge>
+          )}
+          {calendarConflicts.length > 0 && onOpenConflicts && (
+            <button
+              type="button"
+              onClick={onOpenConflicts}
+              className="relative inline-flex shrink-0 items-center gap-1 rounded-md border border-warning/35 bg-warning/10 px-1.5 py-1 text-warning transition-colors hover:bg-warning/15"
+              title="Mostra conflitti rilevati"
+            >
+              <Icon name="alert-triangle" className="h-3.5 w-3.5" />
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-paper">
+                {calendarConflicts.length}
+              </span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              {data.avatar_url ? (
+                <img src={data.avatar_url} alt={displayName} className="h-9 w-9 rounded-full object-cover border border-line dark:border-line-dark" />
+              ) : (
+                <div className="h-9 w-9 rounded-full border border-line dark:border-line-dark bg-cream dark:bg-ink-2 text-[11px] font-semibold text-ink dark:text-paper flex items-center justify-center">
+                  {avatarInitials}
+                </div>
+              )}
+              <div>
+                <div className="text-sm font-semibold text-ink dark:text-paper">{displayName}</div>
+                <div className="text-xs text-muted dark:text-muted-dark">{roleLabel || "Nessun ruolo"} · {dayMeta}</div>
+              </div>
+            </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant={summaryStatus ? statusBadgeVariant(summaryStatus) : "default"}>
-              {summaryStatus ? statusLabel(summaryStatus) : "N/D"}
-            </Badge>
-            <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-              {totalTaskHours > 0 ? `${formatHours(totalTaskHours)} task` : "Libero"}
-            </span>
-            <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-              {taskCount} task · {data.timeline.length} eventi
-            </span>
-            {calendarConflicts.length > 0 && onOpenConflicts && (
-              <button
-                type="button"
-                onClick={onOpenConflicts}
-                className="relative inline-flex items-center gap-1 rounded-md border border-warning/35 bg-warning/10 px-2 py-1 text-warning transition-colors hover:bg-warning/15"
-                title="Mostra conflitti rilevati"
-              >
-                <Icon name="alert-triangle" className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-semibold uppercase tracking-wider">Conflitti</span>
-                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-paper">
-                  {calendarConflicts.length}
-                </span>
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant={summaryStatus ? statusBadgeVariant(summaryStatus) : "default"}>
+                {summaryStatus ? statusLabel(summaryStatus) : "N/D"}
+              </Badge>
+              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
+                {totalTaskHours > 0 ? `${formatHours(totalTaskHours)} task` : "Libero"}
+              </span>
+              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
+                {taskCount} task · {data.timeline.length} eventi
+              </span>
+              {calendarConflicts.length > 0 && onOpenConflicts && (
+                <button
+                  type="button"
+                  onClick={onOpenConflicts}
+                  className="relative inline-flex items-center gap-1 rounded-md border border-warning/35 bg-warning/10 px-2 py-1 text-warning transition-colors hover:bg-warning/15"
+                  title="Mostra conflitti rilevati"
+                >
+                  <Icon name="alert-triangle" className="h-3.5 w-3.5" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider">Conflitti</span>
+                  <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-paper">
+                    {calendarConflicts.length}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Griglia oraria */}
       <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
@@ -769,9 +805,13 @@ export function OperatorCalendarColumn({
                 <button
                   key={`${item.kind}-${item.source_id ?? index}-unscheduled`}
                   type="button"
+                  draggable={!!item.work_item_id && !getUiState(item.work_item_id)}
+                  onDragStart={() => { if (item.work_item_id) onTaskDragStart(item.work_item_id, operatorId); }}
+                  onDragEnd={() => { clearSwapPreview(); setDropPreviewMinutes(null); setGridDropActive(false); onTaskDragEnd(); }}
                   onClick={() => { if (item.work_item_id) onOpenEdit(item.work_item_id); }}
-                  className={`relative rounded-md border px-3 py-2 pr-8 text-left text-xs shadow-sm transition hover:-translate-y-px hover:shadow-md ${isSevereDelay ? "border-danger bg-danger/10" : isCarriedOver ? "border-warning bg-warning/10" : "border-line bg-cream dark:border-line-dark dark:bg-ink-2"}`}
+                  className={`relative rounded-md border px-3 py-2 pr-8 text-left text-xs shadow-sm transition hover:-translate-y-px hover:shadow-md ${item.work_item_id ? "cursor-grab active:cursor-grabbing" : ""} ${isSevereDelay ? "border-danger bg-danger/10" : isCarriedOver ? "border-warning bg-warning/10" : "border-line bg-cream dark:border-line-dark dark:bg-ink-2"}`}
                   style={taskColor ? { borderColor: taskColor, backgroundColor: taskColor } : undefined}
+                  title="Trascina su uno slot per pianificarla"
                 >
                   {isPriority && <Icon name="star" className="absolute right-2 top-2 h-3.5 w-3.5 text-[#E91E8A]" />}
                   <div className="text-[10px] uppercase tracking-wider" style={{ color: readableText.secondary }}>{resolveTimelineClientLabel(item)}</div>
