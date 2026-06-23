@@ -767,8 +767,6 @@
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  border: 1px solid theme(colors.line.DEFAULT);
-  border-radius: 16px;
   background: theme(colors.paper);
 }
 
@@ -1003,6 +1001,20 @@
 /* min-height degli eventi così restano leggibili anche molto corti */
 .wlcal-evlayer .wlcal-ev {
   min-height: 16px;
+}
+
+/* day view (1 colonna): card un filo più ariose, come il prototipo */
+.wlcal-shell.is-single .wlcal-ev {
+  padding: 8px 12px 8px 13px;
+}
+
+.wlcal-shell.is-single .wlcal-ev-client {
+  font-size: 12px;
+  white-space: normal;
+}
+
+.wlcal-shell.is-single .wlcal-ev-type {
+  font-size: 13px;
 }
 
 .dark .wlcal-daycol {
@@ -1423,11 +1435,19 @@
 .wlcal-shell {
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 0;
   min-width: 0;
   /* Altezza fissa: il calendario riempie il contenitore senza scroll verticale di pagina. */
   height: calc(100vh - 280px);
   min-height: 440px;
+  /* Cornice unica "flush" (calendario + tray attaccati), come il prototipo. */
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.dark .wlcal-shell {
+  border-color: theme(colors.line.dark);
 }
 
 .wlcal-shell > .wlcal {
@@ -1442,8 +1462,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid theme(colors.line.DEFAULT);
-  border-radius: 16px;
+  border-left: 1px solid theme(colors.line.DEFAULT);
   background: theme(colors.cream);
   overflow: hidden;
 }
@@ -1518,7 +1537,7 @@
 }
 
 .dark .wlcal-tray {
-  border-color: theme(colors.line.dark);
+  border-left-color: theme(colors.line.dark);
   background: theme(colors.ink.soft);
 }
 

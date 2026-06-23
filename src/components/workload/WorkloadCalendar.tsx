@@ -265,7 +265,7 @@ export function WorkloadCalendar({
   }
 
   return (
-    <div className={`wlcal-shell ${trayOpen ? "" : "is-tray-closed"}`}>
+    <div className={`wlcal-shell ${trayOpen ? "" : "is-tray-closed"} ${visibleDays.length === 1 ? "is-single" : ""}`}>
     <div className="wlcal">
       <div className="wlcal-inner">
         {/* Intestazione giorni */}
