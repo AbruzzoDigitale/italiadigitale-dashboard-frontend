@@ -488,3 +488,41 @@
   cursor: pointer;
 }
 .social-present-exit:hover { background: rgba(255, 255, 255, .18); }
+
+/* ── Barra preventivo sticky in basso ── */
+.social-quotebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
+  background: var(--ad-bg-2);
+  border-top: 1px solid var(--ad-line-2);
+}
+.social-quotebar__info {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--ad-tx);
+}
+.social-quotebar__pkg { font-size: 13px; color: var(--ad-tx-2); }
+.social-quotebar__price { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.social-quotebar__disc { font-size: 12px; color: var(--ad-magenta); font-weight: 700; }
+.social-quotebar__hint { font-size: 13px; color: var(--ad-tx-3); }
+.social-quotebar__controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.social-quotebar__field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ad-tx-2); white-space: nowrap; }
+.social-quotebar__field input {
+  width: 72px;
+  background: var(--ad-surface);
+  border: 1px solid var(--ad-line-2);
+  color: var(--ad-tx);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.social-quotebar__field input:disabled { opacity: .5; }

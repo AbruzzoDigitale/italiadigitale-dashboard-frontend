@@ -602,6 +602,47 @@ export function SocialPackagesPresentationPage() {
         </div>
       )}
 
+      {/* ── Barra preventivo sticky in basso ── */}
+      {!loading && orderedPackages.length > 0 && (
+        <div className="social-quotebar">
+          <div className="social-quotebar__info">
+            {selectedPack ? (
+              <>
+                <span className="social-quotebar__pkg">{selectedPack.title} · {months} mesi</span>
+                <span className="social-quotebar__price">{formatCurrency(total, selectedPack.currency)}</span>
+                {discountAmount > 0 && (
+                  <span className="social-quotebar__disc">sconto −{formatCurrency(discountAmount, selectedPack.currency)}</span>
+                )}
+              </>
+            ) : (
+              <span className="social-quotebar__hint">Seleziona un pacchetto per vedere il prezzo</span>
+            )}
+          </div>
+          <div className="social-quotebar__controls">
+            <label className="social-quotebar__field">
+              <span>Sconto %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={discountPct}
+                disabled={!selectedPack}
+                onChange={(e) => setDiscountPct(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn--magenta"
+              onClick={generateQuote}
+              disabled={!selectedPack || creating}
+            >
+              {creating ? "Creazione..." : "Salva come preventivo →"}
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
