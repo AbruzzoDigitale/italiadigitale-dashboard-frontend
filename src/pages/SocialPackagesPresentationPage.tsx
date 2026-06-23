@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { listSocialPackagesApi, getSocialPackageApi, type SocialPackageDetail } from "../api/socialPackages";
 import { getMyCompaniesApi, type Company, type SocialPackageCardStyle } from "../api/companies";
@@ -23,6 +23,143 @@ interface SocialPresentationPackage {
   included: string[];
   monthly: string[];
   accent: Accent;
+}
+
+function CheckIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  );
+}
+
+function MonthlyBlock({ items, open }: { items: string[]; open: boolean }) {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    setH(open && innerRef.current ? innerRef.current.scrollHeight : 0);
+  }, [open, items]);
+  return (
+    <div className="social-pack__monthly" style={{ height: h }}>
+      <div className="social-pack__monthly-in" ref={innerRef}>
+        <div className="social-pack__feat-label">Ogni mese realizziamo</div>
+        <ul className="social-pack__feat">
+          {items.map((f, i) => (
+            <li key={i}><CheckIcon size={16} /><span>{f}</span></li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function formatPriceValue(amount: number | null | undefined) {
+  if (amount == null) return "-";
+  try {
+    return new Intl.NumberFormat("it-IT", {
+      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return String(amount);
+  }
+}
+
+interface PackageCardProps {
+  pkg: SocialPresentationPackage;
+  index: number;
+  total: number;
+  cardStyle: SocialPackageCardStyle;
+  reco: boolean;
+  selected: boolean;
+  onSelect: (id: number) => void;
+}
+
+function PackageCard({ pkg, index, total, cardStyle, reco, selected, onSelect }: PackageCardProps) {
+  const [open, setOpen] = useState(false);
+  const indexLabel = String(index + 1).padStart(2, "0");
+  // rail: riempimento progressivo in base alla posizione (1..N)
+  const railFill = `${Math.round(((index + 1) / total) * 100)}%`;
+  const tier = index + 1;
+
+  const included = pkg.included.length ? pkg.included : ["Definizione strategica iniziale"];
+  const monthly = pkg.monthly.length ? pkg.monthly : ["Produzione contenuti ricorrenti"];
+  const priceNote = pkg.price_badge || "Durata min. 6 mesi · IVA esclusa";
+
+  return (
+    <article
+      className={`social-pack${reco ? " is-reco" : ""}${selected ? " is-selected" : ""}`}
+      style={cardStyle === "rail" ? ({ "--rail": railFill } as CSSProperties) : undefined}
+      onClick={() => onSelect(pkg.id)}
+    >
+      {cardStyle === "tech" && (<><span className="social-pack__corner tl" /><span className="social-pack__corner br" /></>)}
+      {reco && <div className="social-pack__reco-tag">Il più scelto</div>}
+      <div className="social-pack__select-mark"><CheckIcon size={15} /></div>
+
+      <div className="social-pack__head">
+        <span className="social-pack__index">{cardStyle === "tech" ? `/ ${indexLabel}` : indexLabel}</span>
+      </div>
+
+      {cardStyle === "rail" && (
+        <div className="social-pack__tier-dots">
+          {Array.from({ length: total }).map((_, t) => (
+            <i key={t} className={t < tier ? "on" : ""} />
+          ))}
+        </div>
+      )}
+
+      <h2 className="social-pack__name">{pkg.title}</h2>
+      <p className="social-pack__desc">{pkg.description || "Pacchetto social personalizzato per la crescita del brand."}</p>
+
+      <div className="social-pack__price">
+        <span className="cur">€</span>
+        <span className="val">{formatPriceValue(pkg.base_price)}</span>
+        <span className="per">/ {periodLabel(pkg.billing_period) === "al mese" ? "mese" : periodLabel(pkg.billing_period)}</span>
+      </div>
+      <div className="social-pack__price-note">{priceNote}</div>
+
+      <div className="social-pack__feat-label">Incluso per te</div>
+      <ul className="social-pack__feat">
+        {included.map((row, idx) => (
+          <li key={idx}><CheckIcon size={16} /><span>{row}</span></li>
+        ))}
+      </ul>
+
+      <button
+        type="button"
+        className={`social-pack__expand-btn${open ? " open" : ""}`}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+      >
+        <span>{open ? "Nascondi dettagli mensili" : "Cosa realizziamo ogni mese"}</span>
+        <ChevronIcon size={16} />
+      </button>
+      <MonthlyBlock items={monthly} open={open} />
+
+      <button
+        type="button"
+        className={`social-pack__cta${reco || selected ? " primary" : ""}`}
+        onClick={() => onSelect(pkg.id)}
+      >
+        Personalizza <ArrowRightIcon size={15} />
+      </button>
+    </article>
+  );
 }
 
 function accentFromPackage(item: SocialPackageDetail, index: number): Accent {
@@ -173,6 +310,15 @@ export function SocialPackagesPresentationPage() {
     [orderedPackages, selectedId]
   );
 
+  // Pacchetto consigliato ("Il più scelto"): preferisci accent "growth",
+  // altrimenti quello centrale. Deterministico.
+  const recoId = useMemo(() => {
+    if (orderedPackages.length === 0) return null;
+    const growth = orderedPackages.find((p) => p.accent === "growth");
+    if (growth) return growth.id;
+    return orderedPackages[Math.floor(orderedPackages.length / 2)].id;
+  }, [orderedPackages]);
+
   // Totali identici al prototipo
   const STRATEGY_PRICE = 500;
   const META_BM_PRICE = 250;
@@ -258,36 +404,17 @@ export function SocialPackagesPresentationPage() {
           <div className="social-presentation-empty">Nessun pacchetto attivo disponibile per questa azienda.</div>
         ) : (
           <section className={`social-hero__deck social-deck--${cardStyle}`}>
-            {orderedPackages.map((item) => (
-              <article
+            {orderedPackages.map((item, index) => (
+              <PackageCard
                 key={item.id}
-                className={`social-pack social-pack--${item.accent}${selectedId === item.id ? " is-selected" : ""}`}
-                onClick={() => selectPack(item.id)}
-              >
-                {cardStyle === "tech" && (<><span className="social-pack__corner tl" /><span className="social-pack__corner br" /></>)}
-                <h2 className="social-pack__name">{item.title}</h2>
-                <p className="social-pack__desc">{item.description || "Pacchetto social personalizzato per la crescita del brand."}</p>
-
-                <div className="social-pack__group-title">Incluso per te:</div>
-                <ul className="social-pack__list">
-                  {(item.included.length ? item.included : ["Definizione strategica iniziale"]).map((row, idx) => (
-                    <li key={`${item.id}-inc-${idx}`}>{row}</li>
-                  ))}
-                </ul>
-
-                <div className="social-pack__group-title">Cosa realizziamo ogni mese:</div>
-                <ul className="social-pack__list">
-                  {(item.monthly.length ? item.monthly : ["Produzione contenuti ricorrenti"]).map((row, idx) => (
-                    <li key={`${item.id}-mon-${idx}`}>{row}</li>
-                  ))}
-                </ul>
-
-                <div className="social-pack__price">
-                  {formatCurrency(item.base_price, item.currency)}
-                  <small>{periodLabel(item.billing_period)}</small>
-                  {item.price_badge && <div className="social-pack__badge">{item.price_badge}</div>}
-                </div>
-              </article>
+                pkg={item}
+                index={index}
+                total={orderedPackages.length}
+                cardStyle={cardStyle}
+                reco={item.id === recoId}
+                selected={selectedId === item.id}
+                onSelect={selectPack}
+              />
             ))}
           </section>
         )}
