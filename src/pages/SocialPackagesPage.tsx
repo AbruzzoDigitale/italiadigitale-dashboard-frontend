@@ -889,14 +889,15 @@ export function SocialPackagesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="danger-ghost"
-            onClick={() => setBulkDeleteOpen(true)}
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            disabled={selectedPackageIds.length === 0}
-          >
-            Elimina selezionati ({selectedPackageIds.length})
-          </Button>
+          {selectedPackageIds.length > 0 && (
+            <Button
+              variant="danger-ghost"
+              onClick={() => setBulkDeleteOpen(true)}
+              leftIcon={<Icon name="trash" className="w-4 h-4" />}
+            >
+              Elimina selezionati ({selectedPackageIds.length})
+            </Button>
+          )}
           <Button variant="secondary" onClick={handleCreateNew} leftIcon={<Icon name="plus" className="w-4 h-4" />}>
             Nuovo pacchetto
           </Button>

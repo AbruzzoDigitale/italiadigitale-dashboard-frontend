@@ -5,6 +5,7 @@ import {
   instantiateWorkItemTemplateApi,
   isWorkItemOverlapApiError,
   listWorkItemsApi,
+  rescheduleNextAvailableWorkItemApi,
   updateWorkItemApi,
   listWorkTagsApi,
   createTimeSlotApi,
@@ -415,6 +416,7 @@ export function WorkItemFormModal({
   const [overbookingData, setOverbookingData] = useState<OverbookingCheckResponse | null>(null);
   const [overbookingItemId, setOverbookingItemId] = useState<number | null>(null);
   const [reassigningUserId, setReassigningUserId] = useState<number | null>(null);
+  const [reschedulingOverbooking, setReschedulingOverbooking] = useState(false);
 
   // ── Scheda attiva nel layout di creazione singola
   const [createTab, setCreateTab] = useState<"dettagli" | "tag" | "template">("dettagli");
@@ -883,8 +885,25 @@ export function WorkItemFormModal({
     setOverbookingData(null);
     setOverbookingItemId(null);
     setReassigningUserId(null);
+    setReschedulingOverbooking(false);
     onClose();
     onSaved();
+  };
+
+  // Riprogramma la task creata al primo slot libero (stesso operatore), risolvendo l'overbooking.
+  const handleOverbookingReschedule = async () => {
+    if (overbookingItemId == null) return;
+    setReschedulingOverbooking(true);
+    try {
+      await rescheduleNextAvailableWorkItemApi(overbookingItemId, {
+        from_date: form.work_date || new Date().toISOString().slice(0, 10),
+      });
+      toast.success("Task riprogrammata al primo slot libero");
+      finishAfterOverbooking();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile riprogrammare la task");
+      setReschedulingOverbooking(false);
+    }
   };
 
   const handleOverbookingReassign = async (userId: number) => {
@@ -2427,7 +2446,9 @@ export function WorkItemFormModal({
       data={overbookingData}
       users={users}
       reassigningUserId={reassigningUserId}
+      rescheduling={reschedulingOverbooking}
       onReassign={handleOverbookingReassign}
+      onReschedule={handleOverbookingReschedule}
       onProceed={finishAfterOverbooking}
     />
     </>

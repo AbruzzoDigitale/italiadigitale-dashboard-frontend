@@ -335,14 +335,15 @@ export function QuotesPage() {
             />
           </div>
           <div className="flex-1" />
-          <Button
-            variant="danger-ghost"
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            onClick={() => setBulkDeleteOpen(true)}
-            disabled={selectedQuoteIds.length === 0}
-          >
-            Elimina selezionati ({selectedQuoteIds.length})
-          </Button>
+          {selectedQuoteIds.length > 0 && (
+            <Button
+              variant="danger-ghost"
+              leftIcon={<Icon name="trash" className="w-4 h-4" />}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Elimina selezionati ({selectedQuoteIds.length})
+            </Button>
+          )}
           <Button
             leftIcon={<Icon name="plus" className="w-4 h-4" />}
             onClick={handleCreateNew}

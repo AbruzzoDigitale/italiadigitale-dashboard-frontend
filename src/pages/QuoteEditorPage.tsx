@@ -994,7 +994,7 @@ export function QuoteEditorPage() {
               />
             </div>
 
-            {!hideTagAndDiscount && (
+            {!hideTagAndDiscount && canSeePricing && (
               <>
                 <Input
                   label="Sconto %"
@@ -1004,7 +1004,7 @@ export function QuoteEditorPage() {
                   step={0.5}
                   value={String(discountPct)}
                   onChange={(e) => setDiscountPct(Number(e.target.value) || 0)}
-                  disabled={!canSeePricing || isReadOnly}
+                  disabled={isReadOnly}
                 />
 
                 <Input
@@ -1014,7 +1014,7 @@ export function QuoteEditorPage() {
                   step={0.01}
                   value={String(discountEur)}
                   onChange={(e) => setDiscountEur(Number(e.target.value) || 0)}
-                  disabled={!canSeePricing || isReadOnly}
+                  disabled={isReadOnly}
                 />
               </>
             )}
@@ -1234,44 +1234,48 @@ export function QuoteEditorPage() {
                             disabled={isReadOnly}
                           />
                         </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Prezzo</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={line.net ?? 0}
-                            onChange={(e) => updateLineNumber(index, "net", Number(e.target.value))}
-                            disabled={isReadOnly || !canSeePricing}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Sconto %</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.01}
-                            value={line.discountPct ?? 0}
-                            onChange={(e) => updateLineNumber(index, "discountPct", Number(e.target.value))}
-                            disabled={isReadOnly || !canSeePricing}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Iva</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            value={line.vat ?? 0.22}
-                            onChange={(e) => updateLineNumber(index, "vat", Number(e.target.value))}
-                            disabled={isReadOnly}
-                          />
-                        </label>
+                        {canSeePricing && (
+                          <>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Prezzo</span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={line.net ?? 0}
+                                onChange={(e) => updateLineNumber(index, "net", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Sconto %</span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.01}
+                                value={line.discountPct ?? 0}
+                                onChange={(e) => updateLineNumber(index, "discountPct", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Iva</span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                value={line.vat ?? 0.22}
+                                onChange={(e) => updateLineNumber(index, "vat", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1403,7 +1407,7 @@ export function QuoteEditorPage() {
                               <td className="px-2 py-1.5">{item.date ?? "-"}</td>
                               <td className="px-2 py-1.5">{item.entity?.name ?? "-"}</td>
                               <td className="px-2 py-1.5">{item.subject ?? "-"}</td>
-                              <td className="px-2 py-1.5">{item.amount_gross != null ? formatEur(item.amount_gross) : "-"}</td>
+                              <td className="px-2 py-1.5">{canSeePricing && item.amount_gross != null ? formatEur(item.amount_gross) : "-"}</td>
                               <td className="px-2 py-1.5 text-right">
                                 <Button
                                   size="sm"

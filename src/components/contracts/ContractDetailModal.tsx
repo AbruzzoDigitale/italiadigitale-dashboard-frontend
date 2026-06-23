@@ -760,22 +760,26 @@ export function ContractDetailModal({
                   <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Stage</div>
                   <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{CONTRACT_STAGE_LABELS[detailData.commercial_stage]}</div>
                 </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Totale selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_total)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Mensile selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_monthly ?? 0)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Una tantum selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_one_time ?? 0)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode}</div>
-                </div>
+                {detailData.pricing && (
+                  <>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Totale selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_total)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Mensile selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_monthly ?? 0)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Una tantum selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_one_time ?? 0)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode}</div>
+                    </div>
+                  </>
+                )}
                 <div className="rounded-md border border-line dark:border-line-dark p-3">
                   <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Tipo rapporto</div>
                   <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.engagement_type === "one_time" ? "Una tantum" : detailData.engagement_type === "ongoing" ? "Continuativo" : "n/d"}</div>
@@ -1114,12 +1118,15 @@ export function ContractDetailModal({
                                           >
                                             <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
                                             <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                                              Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)} · Unit {formatEur(line.net)}
-                                              {(line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
+                                              Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
+                                              {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}
+                                              {isAdmin && (line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
                                             </div>
-                                            <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
-                                              Totale linea {formatEur(computeQuoteLineTotal(line))}
-                                            </div>
+                                            {isAdmin && (
+                                              <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
+                                                Totale linea {formatEur(computeQuoteLineTotal(line))}
+                                              </div>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -1469,12 +1476,15 @@ export function ContractDetailModal({
                                       >
                                         <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
                                         <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                                          Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)} · Unit {formatEur(line.net)}
-                                          {(line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
+                                          Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
+                                          {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}
+                                          {isAdmin && (line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
                                         </div>
-                                        <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
-                                          Totale linea {formatEur(computeQuoteLineTotal(line))}
-                                        </div>
+                                        {isAdmin && (
+                                          <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
+                                            Totale linea {formatEur(computeQuoteLineTotal(line))}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>

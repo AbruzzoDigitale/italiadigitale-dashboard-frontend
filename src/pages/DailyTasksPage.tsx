@@ -63,6 +63,72 @@ function getDayGreeting(): string {
   return lateNightEggs[Math.floor(Math.random() * lateNightEggs.length)];
 }
 
+// ── Recap giornaliero (testo copia-incolla, stile wrap-up) ──────────────────────
+function fmtRecapHours(value: number | null | undefined): string {
+  const v = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return v % 1 === 0 ? String(v) : v.toFixed(1);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function recapTaskLine(task: any): string {
+  const client = task?.client_name ? `[${task.client_name}] ` : "";
+  const hours = typeof task?.effective_load_hours === "number" ? task.effective_load_hours : (task?.estimated_hours ?? 0);
+  let line = `  - ${client}${task?.title ?? "Senza titolo"} (${fmtRecapHours(hours)}h)`;
+  const note = task?.left_behind_note || task?.left_behind_reason;
+  if (note) line += ` — ${note}`;
+  return line;
+}
+
+// Costruisce il testo del recap dal payload self (usa `recap` se presente, altrimenti i KPI/tasks).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildDailyRecapText(selfData: any, dateIso: string): string {
+  const displayName = selfData?.full_name || selfData?.username || "Utente";
+  const dateLabel = dateFromIso(dateIso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const lines: string[] = [`RECAP — ${displayName} — ${dateLabel}`, ""];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const section = (title: string, items: any[] | undefined) => {
+    if (!items || items.length === 0) return;
+    lines.push(`${title} (${items.length}):`);
+    items.forEach((task) => lines.push(recapTaskLine(task)));
+    lines.push("");
+  };
+
+  const recap = selfData?.recap;
+  if (recap) {
+    lines.push(`Task di oggi: ${recap.today_total} (completate ${recap.done_count} · in corso ${recap.in_progress_count} · da fare ${recap.todo_count})`);
+    if (recap.overdue_count > 0) lines.push(`Arretrate: ${recap.overdue_count}`);
+    lines.push(`Carico oggi: ${fmtRecapHours(recap.estimated_hours_today)}h / ${fmtRecapHours(recap.capacity_hours)}h · Tracciate: ${fmtRecapHours(recap.actual_hours_today)}h`);
+    if (recap.overdue_hours > 0) lines.push(`Da recuperare (arretrato): ${fmtRecapHours(recap.overdue_hours)}h`);
+    lines.push("");
+    section("COMPLETATE", recap.done);
+    section("IN CORSO", recap.in_progress);
+    section("DA FARE", recap.todo);
+    section("ARRETRATE", recap.overdue);
+  } else {
+    // Fallback: il backend non espone ancora il recap → ricostruisco da tasks/KPI.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tasks: any[] = selfData?.tasks ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isDone = (t: any) => t.is_completed || t.status === "completed" || t.status === "done";
+    const done = tasks.filter(isDone);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inProgress = tasks.filter((t: any) => !isDone(t) && (t.status === "in_progress" || t.status === "review"));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const todo = tasks.filter((t: any) => !isDone(t) && t.status !== "in_progress" && t.status !== "review");
+    const cap = selfData?.max_capacity_hours_day;
+    lines.push(`Task totali: ${selfData?.tasks_total ?? tasks.length}`);
+    lines.push(`Completate: ${selfData?.tasks_completed ?? done.length} · In corso: ${inProgress.length} · Da fare: ${todo.length}`);
+    lines.push(`Carico stimato: ${fmtRecapHours(selfData?.estimated_hours_total)}h${typeof cap === "number" ? ` / ${fmtRecapHours(cap)}h` : ""} · Tracciate: ${fmtRecapHours(selfData?.actual_hours_total)}h`);
+    lines.push("");
+    section("COMPLETATE", done);
+    section("IN CORSO", inProgress);
+    section("DA FARE", todo);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 function loadClass(loadPercent: number): "wl-acc-load--ok" | "wl-acc-load--warning" | "wl-acc-load--overload" {
   if (loadPercent >= 100) return "wl-acc-load--overload";
   if (loadPercent >= 80) return "wl-acc-load--warning";
@@ -100,11 +166,13 @@ function renderLoadLegend() {
 export function DailyTasksPage() {
   const { user, permissions } = useAuth();
   const isAdmin = !!permissions?.is_admin;
+  // Visibilità team: admin e Project Manager (scoped alla propria azienda dal backend).
+  const canSeeTeam = isAdmin || !!permissions?.is_project_manager;
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
 
-  const [viewMode, setViewMode] = useState<ViewMode>(isAdmin ? "admin" : "self");
+  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "admin" : "self");
   const [targetDate, setTargetDate] = useState(getTodayDate());
 
   const [selfData, setSelfData] = useState<any>(null);
@@ -254,6 +322,41 @@ export function DailyTasksPage() {
             Nessuna prossima task.
           </div>
         )}
+
+        {/* Recap giornaliero (testo copia & incolla) */}
+        {(() => {
+          const recapText = buildDailyRecapText(selfData, targetDate);
+          const copyRecap = async () => {
+            try {
+              await navigator.clipboard.writeText(recapText);
+              toast.success("Recap copiato negli appunti");
+            } catch {
+              toast.error("Copia non riuscita");
+            }
+          };
+          const emailRecap = () => {
+            const subject = `Recap giornaliero ${dateFromIso(targetDate).toLocaleDateString("it-IT")}`;
+            window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recapText)}`);
+          };
+          return (
+            <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-ink dark:text-paper">Recap giornaliero</h3>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => void copyRecap()} leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}>Copia</Button>
+                  <Button size="sm" variant="ghost" onClick={emailRecap} leftIcon={<Icon name="mail" className="w-3.5 h-3.5" />}>Email</Button>
+                </div>
+              </div>
+              <textarea
+                readOnly
+                value={recapText}
+                rows={Math.min(24, recapText.split("\n").length + 1)}
+                onFocus={(event) => event.currentTarget.select()}
+                className="w-full resize-y rounded-md border border-line dark:border-line-dark bg-cream dark:bg-ink-2 px-3 py-2 font-mono text-[12px] leading-5 text-ink dark:text-paper focus:outline-none"
+              />
+            </div>
+          );
+        })()}
 
         {/* Task List */}
         <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
@@ -499,7 +602,7 @@ export function DailyTasksPage() {
             </Button>
           </div>
 
-          {isAdmin && (
+          {canSeeTeam && (
             <div className="dt-toolbar-right">
               <div className="wl-segmented wl-segmented--view">
                 <button

@@ -6,6 +6,7 @@ import {
   isWorkItemOverlapApiError,
   moveWorkItemApi,
   rescheduleNextAvailableWorkItemApi,
+  swapWorkItemsApi,
   updateWorkItemApi,
   type MoveWorkItemPayload,
   type WorkItem,
@@ -375,7 +376,7 @@ export function WorkloadPage() {
   const calendarRequestSeqRef = useRef(0);
   const calendarCreateDragStartRef = useRef<number | null>(null);
   // ── Swap posizioni via drag-and-drop (rilascio di una task sopra un'altra) ──────
-  const { preview: previewSwapApi, apply: applySwapApi, error: swapError } = useWorkItemSwap();
+  const { preview: previewSwapApi } = useWorkItemSwap();
   const [, setSwapPreview] = useState<{ targetIds: number[]; canSwap: boolean | null } | null>(null);
   const swapPreviewSeqRef = useRef(0);
   const swapHoverKeyRef = useRef<string | null>(null);
@@ -1262,22 +1263,23 @@ export function WorkloadPage() {
     try {
       moveInFlightRef.current = true;
       setMovingTaskId(sourceId);
-      const res = await applySwapApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
+      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
       if (res?.can_swap) {
         await loadMain({ silent: true });
         await reloadCalendar();
         toast.success("Posizioni scambiate");
+      } else {
+        toast.error("Scambio non possibile");
       }
-      // In caso di can_swap=false / errori, il messaggio backend è mostrato dall'effetto su swapError.
+    } catch (err) {
+      // 409 / overlap: mostra il messaggio backend UNA volta (niente loop di toast).
+      if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
+      else toast.error(err instanceof Error ? err.message : "Scambio non possibile");
     } finally {
       moveInFlightRef.current = false;
       setMovingTaskId(null);
     }
-  }, [applySwapApi, clearSwapPreview, loadMain, reloadCalendar, toast]);
-
-  useEffect(() => {
-    if (swapError) toast.error(swapError);
-  }, [swapError, toast]);
+  }, [clearSwapPreview, loadMain, reloadCalendar, toast]);
 
   const buildAccordionDayMovePayload = (day: string): MoveWorkItemPayload => {
     if (dragSourceAssigneeId === null) {

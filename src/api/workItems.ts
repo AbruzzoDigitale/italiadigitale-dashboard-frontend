@@ -205,6 +205,8 @@ export interface WorkItem {
   recurrence_day_of_month: number | null;
   recurrence_until: string | null;
   recurrence_parent_id: number | null;
+  /** null = task attiva · valorizzato = archiviata (soft-delete) */
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -478,6 +480,52 @@ export async function bulkDeleteWorkItemsApi(ids: number[]): Promise<BulkDeleteW
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Errore nell'eliminazione bulk lavorazioni"));
+  }
+  return res.json();
+}
+
+// ── Archivio / ripristino (soft-delete) ──────────────────────────────────────────
+
+export interface BulkRestoreResponse {
+  requested: number;
+  restored_ids: number[];
+  errors: { id: number; detail: string }[];
+}
+
+/** Archivio aziendale delle task soft-deleted. Rotta dedicata: solo admin/PM (403 per operatori). */
+export async function listArchivedWorkItemsApi(
+  params: { company_id?: number; client_id?: number; q?: string } = {}
+): Promise<WorkItem[]> {
+  const query = new URLSearchParams();
+  if (params.company_id != null) query.set("company_id", String(params.company_id));
+  if (params.client_id != null) query.set("client_id", String(params.client_id));
+  if (params.q) query.set("q", params.q);
+  const qs = query.toString();
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/archived${qs ? `?${qs}` : ""}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare l'archivio")}`);
+  }
+  return res.json();
+}
+
+export async function restoreWorkItemApi(id: number): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/restore`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile ripristinare la task")}`);
+  }
+  return res.json();
+}
+
+export async function bulkRestoreWorkItemsApi(ids: number[]): Promise<BulkRestoreResponse> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/bulk-restore`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile ripristinare le task")}`);
   }
   return res.json();
 }

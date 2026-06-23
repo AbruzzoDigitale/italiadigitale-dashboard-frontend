@@ -2,6 +2,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -58,12 +59,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [dismiss]
   );
 
-  const ctx: ToastContextValue = {
+  // Identità stabile: evita che effetti con `toast` nelle dipendenze rigirino a ogni render.
+  const ctx: ToastContextValue = useMemo(() => ({
     success: (m) => push(m, "success"),
     error: (m) => push(m, "error"),
     info: (m) => push(m, "info"),
     warning: (m) => push(m, "warning"),
-  };
+  }), [push]);
 
   return (
     <ToastContext.Provider value={ctx}>

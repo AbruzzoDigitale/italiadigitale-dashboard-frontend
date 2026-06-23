@@ -519,6 +519,27 @@ export interface WorkloadDailyKPI {
   actual_hours_total: number;
 }
 
+export interface WorkloadDayRecap {
+  date: string;
+  // Liste complete (ogni item è un WorkloadDailyTaskDetail)
+  in_progress: WorkloadDailyTaskDetail[];
+  todo: WorkloadDailyTaskDetail[];
+  done: WorkloadDailyTaskDetail[];
+  overdue: WorkloadDailyTaskDetail[];
+  // Conteggi
+  in_progress_count: number;
+  todo_count: number;
+  done_count: number;
+  overdue_count: number;
+  today_total: number;
+  open_total: number;
+  // Ore (effective_load_hours, ore-peso)
+  estimated_hours_today: number;
+  actual_hours_today: number;
+  overdue_hours: number;
+  capacity_hours: number;
+}
+
 export interface WorkloadDailySelfResponse extends WorkloadDailyKPI {
   date: string;
   user_id: number;
@@ -528,6 +549,8 @@ export interface WorkloadDailySelfResponse extends WorkloadDailyKPI {
   company_id: number;
   next_task: WorkloadDailyTaskDetail | null;
   tasks: WorkloadDailyTaskDetail[];
+  /** Recap giornaliero (può mancare se il backend non è ancora aggiornato). */
+  recap?: WorkloadDayRecap;
 }
 
 export interface WorkloadDailyAdminAccordionUserRow extends WorkloadDailyKPI {

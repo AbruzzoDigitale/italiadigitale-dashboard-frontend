@@ -212,12 +212,13 @@ export function OperatorCalendarColumn({
       setResizeState((current) => (current ? { ...current, currentEndMinutes: nextEndMinutes } : current));
     };
     const onMouseUp = () => {
-      setResizeState((current) => {
-        if (current && current.currentEndMinutes !== current.originalEndMinutes) {
-          onResize(current.workItemId, minutesToHHMM(current.currentEndMinutes));
-        }
-        return null;
-      });
+      // Commit FUORI dall'updater di stato (chiamare onResize dentro setState
+      // = setState del parent durante il render). resizeState nel closure è aggiornato
+      // perché l'effetto si ri-esegue ad ogni cambio di resizeState.
+      if (resizeState.currentEndMinutes !== resizeState.originalEndMinutes) {
+        onResize(resizeState.workItemId, minutesToHHMM(resizeState.currentEndMinutes));
+      }
+      setResizeState(null);
     };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp, { once: true });

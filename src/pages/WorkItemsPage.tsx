@@ -7,9 +7,12 @@ import { useWorkItems } from "../hooks/useWorkItems";
 import { useToast } from "../context/ToastContext";
 import {
   bulkDeleteWorkItemsApi,
+  bulkRestoreWorkItemsApi,
   deleteWorkItemApi,
   generateWorkItemRecurrencesApi,
+  listArchivedWorkItemsApi,
   listWorkItemsApi,
+  restoreWorkItemApi,
   updateWorkItemApi,
   listWorkTagsApi,
   type WorkItem,
@@ -29,6 +32,8 @@ import type { WorkTag } from "../api/workItems";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
+import { Checkbox } from "../components/ui/Checkbox";
+import { Spinner } from "../components/ui/Spinner";
 import { Icon } from "../components/ui/Icon";
 import { Avatar } from "../components/ui/Avatar";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
@@ -135,6 +140,7 @@ interface KanbanColumnProps {
   users: User[];
   workAreas: WorkArea[];
   workTags: WorkTag[];
+  clientsById: Map<number, Client>;
   isAdmin: boolean;
   selectedItemIds: number[];
   onToggleSelect: (itemId: number, checked: boolean) => void;
@@ -295,6 +301,7 @@ function KanbanColumn({
   users,
   workAreas,
   workTags,
+  clientsById,
   isAdmin,
   selectedItemIds,
   onToggleSelect,
@@ -316,6 +323,7 @@ function KanbanColumn({
       color={column.color}
       count={items.length}
       compact={compact}
+      maxHeightClassName={compact ? "max-h-[460px]" : "max-h-[calc(100vh-300px)]"}
       isDropTarget={isDropTarget}
       onDragOver={(e) => {
         if (!hasWorkItemDragType(e.dataTransfer?.types)) return;
@@ -332,6 +340,7 @@ function KanbanColumn({
         <WorkItemCard
           key={item.id}
           item={item}
+          clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
           users={users}
           workAreas={workAreas}
           workTags={workTags}
@@ -362,6 +371,8 @@ export function WorkItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions } = useAuth();
   const isAdmin = !!permissions?.is_admin;
+  // Archiviazione (soft-delete) e selezione multipla: admin e Project Manager (non operatori).
+  const canManageWorkItems = isAdmin || !!permissions?.is_project_manager;
   const canUseAiTasks = isAdmin || !!permissions?.can_use_llm;
   const canUseManualTasks = isAdmin || !!permissions?.can_generate_manual_tasks;
   const canOpenTaskGenerator = canUseAiTasks || canUseManualTasks;
@@ -392,6 +403,14 @@ export function WorkItemsPage() {
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
   const [contractsPanelCollapsed, setContractsPanelCollapsed] = useState(true);
   const dragItemId = useRef<number | null>(null);
+
+  // ── Archivio (task soft-deleted) — solo admin/PM
+  const [archivePanelOpen, setArchivePanelOpen] = useState(false);
+  const [archivedItems, setArchivedItems] = useState<WorkItem[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedError, setArchivedError] = useState<string | null>(null);
+  const [selectedArchivedIds, setSelectedArchivedIds] = useState<number[]>([]);
+  const [restoringArchive, setRestoringArchive] = useState(false);
 
   // ── Clients list (for toolbar filter)
   const [clients, setClients] = useState<Client[]>([]);
@@ -695,6 +714,78 @@ export function WorkItemsPage() {
     }
   };
 
+  // ── Archivio: carica le task archiviate dell'azienda
+  const loadArchived = async () => {
+    if (companyId == null) {
+      setArchivedItems([]);
+      return;
+    }
+    setArchivedLoading(true);
+    setArchivedError(null);
+    try {
+      const items = await listArchivedWorkItemsApi({ company_id: companyId });
+      setArchivedItems(items);
+    } catch (err) {
+      setArchivedError(err instanceof Error ? err.message : "Impossibile recuperare l'archivio");
+      setArchivedItems([]);
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+
+  const openArchive = () => {
+    setSelectedArchivedIds([]);
+    setArchivePanelOpen(true);
+    void loadArchived();
+  };
+
+  const toggleArchivedSelection = (itemId: number, checked: boolean) => {
+    setSelectedArchivedIds((current) => {
+      if (checked) return current.includes(itemId) ? current : [...current, itemId];
+      return current.filter((id) => id !== itemId);
+    });
+  };
+
+  const handleRestoreOne = async (item: WorkItem) => {
+    setRestoringArchive(true);
+    try {
+      await restoreWorkItemApi(item.id);
+      setArchivedItems((current) => current.filter((i) => i.id !== item.id));
+      setSelectedArchivedIds((current) => current.filter((id) => id !== item.id));
+      toast.success("Task ripristinata");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile ripristinare la task");
+    } finally {
+      setRestoringArchive(false);
+    }
+  };
+
+  const handleRestoreSelected = async () => {
+    if (selectedArchivedIds.length === 0) return;
+    setRestoringArchive(true);
+    try {
+      const result = await bulkRestoreWorkItemsApi(selectedArchivedIds);
+      const restored = result.restored_ids;
+      if (restored.length > 0) {
+        toast.success(
+          result.errors.length > 0
+            ? `Ripristinate ${restored.length} task, ${result.errors.length} con errore`
+            : `${restored.length} task ripristinate`
+        );
+      } else {
+        toast.error(result.errors[0]?.detail || "Nessuna task ripristinata");
+      }
+      setArchivedItems((current) => current.filter((i) => !restored.includes(i.id)));
+      setSelectedArchivedIds([]);
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile ripristinare le task");
+    } finally {
+      setRestoringArchive(false);
+    }
+  };
+
   const handleRegenerateRecurrences = async (item: WorkItem) => {
     if (!item.is_recurring || item.recurrence_parent_id != null) {
       toast.error("L'azione è disponibile solo sulle task sorgente ricorrenti");
@@ -925,6 +1016,15 @@ export function WorkItemsPage() {
         >
           Filtri {secondaryFiltersCount > 0 ? `(${secondaryFiltersCount})` : ""}
         </Button>
+        {canManageWorkItems && (
+          <Button
+            variant="ghost"
+            leftIcon={<Icon name="trash" className="w-4 h-4" />}
+            onClick={openArchive}
+          >
+            Archivio
+          </Button>
+        )}
                 <Button
                   variant="secondary"
                   leftIcon={<Icon name="plus" className="w-4 h-4" />}
@@ -933,14 +1033,13 @@ export function WorkItemsPage() {
                 >
                   Task rapida
                 </Button>
-        {isAdmin && (
+        {canManageWorkItems && selectedItemIds.length > 0 && (
           <Button
             variant="danger-ghost"
             leftIcon={<Icon name="trash" className="w-4 h-4" />}
             onClick={() => setBulkDeleteOpen(true)}
-            disabled={selectedItemIds.length === 0}
           >
-            Elimina selezionate ({selectedItemIds.length})
+            Archivia selezionate ({selectedItemIds.length})
           </Button>
         )}
         {isAdmin && (
@@ -1329,7 +1428,8 @@ export function WorkItemsPage() {
                             users={users}
                             workAreas={workAreas}
                             workTags={workTags}
-                            isAdmin={isAdmin}
+                            clientsById={clientsById}
+                            isAdmin={canManageWorkItems}
                             selectedItemIds={selectedItemIds}
                             onToggleSelect={toggleItemSelection}
                             onDragStartItem={handleDragStartItem}
@@ -1364,7 +1464,8 @@ export function WorkItemsPage() {
                     users={users}
                     workAreas={workAreas}
                     workTags={workTags}
-                    isAdmin={isAdmin}
+                    clientsById={clientsById}
+                    isAdmin={canManageWorkItems}
                     selectedItemIds={selectedItemIds}
                     onToggleSelect={toggleItemSelection}
                     onDragStartItem={handleDragStartItem}
@@ -1578,6 +1679,73 @@ export function WorkItemsPage() {
               searchPlaceholder="Cerca area…"
             />
           </div>
+        </div>
+      </RightSidebarPanel>
+
+      <RightSidebarPanel
+        open={archivePanelOpen}
+        onClose={() => setArchivePanelOpen(false)}
+        title="Archivio lavorazioni"
+        footer={selectedArchivedIds.length > 0 ? (
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" onClick={() => setSelectedArchivedIds([])}>Deseleziona</Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleRestoreSelected()}
+              loading={restoringArchive}
+              disabled={restoringArchive}
+              leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+            >
+              Ripristina selezionate ({selectedArchivedIds.length})
+            </Button>
+          </div>
+        ) : undefined}
+      >
+        <div className="flex flex-col gap-2">
+          {archivedLoading ? (
+            <div className="flex justify-center py-10"><Spinner size="md" /></div>
+          ) : archivedError ? (
+            <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{archivedError}</div>
+          ) : archivedItems.length === 0 ? (
+            <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
+              Nessuna task archiviata.
+            </div>
+          ) : (
+            archivedItems.map((item) => {
+              const archivedClient = item.client_id != null
+                ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name)
+                : null;
+              const archivedAt = item.deleted_at
+                ? new Date(item.deleted_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                : null;
+              const checked = selectedArchivedIds.includes(item.id);
+              return (
+                <div key={item.id} className="flex items-start gap-2 rounded-lg border border-line dark:border-line-dark bg-paper p-2.5 dark:bg-[#131316]">
+                  <span className="pt-0.5">
+                    <Checkbox checked={checked} onChange={(c) => toggleArchivedSelection(item.id, c)} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    {archivedClient && (
+                      <div className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">{archivedClient}</div>
+                    )}
+                    <div className="truncate text-[13px] font-medium text-ink dark:text-paper">{item.title}</div>
+                    {archivedAt && (
+                      <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">Archiviata il {archivedAt}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleRestoreOne(item)}
+                    disabled={restoringArchive}
+                    leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}
+                  >
+                    Ripristina
+                  </Button>
+                </div>
+              );
+            })
+          )}
         </div>
       </RightSidebarPanel>
 

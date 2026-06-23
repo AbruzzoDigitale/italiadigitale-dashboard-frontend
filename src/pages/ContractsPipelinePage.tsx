@@ -1006,12 +1006,11 @@ export function ContractsPipelinePage() {
             Aggiorna
           </Button>
 
-          {isAdmin && (
+          {isAdmin && selectedContractIds.length > 0 && (
             <Button
               variant="danger-ghost"
               onClick={() => setBulkDeleteOpen(true)}
               leftIcon={<Icon name="trash" className="w-4 h-4" />}
-              disabled={selectedContractIds.length === 0}
             >
               Elimina contratti selezionati ({selectedContractIds.length})
             </Button>

@@ -12,6 +12,10 @@ interface OverbookingModalProps {
   /** id dell'operatore in corso di riassegnazione (per lo stato di loading) */
   reassigningUserId: number | null;
   onReassign: (userId: number) => void;
+  /** Riprogramma la task al primo slot libero (stesso operatore). */
+  onReschedule?: () => void;
+  /** true mentre è in corso la riprogrammazione. */
+  rescheduling?: boolean;
   /** Procedi mantenendo l'assegnatario attuale (overbook). Anche la chiusura usa questa. */
   onProceed: () => void;
 }
@@ -31,8 +35,10 @@ export function OverbookingModal({
   data,
   users,
   reassigningUserId,
-  onReassign,
+  onReschedule,
+  rescheduling = false,
   onProceed,
+  onReassign,
 }: OverbookingModalProps) {
   const nameFor = (userId: number) => {
     const user = users.find((u) => u.id === userId);
@@ -40,19 +46,32 @@ export function OverbookingModal({
   };
 
   const targetName = data ? nameFor(data.target_user_id) : "";
-  const isReassigning = reassigningUserId !== null;
+  const busy = reassigningUserId !== null || rescheduling;
 
   return (
     <Modal
       open={open && !!data}
       onClose={onProceed}
       title="Operatore in overbooking"
-      description="L'operatore assegnato supera la capacità del giorno. Puoi riassegnare la task a un operatore libero della stessa area."
+      description="L'operatore assegnato supera la capacità del giorno. Puoi riprogrammare la task al primo slot libero, riassegnarla a un operatore della stessa area, oppure procedere comunque (in overbooking). Chiudendo, la task resta assegnata in overbooking."
       size="lg"
       footer={
-        <Button variant="ghost" onClick={onProceed} disabled={isReassigning}>
-          Procedi su {targetName} (overbook)
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onReschedule && (
+            <Button
+              variant="primary"
+              onClick={onReschedule}
+              loading={rescheduling}
+              disabled={busy}
+              leftIcon={<Icon name="refresh-cw" className="h-4 w-4" />}
+            >
+              Riprogramma al primo slot libero
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onProceed} disabled={busy}>
+            Procedi su {targetName} (overbook)
+          </Button>
+        </div>
       }
     >
       {data && (
@@ -139,7 +158,7 @@ export function OverbookingModal({
                       variant={isSuggested ? "primary" : "secondary"}
                       size="sm"
                       loading={reassigningUserId === op.user_id}
-                      disabled={isReassigning}
+                      disabled={busy}
                       onClick={() => onReassign(op.user_id)}
                     >
                       Assegna

@@ -56,6 +56,7 @@ export function taskTypeBadgeClass(taskType?: WorkItem["task_type"]): string {
 
 export interface WorkItemCardProps {
   item: WorkItem;
+  clientName?: string | null;
   users: User[];
   workAreas: WorkArea[];
   workTags: WorkTag[];
@@ -73,6 +74,7 @@ export interface WorkItemCardProps {
 
 export function WorkItemCard({
   item,
+  clientName,
   users,
   workAreas,
   workTags,
@@ -144,9 +146,6 @@ export function WorkItemCard({
           )}
           <span className="font-variant-numeric text-[10px] tabular-nums text-muted dark:text-muted-dark">
             #{String(item.id).padStart(3, "0")}
-          </span>
-          <span className={`inline-flex rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${taskTypeBadgeClass(item.task_type)}`}>
-            {taskTypeLabel(item.task_type)}
           </span>
           {item.is_template && (
             <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
@@ -256,6 +255,14 @@ export function WorkItemCard({
         </div>
       </div>
 
+      {/* Client */}
+      {clientName && (
+        <div className="flex min-w-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+          <Icon name="building" className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate">{clientName}</span>
+        </div>
+      )}
+
       {/* Title */}
       <p className={`text-[13px] font-medium leading-snug text-ink dark:text-paper ${isDone ? "line-through decoration-muted" : ""}`}>
         {item.title}
@@ -268,11 +275,11 @@ export function WorkItemCard({
         </div>
       )}
 
-      {/* Areas */}
+      {/* Areas (solo icona/badge — il nome è nel tooltip) */}
       {areas.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {areas.map((area) => (
-            <WorkAreaBadge key={area.id} area={area} className="text-[10px] px-2 py-0.5" />
+            <WorkAreaBadge key={area.id} area={area} iconOnly />
           ))}
         </div>
       )}

@@ -286,14 +286,15 @@ export function ClientsPage() {
           searchPlaceholder="Cerca..."
         />
         <div className="flex-1" />
-        <Button
-          variant="danger-ghost"
-          leftIcon={<Icon name="trash" className="w-4 h-4" />}
-          onClick={() => setBulkDeleteOpen(true)}
-          disabled={selectedClientIds.length === 0}
-        >
-          Elimina selezionati ({selectedClientIds.length})
-        </Button>
+        {selectedClientIds.length > 0 && (
+          <Button
+            variant="danger-ghost"
+            leftIcon={<Icon name="trash" className="w-4 h-4" />}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Elimina selezionati ({selectedClientIds.length})
+          </Button>
+        )}
         <Button
           variant="primary"
           leftIcon={<Icon name="plus" className="w-4 h-4" />}
