@@ -1889,6 +1889,44 @@ export function WorkloadPage() {
   };
 
 
+  // Striscia info operatore selezionato (come `.op` del prototipo).
+  const renderOperatorStrip = () => {
+    const op = calendarOperatorId != null ? calendarOperators.find((o) => o.user_id === calendarOperatorId) : null;
+    if (!op) return null;
+    const name = op.full_name || op.username;
+    const role = op.roles?.map((r) => r.name).join(", ");
+    const initials = (name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("")) || "?";
+    const dayStat = calendarDayStats.get(selectedDay);
+    const status = summaryByUserId.get(op.user_id)?.workload_status;
+    const statusCls = status === "overload" ? "is-over" : status === "warning" ? "is-warn" : "is-neutral";
+    const dayMeta = dateFromIso(selectedDay).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" });
+    const conflicts = calendarData?.conflicts?.length ?? 0;
+    return (
+      <div className="wlcal-op">
+        {op.avatar_url ? (
+          <img src={op.avatar_url} alt={name} className="wlcal-op-av wlcal-op-av--img" />
+        ) : (
+          <div className="wlcal-op-av">{initials}</div>
+        )}
+        <div className="wlcal-op-who">
+          <b>{name}</b>
+          <span>{role || "Operatore"} · {dayMeta}</span>
+        </div>
+        <div className="wlcal-op-stats">
+          {status && <span className={`wlcal-badge ${statusCls}`}>{statusLabel(status)}</span>}
+          {dayStat && (
+            <span className="wlcal-badge is-neutral">{formatHours(dayStat.hours)} · {dayStat.tasks} task</span>
+          )}
+          {conflicts > 0 && (
+            <button type="button" className="wlcal-badge is-conf" onClick={() => setCalendarConflictsModalOpen(true)}>
+              Conflitti <span className="n">{conflicts}</span>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderCalendarView = () => {
     if (calendarOperators.length === 0) {
       return (
@@ -1910,17 +1948,20 @@ export function WorkloadPage() {
     if (rangeMode === "month") {
       const monthCapacity = (calendarOperatorId != null ? summaryByUserId.get(calendarOperatorId)?.max_capacity_hours_day : null) ?? 8;
       return (
-        <WorkloadMonthGrid
-          anchorDate={anchorDate}
-          stats={calendarDayStats}
-          capacityHours={monthCapacity}
-          today={getTodayDate()}
-          onOpenDay={(iso) => {
-            setRangeMode("day");
-            setAnchorDate(iso);
-            setSelectedDay(iso);
-          }}
-        />
+        <div className="wlcal-area">
+          {renderOperatorStrip()}
+          <WorkloadMonthGrid
+            anchorDate={anchorDate}
+            stats={calendarDayStats}
+            capacityHours={monthCapacity}
+            today={getTodayDate()}
+            onOpenDay={(iso) => {
+              setRangeMode("day");
+              setAnchorDate(iso);
+              setSelectedDay(iso);
+            }}
+          />
+        </div>
       );
     }
 
@@ -1938,25 +1979,28 @@ export function WorkloadPage() {
 
     const operatorSummary = summaryByUserId.get(calendarData.user_id);
     return (
-      <WorkloadCalendar
-        userId={calendarData.user_id}
-        companyId={selectedCompanyId}
-        visibleDays={visibleDays}
-        selectedDate={calendarData.selected_date}
-        bounds={calendarBounds}
-        nowMinutes={nowMinutes}
-        density={calendarDensity}
-        maxCapacityHours={operatorSummary?.max_capacity_hours_day ?? null}
-        reloadToken={multiReloadToken}
-        onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
-        onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
-        onMove={(taskId, day, startTime) => { void moveCalendarTaskToDaySlot(taskId, day, startTime); }}
-        onCreateByDrag={({ day, startTime, estimatedHours }) => {
-          setEditingItem(null);
-          setQuickAdd({ day, userId: calendarData.user_id, startTime, estimatedHours });
-          setNewWorkModalOpen(true);
-        }}
-      />
+      <div className="wlcal-area">
+        {renderOperatorStrip()}
+        <WorkloadCalendar
+          userId={calendarData.user_id}
+          companyId={selectedCompanyId}
+          visibleDays={visibleDays}
+          selectedDate={calendarData.selected_date}
+          bounds={calendarBounds}
+          nowMinutes={nowMinutes}
+          density={calendarDensity}
+          maxCapacityHours={operatorSummary?.max_capacity_hours_day ?? null}
+          reloadToken={multiReloadToken}
+          onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
+          onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
+          onMove={(taskId, day, startTime) => { void moveCalendarTaskToDaySlot(taskId, day, startTime); }}
+          onCreateByDrag={({ day, startTime, estimatedHours }) => {
+            setEditingItem(null);
+            setQuickAdd({ day, userId: calendarData.user_id, startTime, estimatedHours });
+            setNewWorkModalOpen(true);
+          }}
+        />
+      </div>
     );
   };
 
