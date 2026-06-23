@@ -2165,19 +2165,21 @@ export function WorkloadPage() {
           )}
 
           {viewMode === "calendar" && (
-            <div className="wl-segmented wl-segmented--view wlcal-density" role="group" aria-label="Densità calendario">
-              <span className="wlcal-density__label">Densità</span>
+            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Densità calendario">
               {([
-                { value: "comfortable", label: "Comodo" },
-                { value: "compact", label: "Compatto" },
+                { value: "comfortable", icon: "grid", label: "Comodo" },
+                { value: "compact", icon: "grid-compact", label: "Compatto" },
               ] as const).map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => setCalendarDensity(option.value)}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${calendarDensity === option.value ? "is-active" : ""}`}
+                  title={`Densità: ${option.label}`}
+                  aria-label={`Densità: ${option.label}`}
+                  aria-pressed={calendarDensity === option.value}
+                  className={`wl-segmented-btn wl-segmented-btn--view wl-icon-btn ${calendarDensity === option.value ? "is-active" : ""}`}
                 >
-                  {option.label}
+                  <Icon name={option.icon} className="w-4 h-4" />
                 </button>
               ))}
             </div>
