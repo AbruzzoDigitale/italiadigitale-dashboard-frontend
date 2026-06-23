@@ -436,3 +436,55 @@
 .social-deck--rail .social-pack__tier-dots i.on { background: var(--ad-mint); }
 .social-deck--rail .social-pack.is-reco .social-pack__tier-dots i.on { background: var(--ad-magenta); }
 .social-deck--rail .social-pack__name { margin-top: 8px; }
+
+/* ── Modalità presentazione ── */
+.social-deck__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+.social-present-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ad-magenta);
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s var(--ad-ease);
+}
+.social-present-btn:hover { background: #d62f57; }
+
+.social-presentation-page.is-presentation {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: auto;
+  background: var(--ad-bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.social-presentation-page.is-presentation .pack-config-block { display: none; }
+
+.social-present-exit {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  border: 1px solid var(--ad-line-2);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.social-present-exit:hover { background: rgba(255, 255, 255, .18); }

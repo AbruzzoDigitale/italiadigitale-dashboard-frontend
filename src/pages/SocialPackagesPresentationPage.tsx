@@ -254,6 +254,24 @@ export function SocialPackagesPresentationPage() {
   const [notes, setNotes] = useState("");
   const { createQuote, isSubmitting: creating } = useCreateQuoteFromConfigurator();
   const configRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [presentationMode, setPresentationMode] = useState(false);
+
+  const togglePresentation = () => {
+    setPresentationMode((on) => {
+      const next = !on;
+      if (next) pageRef.current?.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+      return next;
+    });
+  };
+
+  // Esc dal fullscreen → esci dalla modalità presentazione.
+  useEffect(() => {
+    const onFs = () => { if (!document.fullscreenElement) setPresentationMode(false); };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -387,7 +405,13 @@ export function SocialPackagesPresentationPage() {
   }
 
   return (
-    <div className="social-presentation-page">
+    <div ref={pageRef} className={`social-presentation-page${presentationMode ? " is-presentation" : ""}`}>
+
+      {presentationMode && (
+        <button type="button" className="social-present-exit" onClick={togglePresentation}>
+          Esci dalla presentazione ✕
+        </button>
+      )}
 
       {/* ── Hero scuro ── */}
       <div className="social-hero-section">
@@ -417,6 +441,15 @@ export function SocialPackagesPresentationPage() {
               />
             ))}
           </section>
+        )}
+
+        {!loading && orderedPackages.length > 0 && (
+          <div className="social-deck__actions">
+            <button type="button" className="social-present-btn" onClick={togglePresentation}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              {presentationMode ? "Esci dalla presentazione" : "Modalità presentazione"}
+            </button>
+          </div>
         )}
       </div>
 
