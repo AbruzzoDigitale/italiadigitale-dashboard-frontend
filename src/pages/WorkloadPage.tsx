@@ -2184,105 +2184,49 @@ export function WorkloadPage() {
             )}
           </div>
 
-          <div className={`wl-day-strip ${viewMode === "calendar" ? "wl-day-strip--cal" : ""}`}>
-            {(viewMode === "calendar" && calendarData ? calendarData.days.map((d) => d.date) : visibleDays).map((day) => {
+          {viewMode !== "calendar" && (
+          <div className="wl-day-strip">
+            {visibleDays.map((day) => {
               const meta = formatDayChip(day);
               const isActive = selectedDay === day;
-              const calendarDay = viewMode === "calendar" ? calendarData?.days.find((d) => d.date === day) : undefined;
-              const dayStats = viewMode === "calendar" ? calendarDayStats.get(day) : undefined;
-              const dayTaskCount = dayStats?.tasks ?? calendarDay?.tasks_count ?? 0;
               return (
                 <button
                   key={day}
                   type="button"
                   onClick={() => {
                     setSelectedDay(day);
-                    if (rangeMode === "day") {
-                      setAnchorDate(day);
-                    }
+                    if (rangeMode === "day") setAnchorDate(day);
                   }}
                   onDragOver={(event) => {
-                    if (draggingTaskId == null) return;
+                    if (draggingTaskId == null || viewMode !== "accordion") return;
                     event.preventDefault();
-                    if (viewMode === "accordion") {
-                      setActiveDropTarget(`acc-day-${day}`);
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      setActiveDropTarget(`cal-day-${day}`);
-                      // Spring-open: dopo una breve attesa apre il giorno sotto il cursore,
-                      // mantenendo attivo il drag così la task si può rilasciare in uno slot.
-                      if (day !== selectedDay) {
-                        if (daySpringDayRef.current !== day) {
-                          daySpringDayRef.current = day;
-                          if (daySpringTimerRef.current != null) window.clearTimeout(daySpringTimerRef.current);
-                          daySpringTimerRef.current = window.setTimeout(() => {
-                            daySpringTimerRef.current = null;
-                            setSelectedDay(day);
-                          }, 450);
-                        }
-                      } else {
-                        clearDaySpring();
-                      }
-                    }
+                    setActiveDropTarget(`acc-day-${day}`);
                   }}
                   onDragLeave={() => {
-                    if (viewMode === "accordion") {
-                      setActiveDropTarget((current) => (current === `acc-day-${day}` ? null : current));
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      setActiveDropTarget((current) => (current === `cal-day-${day}` ? null : current));
-                      if (daySpringDayRef.current === day) clearDaySpring();
-                    }
+                    if (viewMode !== "accordion") return;
+                    setActiveDropTarget((current) => (current === `acc-day-${day}` ? null : current));
                   }}
                   onDrop={(event) => {
-                    if (viewMode === "accordion") {
-                      setSelectedDay(day);
-                      void moveTaskByDrop(event, buildAccordionDayMovePayload(day), `acc-day-${day}`);
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      // Rilascio sul box-giorno: naviga al giorno (senza spostarla come "tutto il giorno"),
-                      // così la task può essere posizionata in uno slot orario di quel giorno.
-                      event.preventDefault();
-                      event.stopPropagation();
-                      clearDaySpring();
-                      setSelectedDay(day);
-                      setActiveDropTarget((current) => (current === `cal-day-${day}` ? null : current));
-                    }
+                    if (viewMode !== "accordion") return;
+                    setSelectedDay(day);
+                    void moveTaskByDrop(event, buildAccordionDayMovePayload(day), `acc-day-${day}`);
                   }}
-                  className={`wl-day-chip ${viewMode === "calendar" ? "wl-day-chip--cal" : ""} ${isActive ? "is-active" : ""} ${(viewMode === "accordion" && activeDropTarget === `acc-day-${day}`) || (viewMode === "calendar" && activeDropTarget === `cal-day-${day}`) ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
+                  className={`wl-day-chip ${isActive ? "is-active" : ""} ${viewMode === "accordion" && activeDropTarget === `acc-day-${day}` ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
                 >
                   <div className="text-[10px] uppercase tracking-wider">{meta.weekday}</div>
                   <div className="text-xs font-semibold">{meta.day}</div>
-                  {viewMode === "calendar" ? (
-                    <>
-                      <div className="wl-day-chip__meta">
-                        {dayStats ? `${formatHours(dayStats.hours)} · ${dayTaskCount} task` : "— · 0 task"}
-                      </div>
-                      {dayStats && dayStats.overdue > 0 && (
-                        <div className="wl-day-chip__overdue" title={`${dayStats.overdue} task arretrate in questo giorno`}>
-                          ⟳ {dayStats.overdue} arretr.
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    calendarDay && (
-                      <div className="text-[10px] text-muted dark:text-muted-dark">
-                        {calendarDay.tasks_count}t · {calendarDay.schedule_windows_count}r
-                      </div>
-                    )
-                  )}
                 </button>
               );
             })}
           </div>
+          )}
 
+          {viewMode !== "calendar" && (
           <button type="button" className="wl-sort-btn" onClick={onToggleSortByLoad}>
             <Icon name="list" className="w-3.5 h-3.5" />
             Ordina per carico {sortDir === "desc" ? "↓" : "↑"}
           </button>
+          )}
         </div>
 
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import {
   getWorkloadUserCalendarDayApi,
   type WorkloadTimelineItem,
@@ -60,10 +60,6 @@ export interface WorkloadCalendarProps {
   onCreateByDrag: (args: { day: string; startTime: string; estimatedHours: number }) => void;
 }
 
-const HOUR_HEIGHT: Record<WorkloadCalendarDensity, number> = {
-  comfortable: 64,
-  compact: 40,
-};
 
 const DOW_LABELS = ["DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"];
 const GUTTER_WIDTH = 64;
@@ -112,7 +108,6 @@ export function WorkloadCalendar({
   userId,
   companyId,
   visibleDays,
-  selectedDate,
   bounds,
   nowMinutes,
   density,
@@ -124,7 +119,6 @@ export function WorkloadCalendar({
   onCreateByDrag,
 }: WorkloadCalendarProps) {
   const { dayStartMinutes, dayEndMinutes, totalMinutes, hourSlots, openingMinutes, closingMinutes } = bounds;
-  const hourHeight = HOUR_HEIGHT[density];
 
   const [dayStates, setDayStates] = useState<DayState[]>([]);
   const [loading, setLoading] = useState(false);
@@ -137,9 +131,7 @@ export function WorkloadCalendar({
   const [createPreview, setCreatePreview] = useState<{ day: string; startMinutes: number; endMinutes: number } | null>(null);
   const createAnchorRef = useRef<{ day: string; minutes: number } | null>(null);
   const [trayTab, setTrayTab] = useState<"reassign" | "unsched">("reassign");
-
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const initialScrollKeyRef = useRef<string | null>(null);
+  const [trayOpen, setTrayOpen] = useState(true);
 
   const daysKey = visibleDays.join(",");
 
@@ -183,23 +175,9 @@ export function WorkloadCalendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, companyId, daysKey, reloadToken]);
 
-  // ── Scroll iniziale verso l'ora corrente (come OperatorCalendarColumn) ────────
-  useLayoutEffect(() => {
-    const container = scrollRef.current;
-    if (!container || dayStates.length === 0) return;
-    const key = `${userId}-${selectedDate}-${density}`;
-    if (initialScrollKeyRef.current === key) return;
-    const roundedDown = Math.floor(nowMinutes / CALENDAR_SLOT_MINUTES) * CALENDAR_SLOT_MINUTES;
-    const bounded = Math.max(dayStartMinutes, Math.min(dayEndMinutes - CALENDAR_SLOT_MINUTES, roundedDown));
-    const targetTop = ((bounded - dayStartMinutes) / 60) * hourHeight;
-    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    container.scrollTop = Math.max(0, Math.min(maxTop, targetTop - 16));
-    initialScrollKeyRef.current = key;
-  }, [dayStates.length, userId, selectedDate, density, nowMinutes, dayStartMinutes, dayEndMinutes, hourHeight]);
-
   const today = todayIso();
-  const yOf = (minutes: number) => ((minutes - dayStartMinutes) / 60) * hourHeight;
-  const bodyHeight = (totalMinutes / 60) * hourHeight;
+  // Posizionamento in PERCENTUALE: il calendario riempie il contenitore ad altezza fissa (no scroll verticale).
+  const yPct = (minutes: number) => ((minutes - dayStartMinutes) / totalMinutes) * 100;
 
   const hourMarks = useMemo(() => {
     const marks: number[] = [];
@@ -211,7 +189,7 @@ export function WorkloadCalendar({
   const showOpening = openingMinutes != null && openingMinutes > dayStartMinutes && openingMinutes < dayEndMinutes;
   const showClosing = closingMinutes != null && closingMinutes > dayStartMinutes && closingMinutes < dayEndMinutes;
 
-  const gridColumns = `${GUTTER_WIDTH}px repeat(${visibleDays.length}, minmax(${visibleDays.length === 1 ? 320 : 130}px, 1fr))`;
+  const gridColumns = `${GUTTER_WIDTH}px repeat(${visibleDays.length}, minmax(0, 1fr))`;
 
   // ── Calcolo blocchi/carico per ogni giorno ────────────────────────────────────
   const columns = visibleDays.map((day) => {
@@ -275,7 +253,7 @@ export function WorkloadCalendar({
   const minutesFromMouse = (event: MouseEvent<HTMLElement> | DragEvent<HTMLElement>, slot = CALENDAR_SLOT_MINUTES) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-    const raw = (relativeY / hourHeight) * 60 + dayStartMinutes;
+    const raw = (relativeY / rect.height) * totalMinutes + dayStartMinutes;
     return snapMinutesToSlotInRange(raw, dayStartMinutes, dayEndMinutes, slot);
   };
 
@@ -287,8 +265,8 @@ export function WorkloadCalendar({
   }
 
   return (
-    <div className="wlcal-shell">
-    <div className="wlcal" ref={scrollRef}>
+    <div className={`wlcal-shell ${trayOpen ? "" : "is-tray-closed"}`}>
+    <div className="wlcal">
       <div className="wlcal-inner">
         {/* Intestazione giorni */}
         <div className="wlcal-head" style={{ gridTemplateColumns: gridColumns }}>
@@ -318,20 +296,20 @@ export function WorkloadCalendar({
         {/* Corpo: gutter + colonne giorno */}
         <div className="wlcal-body" style={{ gridTemplateColumns: gridColumns }}>
           {/* Gutter ore */}
-          <div className="wlcal-gutter" style={{ height: bodyHeight }}>
+          <div className="wlcal-gutter">
             {hourMarks.map((minutes) => (
-              <div className="wlcal-hslot" key={minutes} style={{ top: yOf(minutes) }}>
+              <div className="wlcal-hslot" key={minutes} style={{ top: `${yPct(minutes)}%` }}>
                 <span>{minutesToHHMM(minutes)}</span>
               </div>
             ))}
             {showOpening && (
-              <div className="wlcal-gmark is-start" style={{ top: yOf(openingMinutes!) }}>
+              <div className="wlcal-gmark is-start" style={{ top: `${yPct(openingMinutes!)}%` }}>
                 <b>{minutesToHHMM(openingMinutes!)}</b>
                 <span>Inizio</span>
               </div>
             )}
             {showClosing && (
-              <div className="wlcal-gmark is-limit" style={{ top: yOf(closingMinutes!) }}>
+              <div className="wlcal-gmark is-limit" style={{ top: `${yPct(closingMinutes!)}%` }}>
                 <b>{minutesToHHMM(closingMinutes!)}</b>
                 <span>Limite</span>
               </div>
@@ -348,7 +326,6 @@ export function WorkloadCalendar({
                 key={col.day}
                 data-date={col.day}
                 className={`wlcal-daycol ${isToday ? "is-today" : ""} ${isDrop ? "is-drop" : ""}`}
-                style={{ height: bodyHeight }}
                 onMouseMove={(event) => {
                   if (drag != null || isTaskBlockTarget(event)) return;
                   const minutes = minutesFromMouse(event, CALENDAR_CREATE_SLOT_MINUTES);
@@ -405,52 +382,50 @@ export function WorkloadCalendar({
               >
                 {/* griglia oraria */}
                 {hourMarks.map((minutes) => (
-                  <div className="wlcal-gline" key={minutes} style={{ top: yOf(minutes) }} />
+                  <div className="wlcal-gline" key={minutes} style={{ top: `${yPct(minutes)}%` }} />
                 ))}
 
                 {/* fuori orario */}
                 {showOpening && (
-                  <div className="wlcal-offhours" style={{ top: 0, height: yOf(openingMinutes!) }}>
+                  <div className="wlcal-offhours" style={{ top: 0, height: `${yPct(openingMinutes!)}%` }}>
                     <span>Fuori orario</span>
                   </div>
                 )}
                 {showClosing && (
-                  <div className="wlcal-offhours is-bot" style={{ top: yOf(closingMinutes!), height: bodyHeight - yOf(closingMinutes!) }}>
+                  <div className="wlcal-offhours is-bot" style={{ top: `${yPct(closingMinutes!)}%`, height: `${100 - yPct(closingMinutes!)}%` }}>
                     <span>Fuori orario</span>
                   </div>
                 )}
 
                 {/* linee inizio/limite */}
                 {showOpening && (
-                  <div className="wlcal-workline" style={{ top: yOf(openingMinutes!) }}>
+                  <div className="wlcal-workline" style={{ top: `${yPct(openingMinutes!)}%` }}>
                     <span>Inizio {minutesToHHMM(openingMinutes!)}</span>
                   </div>
                 )}
                 {showClosing && (
-                  <div className="wlcal-limite" style={{ top: yOf(closingMinutes!) }}>
+                  <div className="wlcal-limite" style={{ top: `${yPct(closingMinutes!)}%` }}>
                     <span>Limite {minutesToHHMM(closingMinutes!)}</span>
                   </div>
                 )}
 
                 {/* ora corrente */}
-                {showNow && <div className="wlcal-nowline" style={{ top: yOf(nowMinutes) }} />}
+                {showNow && <div className="wlcal-nowline" style={{ top: `${yPct(nowMinutes)}%` }} />}
 
                 {/* eventi */}
                 <div className="wlcal-evlayer">
                   {col.laidOut.map(({ item, start, end, column, totalColumns }, idx) => {
-                    const top = yOf(start) + 1;
-                    const height = Math.max(24, yOf(end) - yOf(start) - 2);
+                    const durationHours = (end - start) / 60;
                     const widthPct = 100 / totalColumns;
                     const isBreak = isBreakKind(item.kind);
                     const isDone = item.kind === "task" && (item.status === "completed" || item.status === "done");
                     const areaColor = resolveTimelineTaskColor(item);
-                    const compact = (height < 50 || density === "compact") && totalColumns > 1;
-                    const showRange = height > 60;
-                    const durationHours = (end - start) / 60;
+                    const compact = durationHours <= 0.75 || density === "compact";
+                    const showRange = durationHours >= 1.25;
                     const key = `${item.kind}-${item.source_id ?? idx}-${start}`;
                     const blockStyle: React.CSSProperties = {
-                      top,
-                      height,
+                      top: `${yPct(start)}%`,
+                      height: `calc(${yPct(end) - yPct(start)}% - 2px)`,
                       left: `calc(${column * widthPct}% + 2px)`,
                       width: `calc(${widthPct}% - 5px)`,
                       ...(areaColor ? ({ ["--area" as string]: areaColor } as React.CSSProperties) : {}),
@@ -460,7 +435,7 @@ export function WorkloadCalendar({
                       return (
                         <div key={key} className="wlcal-ev is-lunch" style={blockStyle}>
                           <div className="wlcal-ev-client">{item.title || "Pausa"}</div>
-                          {height > 36 && item.start_time && item.end_time && (
+                          {!compact && item.start_time && item.end_time && (
                             <div className="wlcal-ev-type">{item.start_time} – {item.end_time}</div>
                           )}
                         </div>
@@ -524,8 +499,8 @@ export function WorkloadCalendar({
                     <div
                       className="wlcal-dropind"
                       style={{
-                        top: yOf(dropPreview.startMinutes) + 1,
-                        height: (drag.durationMinutes / 60) * hourHeight - 2,
+                        top: `${yPct(dropPreview.startMinutes)}%`,
+                        height: `${(drag.durationMinutes / totalMinutes) * 100}%`,
                         left: 2,
                         right: 5,
                       }}
@@ -541,8 +516,8 @@ export function WorkloadCalendar({
                     <div
                       className="wlcal-createind"
                       style={{
-                        top: yOf(createPreview.startMinutes) + 1,
-                        height: Math.max(16, yOf(createPreview.endMinutes) - yOf(createPreview.startMinutes) - 2),
+                        top: `${yPct(createPreview.startMinutes)}%`,
+                        height: `${yPct(createPreview.endMinutes) - yPct(createPreview.startMinutes)}%`,
                         left: 2,
                         right: 5,
                       }}
@@ -564,13 +539,29 @@ export function WorkloadCalendar({
       )}
     </div>
 
-      {/* Tray "Da pianificare" (sidebar) */}
+      {/* Tray "Da pianificare" (sidebar) — apribile/chiudibile */}
+      {!trayOpen && (
+        <button
+          type="button"
+          className="wlcal-tray-reopen"
+          onClick={() => setTrayOpen(true)}
+          title="Apri 'Da pianificare'"
+        >
+          <Icon name="list" className="h-4 w-4" />
+          <span className="wlcal-tray-reopen__label">Da pianificare</span>
+          <span className="wlcal-tray-reopen__cnt">{tray.reassign.length + tray.unsched.length}</span>
+        </button>
+      )}
+      {trayOpen && (
       <aside className="wlcal-tray">
         <div className="wlcal-tray-head">
           <div className="wlcal-tray-tt">
             <Icon name="list" className="h-4 w-4 text-[#E91E8A]" />
             <h3>Da pianificare</h3>
             <span className="wlcal-tray-cnt">{tray.reassign.length + tray.unsched.length} schede</span>
+            <button type="button" className="wlcal-tray-close" onClick={() => setTrayOpen(false)} aria-label="Chiudi" title="Chiudi">
+              <Icon name="x" className="h-4 w-4" />
+            </button>
           </div>
           <p>Trascina una scheda sulla timeline per assegnarle un orario.</p>
         </div>
@@ -619,6 +610,7 @@ export function WorkloadCalendar({
           )}
         </div>
       </aside>
+      )}
     </div>
   );
 }

@@ -764,8 +764,9 @@
 
 .wlcal {
   position: relative;
-  overflow: auto;
-  max-height: 72vh;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid theme(colors.line.DEFAULT);
   border-radius: 16px;
   background: theme(colors.paper);
@@ -778,7 +779,10 @@
 
 .wlcal-inner {
   position: relative;
-  min-width: max-content;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 100%;
 }
 
 /* ---- intestazione giorni ---- */
@@ -923,11 +927,14 @@
 .wlcal-body {
   display: grid;
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .wlcal-gutter {
   border-right: 1px solid theme(colors.line.DEFAULT);
   position: relative;
+  height: 100%;
 }
 
 .dark .wlcal-gutter {
@@ -990,6 +997,12 @@
   border-right: 1px solid theme(colors.line.DEFAULT);
   position: relative;
   overflow: hidden;
+  height: 100%;
+}
+
+/* min-height degli eventi così restano leggibili anche molto corti */
+.wlcal-evlayer .wlcal-ev {
+  min-height: 16px;
 }
 
 .dark .wlcal-daycol {
@@ -1412,6 +1425,9 @@
   align-items: stretch;
   gap: 12px;
   min-width: 0;
+  /* Altezza fissa: il calendario riempie il contenitore senza scroll verticale di pagina. */
+  height: calc(100vh - 280px);
+  min-height: 440px;
 }
 
 .wlcal-shell > .wlcal {
@@ -1422,7 +1438,7 @@
 .wlcal-tray {
   flex: 0 0 300px;
   width: 300px;
-  max-height: 72vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1430,6 +1446,75 @@
   border-radius: 16px;
   background: theme(colors.cream);
   overflow: hidden;
+}
+
+/* Pulsante di chiusura nell'header della tray */
+.wlcal-tray-close {
+  margin-left: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  border-radius: 7px;
+  color: theme(colors.muted.DEFAULT);
+  cursor: pointer;
+}
+
+.wlcal-tray-close:hover {
+  background: theme(colors.line.DEFAULT);
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-close:hover {
+  background: theme(colors.line.dark);
+  color: theme(colors.paper);
+}
+
+/* Linguetta per riaprire la tray quando è chiusa */
+.wlcal-tray-reopen {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 12px;
+  background: theme(colors.cream);
+  color: theme(colors.ink.DEFAULT);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  cursor: pointer;
+  height: 100%;
+}
+
+.dark .wlcal-tray-reopen {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-reopen:hover {
+  border-color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-reopen:hover {
+  border-color: theme(colors.paper);
+}
+
+.wlcal-tray-reopen .wlcal-tray-reopen__cnt {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  border-radius: 99px;
+  min-width: 18px;
+  padding: 2px 5px;
+  font-size: 10px;
+  text-align: center;
 }
 
 .dark .wlcal-tray {
@@ -1696,6 +1781,13 @@
   border-radius: 16px;
   overflow: hidden;
   background: theme(colors.paper);
+  height: calc(100vh - 280px);
+  min-height: 440px;
+}
+
+.wlcal-month-grid {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .dark .wlcal-month {
@@ -1743,7 +1835,7 @@
 .wlcal-month-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: minmax(104px, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
 }
 
 .wlcal-mcell {
@@ -1894,14 +1986,17 @@
 
 .wlcal-mload.wlcal-load-ok {
   color: theme(colors.success);
+  background: none;
 }
 
 .wlcal-mload.wlcal-load-warn {
   color: theme(colors.warning);
+  background: none;
 }
 
 .wlcal-mload.wlcal-load-over {
   color: theme(colors.brand.magenta);
+  background: none;
 }
 
 .wlcal-mbar {
