@@ -21,9 +21,12 @@ import {
   deleteCompanyScheduleWindowApi,
   getCompanyApi,
   updateCompanyApi,
+  listCardStylesApi,
   type CompanyScheduleWindow,
   type CompanyScheduleWindowKind,
   type CompanyScheduleWindowPayload,
+  type CardStyleOption,
+  type SocialPackageCardStyle,
 } from "../api/companies";
 import { useBrand } from "../context/BrandContext";
 import { useToast } from "../context/ToastContext";
@@ -730,6 +733,9 @@ export function CompanyBrandPage() {
   const [companyTimeError, setCompanyTimeError] = useState<string | null>(null);
   const [companyTimeSaving, setCompanyTimeSaving] = useState(false);
   const [companyTimeLoading, setCompanyTimeLoading] = useState(false);
+  const [cardStyle, setCardStyle] = useState<SocialPackageCardStyle>("sober");
+  const [cardStyleOptions, setCardStyleOptions] = useState<CardStyleOption[]>([]);
+  const [cardStyleSaving, setCardStyleSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<BrandTab>("login");
   const canEditSettings = !!user?.is_admin;
   const canManageRoles = !!permissions?.can_manage_roles || !!permissions?.is_admin;
@@ -762,6 +768,7 @@ export function CompanyBrandPage() {
       .then((company) => {
         setOpeningTime(toTimeHHMM(company.opening_time));
         setClosingTime(toTimeHHMM(company.closing_time));
+        setCardStyle(company.social_packages_card_style ?? "sober");
       })
       .catch(() => {
         setOpeningTime("");
@@ -770,6 +777,26 @@ export function CompanyBrandPage() {
       })
       .finally(() => setCompanyTimeLoading(false));
   }, [companyId, toast]);
+
+  useEffect(() => {
+    if (!canEditSettings) return;
+    listCardStylesApi().then(setCardStyleOptions).catch(() => setCardStyleOptions([]));
+  }, [canEditSettings]);
+
+  const handleCardStyleChange = useCallback(async (style: SocialPackageCardStyle) => {
+    const previous = cardStyle;
+    setCardStyle(style);
+    setCardStyleSaving(true);
+    try {
+      await updateCompanyApi(companyId, { social_packages_card_style: style });
+      toast.success("Stile card pacchetti aggiornato");
+    } catch (err) {
+      setCardStyle(previous);
+      toast.error(err instanceof Error ? err.message : "Errore aggiornamento stile card");
+    } finally {
+      setCardStyleSaving(false);
+    }
+  }, [cardStyle, companyId, toast]);
 
   const set = useCallback((k: string, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v })), []);
@@ -1598,6 +1625,31 @@ export function CompanyBrandPage() {
               Inserisci entrambi gli orari oppure lasciali vuoti.
             </p>
           </div>
+
+          {canEditSettings && (
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <div className="mb-4">
+                <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1" style={{ fontSize: "17px" }}>
+                  Stile card pacchetti social
+                </h2>
+                <p className="font-body text-[13px] text-muted dark:text-[#9999a0]">
+                  Aspetto delle card nella pagina di presentazione dei pacchetti social.
+                </p>
+              </div>
+              <div className="max-w-xs">
+                <SearchableSelect
+                  value={cardStyle}
+                  onChange={(value) => { if (value) void handleCardStyleChange(value as SocialPackageCardStyle); }}
+                  options={(cardStyleOptions.length > 0
+                    ? cardStyleOptions
+                    : [{ id: "sober", label: "Sobrio" }, { id: "tech", label: "Digital / Tech" }, { id: "rail", label: "Progressione" }] as CardStyleOption[]
+                  ).map((s) => ({ value: s.id, label: s.label }))}
+                  placeholder="Stile card"
+                  disabled={cardStyleSaving}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">

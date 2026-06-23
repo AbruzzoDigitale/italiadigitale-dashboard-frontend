@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { listSocialPackagesApi, getSocialPackageApi, type SocialPackageDetail } from "../api/socialPackages";
+import { getMyCompaniesApi, type Company, type SocialPackageCardStyle } from "../api/companies";
 import { formatCurrency } from "../features/social-packages/draft";
 import { useCreateQuoteFromConfigurator } from "../hooks/useCreateQuoteFromConfigurator";
 import { Spinner } from "../components/ui/Spinner";
@@ -105,6 +106,7 @@ export function SocialPackagesPresentationPage() {
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<SocialPresentationPackage[]>([]);
+  const [cardStyle, setCardStyle] = useState<SocialPackageCardStyle>("sober");
 
   // Configuratore state
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -144,6 +146,22 @@ export function SocialPackagesPresentationPage() {
       cancelled = true;
     };
   }, [toast, user?.company_id]);
+
+  // Stile card scelto dall'azienda (leggibile da tutti via /companies/me).
+  useEffect(() => {
+    let cancelled = false;
+    getMyCompaniesApi()
+      .then((companies) => {
+        if (cancelled) return;
+        const flat: Company[] = [];
+        const walk = (list: Company[]) => list.forEach((c) => { flat.push(c); if (c.children?.length) walk(c.children); });
+        walk(companies);
+        const mine = flat.find((c) => c.id === user?.company_id) ?? flat[0];
+        if (mine?.social_packages_card_style) setCardStyle(mine.social_packages_card_style);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.company_id]);
 
   const orderedPackages = useMemo(
     () => [...packages].sort((a, b) => (a.base_price ?? 0) - (b.base_price ?? 0)),
@@ -239,13 +257,14 @@ export function SocialPackagesPresentationPage() {
         ) : orderedPackages.length === 0 ? (
           <div className="social-presentation-empty">Nessun pacchetto attivo disponibile per questa azienda.</div>
         ) : (
-          <section className="social-hero__deck">
+          <section className={`social-hero__deck social-deck--${cardStyle}`}>
             {orderedPackages.map((item) => (
               <article
                 key={item.id}
                 className={`social-pack social-pack--${item.accent}${selectedId === item.id ? " is-selected" : ""}`}
                 onClick={() => selectPack(item.id)}
               >
+                {cardStyle === "tech" && (<><span className="social-pack__corner tl" /><span className="social-pack__corner br" /></>)}
                 <h2 className="social-pack__name">{item.title}</h2>
                 <p className="social-pack__desc">{item.description || "Pacchetto social personalizzato per la crescita del brand."}</p>
 

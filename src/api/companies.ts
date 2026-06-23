@@ -21,10 +21,18 @@ export function normalizeCompanySettingKey(key: string) {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type SocialPackageCardStyle = "sober" | "tech" | "rail";
+
+export interface CardStyleOption {
+  id: SocialPackageCardStyle;
+  label: string;
+}
+
 export interface Company {
   id: number;
   name: string;
   slug: string;
+  social_packages_card_style?: SocialPackageCardStyle;
   parent_id: number | null;
   is_active?: boolean;
   created_at?: string;
@@ -84,6 +92,7 @@ export interface SwitchActiveCompanyResponse {
 export interface UpdateCompanyPayload {
   opening_time?: string | null;
   closing_time?: string | null;
+  social_packages_card_style?: SocialPackageCardStyle;
 }
 
 export interface UpdateCompanyBrandPayload {
@@ -230,6 +239,16 @@ export async function getCompanyApi(id: number): Promise<Company> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Impossibile recuperare l'azienda"));
+  }
+  return res.json();
+}
+
+/** Catalogo stili card pacchetti social (admin). */
+export async function listCardStylesApi(): Promise<CardStyleOption[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/social-packages/card-styles`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile recuperare gli stili card"));
   }
   return res.json();
 }
