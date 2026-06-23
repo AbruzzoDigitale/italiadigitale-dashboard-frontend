@@ -6,7 +6,6 @@ import {
   isWorkItemOverlapApiError,
   moveWorkItemApi,
   rescheduleNextAvailableWorkItemApi,
-  swapWorkItemsApi,
   updateWorkItemApi,
   type MoveWorkItemPayload,
   type WorkItem,
@@ -17,7 +16,7 @@ import { getCompanyApi } from "../api/companies";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
-import { OperatorCalendarColumn } from "../components/workload/OperatorCalendarColumn";
+import { WorkloadCalendar, type WorkloadCalendarDensity } from "../components/workload/WorkloadCalendar";
 import {
   getWorkloadUserCalendarDayApi,
   listWorkloadUsersApi,
@@ -41,7 +40,6 @@ import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../hooks/useAuth";
 import { useOverdueTasks } from "../hooks/useOverdueTasks";
-import { useWorkItemSwap } from "../hooks/useWorkItemSwap";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import "./workload-page.css";
 
@@ -260,12 +258,6 @@ function minutesToHHMM(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function snapBoundaryMinutesInRange(totalMinutes: number, min: number, max: number, slotMinutes = CALENDAR_CREATE_SLOT_MINUTES): number {
-  const bounded = Math.max(min, Math.min(max, totalMinutes));
-  const offset = Math.round((bounded - min) / slotMinutes) * slotMinutes;
-  return min + offset;
-}
-
 function resolveTimelineTask(item: WorkloadTimelineItem) {
   return (item as { task?: (WorkItem & { client?: { commercial_name?: string | null; name?: string | null } | null }) | null }).task ?? null;
 }
@@ -317,6 +309,7 @@ export function WorkloadPage() {
   }, [toast]);
 
   const [rangeMode, setRangeMode] = useState<RangeMode>("week");
+  const [calendarDensity, setCalendarDensity] = useState<WorkloadCalendarDensity>("comfortable");
   const [anchorDate, setAnchorDate] = useState(getTodayDate());
   const [weekOffset, setWeekOffset] = useState(0);
   const [customFromDate, setCustomFromDate] = useState(getTodayDate());
@@ -367,16 +360,15 @@ export function WorkloadPage() {
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [, setCalendarDropPreviewMinutes] = useState<number | null>(null);
   const [, setCalendarCreatePreview] = useState<CalendarCreatePreview | null>(null);
-  const [calendarResizeState, setCalendarResizeState] = useState<CalendarResizeState | null>(null);
-  const [calendarTaskUiState, setCalendarTaskUiState] = useState<Record<number, "saving" | "exiting">>({});
+  const [, setCalendarResizeState] = useState<CalendarResizeState | null>(null);
+  const [, setCalendarTaskUiState] = useState<Record<number, "saving" | "exiting">>({});
   const [calendarConflictModal, setCalendarConflictModal] = useState<{ message: string; conflicts: WorkItemOverlapConflict[] } | null>(null);
   const [calendarConflictsModalOpen, setCalendarConflictsModalOpen] = useState(false);
   const [conflictsModalTab, setConflictsModalTab] = useState<"conflitti" | "arretrate">("conflitti");
   const [reschedulingTaskId, setReschedulingTaskId] = useState<number | null>(null);
   const calendarRequestSeqRef = useRef(0);
   const calendarCreateDragStartRef = useRef<number | null>(null);
-  // ── Swap posizioni via drag-and-drop (rilascio di una task sopra un'altra) ──────
-  const { preview: previewSwapApi } = useWorkItemSwap();
+  // ── Swap preview state (residuo del drag-and-drop swap, mantenuto per il reset al drag-end) ──
   const [, setSwapPreview] = useState<{ targetIds: number[]; canSwap: boolean | null } | null>(null);
   const swapPreviewSeqRef = useRef(0);
   const swapHoverKeyRef = useRef<string | null>(null);
@@ -921,39 +913,6 @@ export function WorkloadPage() {
     }
   }, [toast]);
 
-  const completeOverCapacityTask = useCallback(async (workItemId: number) => {
-    setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "saving" }));
-    try {
-      await updateWorkItemApi(workItemId, {
-        status: "completed",
-        is_completed: true,
-      });
-      setCalendarData((current) => {
-        if (!current) return current;
-        const currentOverCapacity = current.over_capacity;
-        return {
-          ...current,
-          timeline: current.timeline.filter((item) => !(item.kind === "task" && item.work_item_id === workItemId)),
-          over_capacity: currentOverCapacity ? {
-            ...currentOverCapacity,
-            tasks: currentOverCapacity.tasks.filter((task) => task.work_item_id !== workItemId),
-            total_tasks_count: Math.max(0, currentOverCapacity.total_tasks_count - 1),
-          } : currentOverCapacity,
-        };
-      });
-      await reloadCalendar();
-      toast.success("Task completata");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Impossibile completare la task");
-    } finally {
-      setCalendarTaskUiState((current) => {
-        const next = { ...current };
-        delete next[workItemId];
-        return next;
-      });
-    }
-  }, [reloadCalendar, toast]);
-
   const handleOverlapApiError = useCallback((err: unknown, fallbackMessage: string) => {
     if (isWorkItemOverlapApiError(err)) {
       setCalendarConflictModal({ message: err.backendMessage, conflicts: err.conflicts });
@@ -992,125 +951,30 @@ export function WorkloadPage() {
     }
   }, [calendarData, handleOverlapApiError, loadMain, reloadCalendar, selectedDay, toast]);
 
-  const saveCalendarResize = useCallback(async (resizeState: CalendarResizeState) => {
-    const durationHours = Math.max(CALENDAR_CREATE_SLOT_MINUTES / 60, (resizeState.currentEndMinutes - resizeState.startMinutes) / 60);
-    const endTime = minutesToHHMM(resizeState.currentEndMinutes);
-    const previousCalendarData = calendarData;
-    setCalendarTaskUiState((current) => ({ ...current, [resizeState.workItemId]: "saving" }));
-
-    setCalendarData((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        timeline: current.timeline.map((item) => {
-          if (item.kind !== "task" || item.work_item_id !== resizeState.workItemId) return item;
-          return {
-            ...item,
-            end_time: endTime,
-            estimated_hours: durationHours,
-            effective_load_hours: item.affects_daily_load === false ? 0 : durationHours,
-            task: item.task ? {
-              ...item.task,
-              estimated_hours: durationHours,
-              schedule_state: item.task.schedule_state ? {
-                ...item.task.schedule_state,
-                effective_load_hours: item.affects_daily_load === false ? 0 : durationHours,
-              } : item.task.schedule_state,
-            } : item.task,
-          };
-        }),
-      };
-    });
-
-    try {
-      await updateWorkItemApi(resizeState.workItemId, { estimated_hours: durationHours });
-      await reloadCalendar();
-      toast.success(`Durata aggiornata: ${formatHours(durationHours)}`);
-    } catch (err) {
-      setCalendarData(previousCalendarData);
-      await reloadCalendar();
-      handleOverlapApiError(err, "Impossibile ridimensionare la task");
-    } finally {
-      setCalendarTaskUiState((current) => {
-        const next = { ...current };
-        delete next[resizeState.workItemId];
-        return next;
-      });
-    }
-  }, [calendarData, handleOverlapApiError, reloadCalendar, toast]);
-
-  // Adapter per la colonna calendario: riposiziona una task in uno slot (eventualmente cambiando operatore).
-  const moveCalendarTaskToSlot = useCallback(async (taskId: number, startTime: string, assigneeId: number) => {
+  // Adapter per il calendario settimanale (WorkloadCalendar): sposta una task in un
+  // giorno+slot espliciti (diverso da moveCalendarTaskToSlot che usa il giorno selezionato).
+  const moveCalendarTaskToDaySlot = useCallback(async (taskId: number, day: string, startTime: string) => {
     if (moveInFlightRef.current) return;
     const payload: MoveWorkItemPayload = {
-      assignee_id: assigneeId,
-      work_date: calendarData?.selected_date ?? selectedDay,
+      assignee_id: calendarOperatorId ?? undefined,
+      work_date: day,
       start_time: startTime,
     };
-    const previousCalendarData = calendarData;
     try {
       moveInFlightRef.current = true;
       setMovingTaskId(taskId);
-      patchCalendarTaskLocally(taskId, payload);
       await moveWorkItemApi(taskId, payload);
       await loadMain({ silent: true });
       await reloadCalendar();
+      setMultiReloadToken((t) => t + 1);
     } catch (err) {
-      setCalendarData(previousCalendarData);
       await reloadCalendar();
       handleOverlapApiError(err, "Impossibile spostare la task");
     } finally {
       moveInFlightRef.current = false;
       setMovingTaskId(null);
-      setDraggingTaskId(null);
-      setDragSourceAssigneeId(undefined);
     }
-  }, [calendarData, selectedDay, patchCalendarTaskLocally, loadMain, reloadCalendar, handleOverlapApiError]);
-
-  // Adapter per la colonna calendario: commit del resize (durata) data l'ora di fine.
-  const resizeCalendarTask = useCallback(async (taskId: number, endTime: string) => {
-    const item = calendarData?.timeline.find((i) => i.kind === "task" && i.work_item_id === taskId);
-    const startMinutes = hhmmToMinutes(item?.start_time ?? null) ?? 0;
-    const endMinutes = hhmmToMinutes(endTime) ?? startMinutes + CALENDAR_CREATE_SLOT_MINUTES;
-    await saveCalendarResize({
-      workItemId: taskId,
-      startMinutes,
-      originalEndMinutes: endMinutes,
-      currentEndMinutes: endMinutes,
-      minEndMinutes: startMinutes + CALENDAR_CREATE_SLOT_MINUTES,
-      maxEndMinutes: 24 * 60,
-      startClientY: 0,
-    });
-  }, [calendarData, saveCalendarResize]);
-
-  useEffect(() => {
-    if (!calendarResizeState) return;
-
-    const onMouseMove = (event: globalThis.MouseEvent) => {
-      const deltaMinutes = ((event.clientY - calendarResizeState.startClientY) / CALENDAR_HOUR_HEIGHT_PX) * 60;
-      const nextEndMinutes = snapBoundaryMinutesInRange(
-        calendarResizeState.originalEndMinutes + deltaMinutes,
-        calendarResizeState.minEndMinutes,
-        calendarResizeState.maxEndMinutes,
-        CALENDAR_CREATE_SLOT_MINUTES
-      );
-      setCalendarResizeState((current) => current ? { ...current, currentEndMinutes: nextEndMinutes } : current);
-    };
-
-    const onMouseUp = () => {
-      setCalendarResizeState(null);
-      if (calendarResizeState.currentEndMinutes !== calendarResizeState.originalEndMinutes) {
-        void saveCalendarResize(calendarResizeState);
-      }
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp, { once: true });
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [calendarResizeState, saveCalendarResize]);
+  }, [calendarOperatorId, loadMain, reloadCalendar, handleOverlapApiError]);
 
   const onTaskDragStart = (event: DragEvent<HTMLElement>, workItemId: number, sourceAssigneeId?: number | null) => {
     event.dataTransfer.effectAllowed = "move";
@@ -1251,35 +1115,6 @@ export function WorkloadPage() {
     swapHoverKeyRef.current = null;
     setSwapPreview(null);
   }, []);
-
-  // Chiede l'anteprima dello scambio solo quando il gruppo target sotto il cursore cambia.
-  const handleSwapDrop = useCallback(async (sourceId: number, targetIds: number[]) => {
-    clearSwapPreview();
-    setDraggingTaskId(null);
-    setDragSourceAssigneeId(undefined);
-    if (targetIds.length === 0 || targetIds.includes(sourceId)) return;
-    if (moveInFlightRef.current) return;
-
-    try {
-      moveInFlightRef.current = true;
-      setMovingTaskId(sourceId);
-      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
-      if (res?.can_swap) {
-        await loadMain({ silent: true });
-        await reloadCalendar();
-        toast.success("Posizioni scambiate");
-      } else {
-        toast.error("Scambio non possibile");
-      }
-    } catch (err) {
-      // 409 / overlap: mostra il messaggio backend UNA volta (niente loop di toast).
-      if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
-      else toast.error(err instanceof Error ? err.message : "Scambio non possibile");
-    } finally {
-      moveInFlightRef.current = false;
-      setMovingTaskId(null);
-    }
-  }, [clearSwapPreview, loadMain, reloadCalendar, toast]);
 
   const buildAccordionDayMovePayload = (day: string): MoveWorkItemPayload => {
     if (dragSourceAssigneeId === null) {
@@ -2080,34 +1915,26 @@ export function WorkloadPage() {
       );
     }
 
-    const summaryStatus = summaryByUserId.get(calendarData.user_id)?.workload_status ?? null;
+    const operatorSummary = summaryByUserId.get(calendarData.user_id);
     return (
-      <OperatorCalendarColumn
-        data={calendarData}
+      <WorkloadCalendar
+        userId={calendarData.user_id}
+        companyId={selectedCompanyId}
+        visibleDays={visibleDays}
+        selectedDate={calendarData.selected_date}
         bounds={calendarBounds}
         nowMinutes={nowMinutes}
-        summaryStatus={summaryStatus}
-        draggedTaskId={draggingTaskId}
-        draggedFromOperatorId={calendarData.user_id}
-        onTaskDragStart={(taskId) => { setDraggingTaskId(taskId); setDragSourceAssigneeId(calendarData.user_id); }}
-        onTaskDragEnd={onTaskDragEnd}
+        density={calendarDensity}
+        maxCapacityHours={operatorSummary?.max_capacity_hours_day ?? null}
+        reloadToken={multiReloadToken}
         onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
-        onCreateByDrag={({ startTime, estimatedHours }) => {
+        onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
+        onMove={(taskId, day, startTime) => { void moveCalendarTaskToDaySlot(taskId, day, startTime); }}
+        onCreateByDrag={({ day, startTime, estimatedHours }) => {
           setEditingItem(null);
-          setQuickAdd({ day: calendarData.selected_date, userId: calendarData.user_id, startTime, estimatedHours });
+          setQuickAdd({ day, userId: calendarData.user_id, startTime, estimatedHours });
           setNewWorkModalOpen(true);
         }}
-        onMove={(taskId, startTime) => { void moveCalendarTaskToSlot(taskId, startTime, calendarData.user_id); }}
-        onReassign={(taskId, _fromOperatorId, startTime) => { void moveCalendarTaskToSlot(taskId, startTime, calendarData.user_id); }}
-        previewSwap={(sourceId, targetIds) => previewSwapApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds }).then((res) => res?.can_swap ?? false)}
-        onSwap={(sourceId, targetIds) => { void handleSwapDrop(sourceId, targetIds); }}
-        onResize={(taskId, endTime) => { void resizeCalendarTask(taskId, endTime); }}
-        onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
-        onCompleteOverCapacity={(taskId) => { void completeOverCapacityTask(taskId); }}
-        onRescheduleOverflow={(taskId) => { void rescheduleTaskToNextAvailable(taskId); }}
-        reschedulingTaskId={reschedulingTaskId}
-        taskUiState={calendarTaskUiState}
-        onOpenConflicts={() => setCalendarConflictsModalOpen(true)}
       />
     );
   };
@@ -2266,6 +2093,25 @@ export function WorkloadPage() {
                   className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === option.value ? "is-active" : ""}`}
                 >
                   <Icon name={option.icon} className="w-3.5 h-3.5" />
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {viewMode === "calendar" && (
+            <div className="wl-segmented wl-segmented--view wlcal-density" role="group" aria-label="Densità calendario">
+              <span className="wlcal-density__label">Densità</span>
+              {([
+                { value: "comfortable", label: "Comodo" },
+                { value: "compact", label: "Compatto" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCalendarDensity(option.value)}
+                  className={`wl-segmented-btn wl-segmented-btn--view ${calendarDensity === option.value ? "is-active" : ""}`}
+                >
                   {option.label}
                 </button>
               ))}

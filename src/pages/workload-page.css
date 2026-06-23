@@ -755,3 +755,651 @@
     transform: translateX(18px);
   }
 }
+
+/* ============================================================
+   Calendario workload single-operatore — restyle (giorno/settimana)
+   Adattato dal prototipo, usa i token tema dell'app. Light + Dark.
+   --area = colore dell'area di competenza (variabile inline per evento).
+   ============================================================ */
+
+.wlcal {
+  position: relative;
+  overflow: auto;
+  max-height: 72vh;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 16px;
+  background: theme(colors.paper);
+}
+
+.dark .wlcal {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-inner {
+  position: relative;
+  min-width: max-content;
+}
+
+/* ---- intestazione giorni ---- */
+.wlcal-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: grid;
+  background: theme(colors.paper);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-head {
+  background: theme(colors.ink.soft);
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-corner {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-corner {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-dcol {
+  padding: 9px 10px;
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+}
+
+.dark .wlcal-dcol {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-dcol.is-today {
+  background: color-mix(in srgb, theme(colors.brand.magenta) 6%, transparent);
+}
+
+.wlcal-dow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-dow {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-dnum {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-dnum {
+  color: theme(colors.paper);
+}
+
+.wlcal-dcol.is-today .wlcal-dnum {
+  color: theme(colors.brand.magenta);
+}
+
+.wlcal-todayflag {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.brand.magenta);
+  letter-spacing: 0.1em;
+}
+
+.wlcal-dmeta {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-dmeta {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-loadbar {
+  margin-top: 7px;
+  height: 5px;
+  border-radius: 999px;
+  background: theme(colors.cream);
+  overflow: hidden;
+}
+
+.dark .wlcal-loadbar {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-loadbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.wlcal-load-ok {
+  background: theme(colors.success);
+}
+
+.wlcal-load-warn {
+  background: theme(colors.warning);
+}
+
+.wlcal-load-over {
+  background: theme(colors.danger);
+}
+
+.wlcal-pct {
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+.wlcal-pct.wlcal-load-ok {
+  color: theme(colors.success);
+  background: none;
+}
+
+.wlcal-pct.wlcal-load-warn {
+  color: theme(colors.warning);
+  background: none;
+}
+
+.wlcal-pct.wlcal-load-over {
+  color: theme(colors.danger);
+  background: none;
+}
+
+/* ---- corpo: gutter + colonne giorno ---- */
+.wlcal-body {
+  display: grid;
+  position: relative;
+}
+
+.wlcal-gutter {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+}
+
+.dark .wlcal-gutter {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-hslot {
+  position: absolute;
+  right: 8px;
+  text-align: right;
+}
+
+.wlcal-hslot span {
+  font-size: 11px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  position: relative;
+  top: -7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-hslot span {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-gmark {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
+  transform: translateY(-50%);
+}
+
+.wlcal-gmark b {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wlcal-gmark span {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wlcal-gmark.is-start b,
+.wlcal-gmark.is-start span {
+  color: theme(colors.success);
+}
+
+.wlcal-gmark.is-limit b,
+.wlcal-gmark.is-limit span {
+  color: theme(colors.danger);
+}
+
+.wlcal-daycol {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .wlcal-daycol {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-daycol.is-today {
+  background: color-mix(in srgb, theme(colors.brand.magenta) 4%, transparent);
+}
+
+.wlcal-daycol.is-drop {
+  background: color-mix(in srgb, theme(colors.success) 10%, transparent);
+}
+
+.wlcal-gline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-gline {
+  border-top-color: theme(colors.line.dark);
+}
+
+/* fuori orario */
+.wlcal-offhours {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-color: color-mix(in srgb, theme(colors.ink.DEFAULT) 4%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.ink.DEFAULT) 6%, transparent) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+.dark .wlcal-offhours {
+  background-color: color-mix(in srgb, theme(colors.paper) 4%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.paper) 7%, transparent) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+.wlcal-offhours span {
+  position: absolute;
+  right: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+  opacity: 0.7;
+}
+
+.dark .wlcal-offhours span {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-offhours:not(.is-bot) span {
+  bottom: 5px;
+}
+
+.wlcal-offhours.is-bot span {
+  top: 5px;
+}
+
+/* linea inizio orario */
+.wlcal-workline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px dashed theme(colors.success);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.wlcal-workline span {
+  position: absolute;
+  left: 6px;
+  top: -9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: theme(colors.paper);
+  background: theme(colors.success);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* limite orario */
+.wlcal-limite {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px dashed theme(colors.danger);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.wlcal-limite span {
+  position: absolute;
+  right: 6px;
+  top: -9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: theme(colors.paper);
+  background: theme(colors.danger);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* ora corrente */
+.wlcal-nowline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid theme(colors.brand.magenta);
+  z-index: 8;
+  pointer-events: none;
+}
+
+.wlcal-nowline::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: theme(colors.brand.magenta);
+}
+
+/* layer eventi */
+.wlcal-evlayer {
+  position: absolute;
+  inset: 0;
+}
+
+.wlcal-ev {
+  position: absolute;
+  border-radius: 7px;
+  padding: 6px 9px 6px 11px;
+  overflow: hidden;
+  cursor: grab;
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 12%, theme(colors.paper));
+  border: 1px solid color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 38%, theme(colors.line.DEFAULT));
+  box-shadow: theme(boxShadow.1);
+  transition: box-shadow 0.15s ease, transform 0.12s ease, filter 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dark .wlcal-ev {
+  background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 22%, theme(colors.ink.soft));
+  border-color: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 42%, theme(colors.line.dark));
+}
+
+.wlcal-ev::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-ev:hover {
+  box-shadow: theme(boxShadow.2);
+  z-index: 5;
+  filter: brightness(1.02);
+}
+
+.wlcal-ev:active {
+  cursor: grabbing;
+}
+
+.wlcal-ev.is-done {
+  opacity: 0.6;
+}
+
+.wlcal-ev.is-over {
+  outline: 2px dashed theme(colors.danger);
+  outline-offset: -3px;
+}
+
+.wlcal-ev-client {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: theme(colors.ink.DEFAULT);
+  line-height: 1.12;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-ev-client {
+  color: theme(colors.paper);
+}
+
+.wlcal-ev-type {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: theme(colors.muted.DEFAULT);
+  line-height: 1.18;
+  overflow: hidden;
+}
+
+.dark .wlcal-ev-type {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev.is-done .wlcal-ev-type,
+.wlcal-ev.is-done .wlcal-ev-client {
+  text-decoration: line-through;
+}
+
+.wlcal-ev-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wlcal-ev-dur {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--area, theme(colors.muted.DEFAULT));
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wlcal-ev-dur i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-ev-range {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-ev-range {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev.is-compact {
+  padding: 4px 8px 4px 11px;
+}
+
+.wlcal-ev.is-compact .wlcal-ev-type {
+  display: none;
+}
+
+/* pulsante completa */
+.wlcal-ev-check {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+
+.wlcal-ev-check:hover {
+  transform: scale(1.12);
+}
+
+.dark .wlcal-ev-check {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.2);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev-check.is-done {
+  border-color: theme(colors.success);
+  background: theme(colors.success);
+  color: theme(colors.paper);
+}
+
+/* pausa pranzo / break — strisce ambra */
+.wlcal-ev.is-lunch {
+  cursor: default;
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.warning) 24%, theme(colors.paper)) 0 8px,
+    color-mix(in srgb, theme(colors.warning) 14%, theme(colors.paper)) 8px 16px
+  );
+  border: 1px solid color-mix(in srgb, theme(colors.warning) 32%, theme(colors.line.DEFAULT));
+}
+
+.dark .wlcal-ev.is-lunch {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.22) 0 8px,
+    rgba(245, 158, 11, 0.1) 8px 16px
+  );
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.wlcal-ev.is-lunch::before {
+  display: none;
+}
+
+.wlcal-ev.is-lunch .wlcal-ev-client,
+.wlcal-ev.is-lunch .wlcal-ev-type {
+  color: #a9842b;
+}
+
+.dark .wlcal-ev.is-lunch .wlcal-ev-client,
+.dark .wlcal-ev.is-lunch .wlcal-ev-type {
+  color: #e7c25a;
+}
+
+/* indicatore drop / create */
+.wlcal-dropind {
+  position: absolute;
+  border-radius: 7px;
+  border: 2px dashed theme(colors.success);
+  background: color-mix(in srgb, theme(colors.success) 14%, transparent);
+  z-index: 9;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wlcal-dropind span {
+  font-size: 11px;
+  font-weight: 700;
+  color: theme(colors.success);
+  background: theme(colors.paper);
+  padding: 2px 8px;
+  border-radius: 999px;
+  box-shadow: theme(boxShadow.1);
+}
+
+.dark .wlcal-dropind span {
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-createind {
+  position: absolute;
+  border-radius: 7px;
+  border: 2px dashed theme(colors.success);
+  background: color-mix(in srgb, theme(colors.success) 10%, transparent);
+  z-index: 9;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+}
+
+.wlcal-createind span {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.success);
+  font-variant-numeric: tabular-nums;
+}
+
+/* toggle densità */
+.wlcal-density {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wlcal-density__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-density__label {
+  color: theme(colors.muted.dark);
+}
