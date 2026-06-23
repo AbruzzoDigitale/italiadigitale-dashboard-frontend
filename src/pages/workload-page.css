@@ -1685,3 +1685,238 @@
   padding: 2px 7px;
   border-radius: 99px;
 }
+
+/* ============================================================
+   CALENDARIO — vista MESE (griglia)
+   ============================================================ */
+.wlcal-month {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 16px;
+  overflow: hidden;
+  background: theme(colors.paper);
+}
+
+.dark .wlcal-month {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-month-dows {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-month-dows {
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-mdow {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+  border-right: 1px solid theme(colors.line.DEFAULT);
+}
+
+.wlcal-mdow:last-child {
+  border-right: 0;
+}
+
+.dark .wlcal-mdow {
+  color: theme(colors.muted.dark);
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-mdow.we {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mdow.we {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(104px, 1fr);
+}
+
+.wlcal-mcell {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  position: relative;
+  transition: background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dark .wlcal-mcell {
+  border-right-color: theme(colors.line.dark);
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-mcell.is-blank {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mcell.is-blank {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-mcell.is-we {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mcell.is-we {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-mcell.is-click {
+  cursor: pointer;
+}
+
+.wlcal-mcell.is-click:hover {
+  background: color-mix(in srgb, theme(colors.success) 9%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, theme(colors.success) 45%, transparent);
+}
+
+.wlcal-mtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wlcal-mnum {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-mnum {
+  color: theme(colors.paper);
+}
+
+.wlcal-mcell.is-we .wlcal-mnum {
+  color: theme(colors.muted.DEFAULT);
+  font-weight: 600;
+}
+
+.wlcal-mcell.is-today .wlcal-mnum {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+}
+
+.wlcal-mflag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: theme(colors.brand.magenta);
+  background: color-mix(in srgb, theme(colors.brand.magenta) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.wlcal-mflag.is-today {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+}
+
+.wlcal-mwe {
+  color: theme(colors.muted.DEFAULT);
+  font-size: 20px;
+  text-align: center;
+  margin: auto;
+}
+
+.wlcal-mempty {
+  color: theme(colors.muted.DEFAULT);
+  font-size: 12px;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.wlcal-mdots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wlcal-mdots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.wlcal-mmore {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.wlcal-mfoot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.wlcal-mtasks {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-mtasks {
+  color: theme(colors.paper);
+}
+
+.wlcal-mload {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wlcal-mload.wlcal-load-ok {
+  color: theme(colors.success);
+}
+
+.wlcal-mload.wlcal-load-warn {
+  color: theme(colors.warning);
+}
+
+.wlcal-mload.wlcal-load-over {
+  color: theme(colors.brand.magenta);
+}
+
+.wlcal-mbar {
+  height: 4px;
+  border-radius: 99px;
+  background: theme(colors.line.DEFAULT);
+  overflow: hidden;
+}
+
+.dark .wlcal-mbar {
+  background: theme(colors.line.dark);
+}
+
+.wlcal-mbar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+}

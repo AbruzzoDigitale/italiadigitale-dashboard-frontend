@@ -17,6 +17,7 @@ import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
 import { WorkloadCalendar, type WorkloadCalendarDensity } from "../components/workload/WorkloadCalendar";
+import { WorkloadMonthGrid } from "../components/workload/WorkloadMonthGrid";
 import {
   getWorkloadUserCalendarDayApi,
   listWorkloadUsersApi,
@@ -409,7 +410,7 @@ export function WorkloadPage() {
   // Statistiche per-giorno (ore, n. task, arretrate) dell'operatore del calendario, ricavate dalla
   // heatmap raggruppata già caricata: ogni task porta schedule_state.delay_code → "arretrata".
   const calendarDayStats = useMemo(() => {
-    const map = new Map<string, { hours: number; tasks: number; overdue: number }>();
+    const map = new Map<string, { hours: number; tasks: number; overdue: number; dots: string[] }>();
     if (!heatmap || calendarOperatorId == null) return map;
     const seenByDate = new Map<string, Set<number>>();
     for (const group of heatmap.groups) {
@@ -418,7 +419,7 @@ export function WorkloadPage() {
         for (const cell of operator.days) {
           let entry = map.get(cell.date);
           if (!entry) {
-            entry = { hours: 0, tasks: 0, overdue: 0 };
+            entry = { hours: 0, tasks: 0, overdue: 0, dots: [] };
             map.set(cell.date, entry);
           }
           let seen = seenByDate.get(cell.date);
@@ -432,6 +433,8 @@ export function WorkloadPage() {
             entry.tasks += 1;
             entry.hours += task.effective_load_hours ?? 0;
             if (task.schedule_state?.delay_code) entry.overdue += 1;
+            const areaColor = task.work_areas?.find((a) => a.color)?.color;
+            if (areaColor && entry.dots.length < 6) entry.dots.push(areaColor);
           }
         }
       }
@@ -1900,6 +1903,24 @@ export function WorkloadPage() {
         <div className="rounded-md border border-danger/20 bg-danger/5 px-4 py-4 text-sm text-danger">
           {calendarError}
         </div>
+      );
+    }
+
+    // Vista MESE: griglia mensile (dati per-giorno dalla heatmap), niente timeline/tray.
+    if (rangeMode === "month") {
+      const monthCapacity = (calendarOperatorId != null ? summaryByUserId.get(calendarOperatorId)?.max_capacity_hours_day : null) ?? 8;
+      return (
+        <WorkloadMonthGrid
+          anchorDate={anchorDate}
+          stats={calendarDayStats}
+          capacityHours={monthCapacity}
+          today={getTodayDate()}
+          onOpenDay={(iso) => {
+            setRangeMode("day");
+            setAnchorDate(iso);
+            setSelectedDay(iso);
+          }}
+        />
       );
     }
 
