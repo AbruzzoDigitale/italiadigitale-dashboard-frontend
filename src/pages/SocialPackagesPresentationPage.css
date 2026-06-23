@@ -526,3 +526,45 @@
   font-variant-numeric: tabular-nums;
 }
 .social-quotebar__field input:disabled { opacity: .5; }
+
+/* ── Stepper durata (+/- a tema) ── */
+.cfg-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--ad-line-2);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ad-surface);
+  width: max-content;
+}
+.cfg-stepper__btn {
+  width: 42px;
+  border: 0;
+  background: transparent;
+  color: var(--ad-tx);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s var(--ad-ease), color .15s var(--ad-ease);
+}
+.cfg-stepper__btn:hover:not(:disabled) { background: var(--ad-magenta); color: #fff; }
+.cfg-stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
+.cfg-stepper__val {
+  width: 64px;
+  border: 0;
+  border-left: 1px solid var(--ad-line-2);
+  border-right: 1px solid var(--ad-line-2);
+  background: transparent;
+  color: var(--ad-tx);
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 6px;
+}
+.cfg-stepper__val:focus { outline: none; }
+/* niente frecce native sui number della pagina presentazione */
+.social-presentation-page input[type="number"]::-webkit-outer-spin-button,
+.social-presentation-page input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.social-presentation-page input[type="number"] { -moz-appearance: textfield; appearance: textfield; }

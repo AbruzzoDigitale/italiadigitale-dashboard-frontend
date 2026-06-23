@@ -480,14 +480,34 @@ export function SocialPackagesPresentationPage() {
 
               <div className="field">
                 <label>Durata (mesi)</label>
-                <input
-                  type="number"
-                  className="input"
-                  min={6}
-                  max={36}
-                  value={months}
-                  onChange={(e) => setMonths(Math.max(6, parseInt(e.target.value) || 6))}
-                />
+                <div className="cfg-stepper">
+                  <button
+                    type="button"
+                    className="cfg-stepper__btn"
+                    onClick={() => setMonths((m) => Math.max(6, m - 1))}
+                    disabled={months <= 6}
+                    aria-label="Diminuisci mesi"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    className="cfg-stepper__val"
+                    min={6}
+                    max={36}
+                    value={months}
+                    onChange={(e) => setMonths(Math.min(36, Math.max(6, parseInt(e.target.value) || 6)))}
+                  />
+                  <button
+                    type="button"
+                    className="cfg-stepper__btn"
+                    onClick={() => setMonths((m) => Math.min(36, m + 1))}
+                    disabled={months >= 36}
+                    aria-label="Aumenta mesi"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
