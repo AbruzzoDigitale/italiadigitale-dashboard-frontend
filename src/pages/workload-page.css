@@ -1403,3 +1403,285 @@
 .dark .wlcal-density__label {
   color: theme(colors.muted.dark);
 }
+
+/* ============================================================
+   CALENDARIO — shell + tray "Da pianificare" (sidebar)
+   ============================================================ */
+.wlcal-shell {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wlcal-shell > .wlcal {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wlcal-tray {
+  flex: 0 0 300px;
+  width: 300px;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 16px;
+  background: theme(colors.cream);
+  overflow: hidden;
+}
+
+.dark .wlcal-tray {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-tray-head {
+  padding: 14px 14px 11px;
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-tray-head {
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-tray-tt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wlcal-tray-tt h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-tt h3 {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-cnt {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-tray-cnt {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-head p {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  margin: 7px 0 0;
+  line-height: 1.4;
+}
+
+.dark .wlcal-tray-head p {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+
+.wlcal-tray-tabs button {
+  flex: 1;
+  border: 0;
+  background: none;
+  padding: 8px 6px;
+  border-radius: 8px 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  position: relative;
+  cursor: pointer;
+}
+
+.wlcal-tray-tabs button .b {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  height: 17px;
+  line-height: 17px;
+  border-radius: 99px;
+  background: theme(colors.line.DEFAULT);
+  font-size: 10px;
+  margin-left: 5px;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-tray-tabs button .b {
+  background: theme(colors.line.dark);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-tabs button.on {
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-tabs button.on {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-tabs button.on .b {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+}
+
+.wlcal-tray-tabs button.on::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: theme(colors.brand.magenta);
+  border-radius: 2px;
+}
+
+.wlcal-tray-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, theme(colors.warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, theme(colors.warning) 28%, transparent);
+  font-size: 11.5px;
+  color: theme(colors.ink.DEFAULT);
+  line-height: 1.35;
+}
+
+.dark .wlcal-tray-note {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-note svg {
+  color: theme(colors.warning);
+}
+
+.wlcal-tray-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wlcal-tray-empty {
+  text-align: center;
+  color: theme(colors.muted.DEFAULT);
+  font-size: 13px;
+  padding: 28px 12px;
+  font-style: italic;
+}
+
+.wlcal-tcard {
+  position: relative;
+  background: theme(colors.paper);
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 9px;
+  padding: 9px 10px 9px 13px;
+  cursor: grab;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dark .wlcal-tcard {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+}
+
+.wlcal-tcard:hover {
+  border-color: theme(colors.ink.DEFAULT);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.dark .wlcal-tcard:hover {
+  border-color: theme(colors.paper);
+}
+
+.wlcal-tcard:active {
+  cursor: grabbing;
+}
+
+.wlcal-tcard::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 99px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-tc-client {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  color: theme(colors.ink.DEFAULT);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-tc-client {
+  color: theme(colors.paper);
+}
+
+.wlcal-tc-type {
+  font-size: 12px;
+  color: theme(colors.muted.DEFAULT);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-tc-type {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tc-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wlcal-tc-dur {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-tc-dur i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--area, currentColor);
+}
+
+.wlcal-tc-over {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: theme(colors.brand.magenta);
+  background: color-mix(in srgb, theme(colors.brand.magenta) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+}

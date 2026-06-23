@@ -5,6 +5,7 @@ import {
   type WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
 import { Spinner } from "../ui/Spinner";
+import { Icon } from "../ui/Icon";
 import {
   CALENDAR_CREATE_SLOT_MINUTES,
   CALENDAR_SLOT_MINUTES,
@@ -98,6 +99,15 @@ interface DayState {
   data: WorkloadUserCalendarDayResponse | null;
 }
 
+interface TrayItem {
+  id: number;
+  client: string;
+  type: string;
+  durationMinutes: number;
+  areaColor: string | null;
+  overflowHours?: number;
+}
+
 export function WorkloadCalendar({
   userId,
   companyId,
@@ -126,6 +136,7 @@ export function WorkloadCalendar({
   const [dropPreview, setDropPreview] = useState<{ day: string; startMinutes: number } | null>(null);
   const [createPreview, setCreatePreview] = useState<{ day: string; startMinutes: number; endMinutes: number } | null>(null);
   const createAnchorRef = useRef<{ day: string; minutes: number } | null>(null);
+  const [trayTab, setTrayTab] = useState<"reassign" | "unsched">("reassign");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const initialScrollKeyRef = useRef<string | null>(null);
@@ -224,6 +235,42 @@ export function WorkloadCalendar({
     return { day, data, laidOut, taskCount: tasks.length, totalHours, loadPct };
   });
 
+  // ── Tray "Da pianificare": over-capacity (riprogrammare) + senza orario ───────
+  const tray = useMemo(() => {
+    const reassign = new Map<number, TrayItem>();
+    const unsched = new Map<number, TrayItem>();
+    for (const s of dayStates) {
+      const data = s.data;
+      if (!data) continue;
+      for (const t of data.over_capacity?.tasks ?? []) {
+        if (reassign.has(t.work_item_id)) continue;
+        reassign.set(t.work_item_id, {
+          id: t.work_item_id,
+          client: t.client_name || "Senza cliente",
+          type: t.title,
+          durationMinutes: Math.max(CALENDAR_SLOT_MINUTES, Math.round(((t.effective_load_hours || t.estimated_hours || 0.5)) * 60)),
+          areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+          overflowHours: t.overflow_hours,
+        });
+      }
+      for (const item of data.timeline) {
+        if (item.kind !== "task" || !item.work_item_id) continue;
+        if (!(item.is_all_day || !item.start_time)) continue;
+        if (unsched.has(item.work_item_id)) continue;
+        const eff = resolveTimelineEffectiveHours(item);
+        unsched.set(item.work_item_id, {
+          id: item.work_item_id,
+          client: resolveTimelineClientLabel(item),
+          type: resolveTimelineTaskTitle(item),
+          durationMinutes: Math.max(CALENDAR_SLOT_MINUTES, Math.round((eff || 0.5) * 60)),
+          areaColor: resolveTimelineTaskColor(item),
+        });
+      }
+    }
+    return { reassign: [...reassign.values()], unsched: [...unsched.values()] };
+  }, [dayStates]);
+  const trayList = trayTab === "reassign" ? tray.reassign : tray.unsched;
+
   // ── Helper coordinate → minuti su una colonna ─────────────────────────────────
   const minutesFromMouse = (event: MouseEvent<HTMLElement> | DragEvent<HTMLElement>, slot = CALENDAR_SLOT_MINUTES) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -240,6 +287,7 @@ export function WorkloadCalendar({
   }
 
   return (
+    <div className="wlcal-shell">
     <div className="wlcal" ref={scrollRef}>
       <div className="wlcal-inner">
         {/* Intestazione giorni */}
@@ -514,6 +562,63 @@ export function WorkloadCalendar({
           <Spinner size="md" />
         </div>
       )}
+    </div>
+
+      {/* Tray "Da pianificare" (sidebar) */}
+      <aside className="wlcal-tray">
+        <div className="wlcal-tray-head">
+          <div className="wlcal-tray-tt">
+            <Icon name="list" className="h-4 w-4 text-[#E91E8A]" />
+            <h3>Da pianificare</h3>
+            <span className="wlcal-tray-cnt">{tray.reassign.length + tray.unsched.length} schede</span>
+          </div>
+          <p>Trascina una scheda sulla timeline per assegnarle un orario.</p>
+        </div>
+
+        <div className="wlcal-tray-tabs">
+          <button type="button" className={trayTab === "reassign" ? "on" : ""} onClick={() => setTrayTab("reassign")}>
+            Da riprogrammare <span className="b">{tray.reassign.length}</span>
+          </button>
+          <button type="button" className={trayTab === "unsched" ? "on" : ""} onClick={() => setTrayTab("unsched")}>
+            Senza orario <span className="b">{tray.unsched.length}</span>
+          </button>
+        </div>
+
+        {trayTab === "reassign" && (
+          <div className="wlcal-tray-note">
+            <Icon name="alert-triangle" className="h-4 w-4 shrink-0" />
+            <span><b>Oltre capacità.</b> Queste lavorazioni non rientrano nella giornata pianificata. Riportale in un altro giorno trascinandole sul calendario.</span>
+          </div>
+        )}
+
+        <div className="wlcal-tray-list">
+          {trayList.length === 0 ? (
+            <div className="wlcal-tray-empty">Tutto pianificato.<br />Nessuna scheda in coda.</div>
+          ) : (
+            trayList.map((t) => (
+              <div
+                key={t.id}
+                className="wlcal-tcard"
+                style={t.areaColor ? ({ ["--area" as string]: t.areaColor } as React.CSSProperties) : undefined}
+                draggable
+                onDragStart={() => setDrag({ taskId: t.id, durationMinutes: t.durationMinutes })}
+                onDragEnd={() => { setDrag(null); setDropPreview(null); }}
+                onClick={() => onOpenEdit(t.id)}
+                title="Trascina su un giorno per assegnare l'orario"
+              >
+                <div className="wlcal-tc-client">{t.client}</div>
+                <div className="wlcal-tc-type">{t.type}</div>
+                <div className="wlcal-tc-foot">
+                  <span className="wlcal-tc-dur"><i />{formatHours(t.durationMinutes / 60)}</span>
+                  {t.overflowHours != null && t.overflowHours > 0 && (
+                    <span className="wlcal-tc-over">+{formatHours(t.overflowHours)} oltre limite</span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
