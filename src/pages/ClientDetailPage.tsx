@@ -63,7 +63,7 @@ export function ClientDetailPage() {
 
   if (error || !client) {
     return (
-      <div className="px-10 py-8 max-w-[1440px] mx-auto w-full">
+      <div className="px-6 py-8 mx-auto w-full">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 text-[13px] font-semibold text-muted hover:text-ink dark:hover:text-[#f4f4f7] transition-colors mb-6"
@@ -79,7 +79,7 @@ export function ClientDetailPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn overflow-x-hidden">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn overflow-x-hidden">
 
       {/* ── Back ── */}
       <button

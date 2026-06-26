@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
 import { AuthProvider } from "./context/AuthContext";
@@ -29,7 +29,7 @@ import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkloadPage } from "./pages/WorkloadPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
-import { canAccessRoute } from "./utils/access";
+import { canAccessRoute, getFallbackRoute } from "./utils/access";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -45,9 +45,17 @@ function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
 
 function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAccessRoute>[1]; children: React.ReactNode }) {
   const { permissions, isLoading, isAuthenticated } = useAuth();
+  const location = useLocation();
   if (isLoading) return <FullPageSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return canAccessRoute(permissions, routeKey) ? <>{children}</> : <ForbiddenPage />;
+  if (canAccessRoute(permissions, routeKey)) return <>{children}</>;
+  // La dashboard non è una pagina "vietata": chi non può vederla (es. operatore)
+  // viene portato alla propria vista di partenza invece di un "accesso negato".
+  if (routeKey === "dashboard") {
+    const fallback = getFallbackRoute(permissions);
+    if (fallback !== "/") return <Navigate to={`${fallback}${location.search}`} replace />;
+  }
+  return <ForbiddenPage />;
 }
 
 function AppRoutes() {

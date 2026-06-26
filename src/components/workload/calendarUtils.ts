@@ -3,8 +3,18 @@
 import type {
   WorkloadTimelineItem,
   WorkloadTaskSummary,
+  WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
 import type { WorkItem, WorkItemScheduleState } from "../../api/workItems";
+
+export interface WorkloadTrayItem {
+  id: number;
+  client: string;
+  type: string;
+  durationMinutes: number;
+  areaColor: string | null;
+  overflowHours?: number;
+}
 
 // ── Costanti griglia ────────────────────────────────────────────────────────────
 export const CALENDAR_SLOT_MINUTES = 30;
@@ -253,4 +263,45 @@ export function isTimelineTaskPriority(item: WorkloadTimelineItem) {
 
 export function isTimelineNonDeferrable(item: WorkloadTimelineItem) {
   return !!resolveTimelineTask(item)?.is_deadline_locked;
+}
+
+/**
+ * Costruisce gli elenchi della tray "Da pianificare" da una o più risposte calendario-giorno:
+ * - reassign: task oltre capacità (over_capacity);
+ * - unsched: task senza orario (all-day o senza start_time).
+ * Condiviso tra il calendario (più giorni) e la pagina (singola risposta dell'operatore).
+ */
+export function buildWorkloadTrayItems(
+  responses: Array<WorkloadUserCalendarDayResponse | null | undefined>,
+): { reassign: WorkloadTrayItem[]; unsched: WorkloadTrayItem[] } {
+  const reassign = new Map<number, WorkloadTrayItem>();
+  const unsched = new Map<number, WorkloadTrayItem>();
+  for (const data of responses) {
+    if (!data) continue;
+    for (const t of data.over_capacity?.tasks ?? []) {
+      if (reassign.has(t.work_item_id)) continue;
+      reassign.set(t.work_item_id, {
+        id: t.work_item_id,
+        client: t.client_name || "Senza cliente",
+        type: t.title,
+        durationMinutes: Math.max(CALENDAR_SLOT_MINUTES, Math.round((t.effective_load_hours || t.estimated_hours || 0.5) * 60)),
+        areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+        overflowHours: t.overflow_hours,
+      });
+    }
+    for (const item of data.timeline) {
+      if (item.kind !== "task" || !item.work_item_id) continue;
+      if (!(item.is_all_day || !item.start_time)) continue;
+      if (unsched.has(item.work_item_id)) continue;
+      const eff = resolveTimelineEffectiveHours(item);
+      unsched.set(item.work_item_id, {
+        id: item.work_item_id,
+        client: resolveTimelineClientLabel(item),
+        type: resolveTimelineTaskTitle(item),
+        durationMinutes: Math.max(CALENDAR_SLOT_MINUTES, Math.round((eff || 0.5) * 60)),
+        areaColor: resolveTimelineTaskColor(item),
+      });
+    }
+  }
+  return { reassign: [...reassign.values()], unsched: [...unsched.values()] };
 }

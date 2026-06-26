@@ -290,7 +290,7 @@ export function ContractCreateModal({
             value={form.contract_type}
             onChange={(value) => updateForm("contract_type", value as ContractType)}
             options={[
-              { value: "commercial", label: "Commercial" },
+              { value: "commercial", label: "Commerciale" },
               { value: "execution", label: "Execution" },
             ]}
           />
@@ -311,7 +311,7 @@ export function ContractCreateModal({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Stage iniziale</label>
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Stato iniziale</label>
           <SearchableSelect
             value={form.commercial_stage}
             onChange={(value) => updateForm("commercial_stage", value as ContractCommercialStage)}
@@ -341,20 +341,20 @@ export function ContractCreateModal({
         />
 
         <div className="md:col-span-2 flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</label>
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalità prezzi</label>
           <SearchableSelect
             value={form.pricing_view_mode}
             onChange={(value) => updateForm("pricing_view_mode", value as ContractPricingMode)}
             options={[
-              { value: "aggregated", label: "Aggregated" },
-              { value: "single_quote", label: "Single quote" },
+              { value: "aggregated", label: "Totale aggregato" },
+              { value: "single_quote", label: "Preventivo principale" },
             ]}
           />
         </div>
 
         <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
           <MultiSelect
-            label="work areas"
+            label="Aree di lavoro"
             value={form.work_area_ids}
             onChange={(value) => updateForm("work_area_ids", value)}
             options={workAreaOptions}
@@ -365,7 +365,7 @@ export function ContractCreateModal({
             createActionLabel="Crea area"
           />
           <MultiSelect
-            label="tags"
+            label="Tag"
             value={form.tag_ids}
             onChange={(value) => updateForm("tag_ids", value)}
             options={workTagOptions}

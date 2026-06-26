@@ -160,6 +160,8 @@ export function OperatorCalendarColumn({
   const [gridDropActive, setGridDropActive] = useState(false);
   const createDragStartRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+  const pointerYRef = useRef<number>(0);
   const initialScrollKeyRef = useRef<string | null>(null);
   const swapHoverKeyRef = useRef<string | null>(null);
   const swapSeqRef = useRef(0);
@@ -176,6 +178,43 @@ export function OperatorCalendarColumn({
 
   const getUiState = (workItemId?: number | null) =>
     typeof workItemId === "number" ? taskUiState?.[workItemId] : undefined;
+
+  // ── Auto-scroll della colonna durante il drag verso i bordi alto/basso ──
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRafRef.current != null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }, []);
+
+  const tickAutoScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      autoScrollRafRef.current = null;
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const edge = 70;
+    const maxSpeed = 20;
+    const y = pointerYRef.current;
+    let delta = 0;
+    if (y < rect.top + edge) {
+      delta = -maxSpeed * Math.min(1, (rect.top + edge - y) / edge);
+    } else if (y > rect.bottom - edge) {
+      delta = maxSpeed * Math.min(1, (y - (rect.bottom - edge)) / edge);
+    }
+    if (delta !== 0) el.scrollTop += delta;
+    autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+  }, []);
+
+  const handleAutoScrollDragOver = useCallback((clientY: number) => {
+    pointerYRef.current = clientY;
+    if (autoScrollRafRef.current == null) {
+      autoScrollRafRef.current = requestAnimationFrame(tickAutoScroll);
+    }
+  }, [tickAutoScroll]);
+
+  useEffect(() => () => stopAutoScroll(), [stopAutoScroll]);
 
   // ── Swap preview (debounced per gruppo target) ──
   const clearSwapPreview = useCallback(() => {
@@ -246,8 +285,16 @@ export function OperatorCalendarColumn({
   const displayName = data.full_name || data.username;
   const avatarInitials = displayName.split(" ").filter(Boolean).slice(0, 2).map((c) => c[0]?.toUpperCase() ?? "").join("") || "?";
 
-  const timedItems = data.timeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
-  const unscheduledTaskItems = data.timeline.filter((item) => item.kind === "task" && (item.is_all_day || !item.start_time || !item.end_time));
+  // Mostra la task nel suo giorno EFFETTIVO (effective_work_date): le arretrate
+  // compaiono nel giorno di recupero, non da assegnazione a scadenza.
+  const dayTimeline = data.timeline.filter((item) => {
+    if (item.kind !== "task") return true;
+    const state = resolveTimelineScheduleState(item);
+    const assignDay = (state?.effective_work_date ?? item.task?.work_date ?? "").slice(0, 10);
+    return !assignDay || assignDay === data.selected_date;
+  });
+  const timedItems = dayTimeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
+  const unscheduledTaskItems = dayTimeline.filter((item) => item.kind === "task" && (item.is_all_day || !item.start_time || !item.end_time));
   const overCapacity = data.over_capacity;
   const calendarConflicts: WorkloadCalendarConflict[] = data.conflicts ?? [];
 
@@ -266,8 +313,8 @@ export function OperatorCalendarColumn({
   }).filter((b): b is { item: WorkloadTimelineItem; start: number; end: number } => !!b);
   const laidOutTimelineBlocks = layoutCalendarTimelineBlocks(timelineBlocks);
 
-  const totalTaskHours = data.timeline.filter((i) => i.kind === "task").reduce((acc, i) => acc + resolveTimelineEffectiveHours(i), 0);
-  const taskCount = data.timeline.filter((i) => i.kind === "task").length;
+  const totalTaskHours = dayTimeline.filter((i) => i.kind === "task").reduce((acc, i) => acc + resolveTimelineEffectiveHours(i), 0);
+  const taskCount = dayTimeline.filter((i) => i.kind === "task").length;
 
   const dayMeta = (() => {
     const [y, m, d] = data.selected_date.split("-").map(Number);
@@ -405,7 +452,7 @@ export function OperatorCalendarColumn({
                 {totalTaskHours > 0 ? `${formatHours(totalTaskHours)} task` : "Libero"}
               </span>
               <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-                {taskCount} task · {data.timeline.length} eventi
+                {taskCount} task · {dayTimeline.length} eventi
               </span>
               {calendarConflicts.length > 0 && onOpenConflicts && (
                 <button
@@ -428,7 +475,14 @@ export function OperatorCalendarColumn({
 
       {/* Griglia oraria */}
       <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-        <div ref={scrollRef} className="max-h-[70vh] overflow-y-auto">
+        <div
+          ref={scrollRef}
+          className="max-h-[70vh] overflow-y-auto"
+          onDragOver={(event) => handleAutoScrollDragOver(event.clientY)}
+          onDragLeave={stopAutoScroll}
+          onDrop={stopAutoScroll}
+          onDragEnd={stopAutoScroll}
+        >
           <div className="grid grid-cols-[68px_1fr]">
             <div className="relative border-r border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2">
               {Array.from({ length: hourSlots }, (_, index) => {

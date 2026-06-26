@@ -1,5 +1,9 @@
+import { useEffect, useState } from "react";
+
 interface AvatarProps {
   name: string;
+  /** URL immagine profilo; se assente o in errore mostra le iniziali. */
+  src?: string | null;
   size?: "sm" | "md" | "lg";
   className?: string;
 }
@@ -18,13 +22,27 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function Avatar({ name, size = "md", className = "" }: AvatarProps) {
+export function Avatar({ name, src, size = "md", className = "" }: AvatarProps) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+
+  const showImage = !!src && !failed;
+
   return (
     <span
       aria-label={name}
-      className={`inline-grid place-items-center rounded-full bg-ink text-paper font-display font-bold flex-shrink-0 ${sizeMap[size]} ${className}`}
+      className={`inline-grid place-items-center overflow-hidden rounded-full bg-ink text-paper font-display font-bold flex-shrink-0 ${sizeMap[size]} ${className}`}
     >
-      {getInitials(name)}
+      {showImage ? (
+        <img
+          src={src!}
+          alt={name}
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        getInitials(name)
+      )}
     </span>
   );
 }

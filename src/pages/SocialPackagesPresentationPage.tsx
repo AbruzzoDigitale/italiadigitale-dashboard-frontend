@@ -258,12 +258,10 @@ export function SocialPackagesPresentationPage() {
   const [presentationMode, setPresentationMode] = useState(false);
 
   const togglePresentation = () => {
-    setPresentationMode((on) => {
-      const next = !on;
-      if (next) pageRef.current?.requestFullscreen?.().catch(() => {});
-      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-      return next;
-    });
+    const next = !presentationMode;
+    setPresentationMode(next);
+    if (next) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   };
 
   // Esc dal fullscreen → esci dalla modalità presentazione.
@@ -443,11 +441,11 @@ export function SocialPackagesPresentationPage() {
           </section>
         )}
 
-        {!loading && orderedPackages.length > 0 && (
+        {!loading && orderedPackages.length > 0 && !presentationMode && (
           <div className="social-deck__actions">
             <button type="button" className="social-present-btn" onClick={togglePresentation}>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-              {presentationMode ? "Esci dalla presentazione" : "Modalità presentazione"}
+              Modalità presentazione
             </button>
           </div>
         )}

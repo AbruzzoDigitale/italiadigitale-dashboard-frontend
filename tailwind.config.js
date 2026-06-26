@@ -35,7 +35,7 @@ export default {
       },
       fontFamily: {
         display: ["'Space Grotesk'", "system-ui", "sans-serif"],
-        body: ["'Lato'", "system-ui", "sans-serif"],
+        body: ["'Space Grotesk'", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["ui-monospace", "'SF Mono'", "Menlo", "monospace"],
       },
       letterSpacing: {

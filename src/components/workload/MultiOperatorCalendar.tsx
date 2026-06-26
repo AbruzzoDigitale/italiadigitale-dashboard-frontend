@@ -5,16 +5,26 @@ import {
   type WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
 import {
+  isSwapConfirmationRequiredError,
   isWorkItemOverlapApiError,
   moveWorkItemApi,
   rescheduleNextAvailableWorkItemApi,
   swapWorkItemsApi,
   swapWorkItemsPreviewApi,
   updateWorkItemApi,
+  type MoveWorkItemPayload,
+  type WorkItemOverlapApiError,
+  type WorkItemOverlapConflict,
+  type WorkItemSuggestedSlot,
+  type WorkItemSwapPreviewResponse,
 } from "../../api/workItems";
+import { updateMeApi } from "../../api/users";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
+import { TaskConflictModal } from "../work-items/TaskConflictModal";
+import { SwapConfirmModal } from "./SwapConfirmModal";
 import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../hooks/useAuth";
 import { CALENDAR_CREATE_SLOT_MINUTES, hhmmToMinutes } from "./calendarUtils";
 import {
   OperatorCalendarColumn,
@@ -58,11 +68,24 @@ export function MultiOperatorCalendar({
   reloadToken,
 }: MultiOperatorCalendarProps) {
   const toast = useToast();
+  const { refreshSession } = useAuth();
+  const [swapConfirm, setSwapConfirm] = useState<
+    { operatorId: number; sourceId: number; targetIds: number[]; preview: WorkItemSwapPreviewResponse } | null
+  >(null);
+  const [swapConfirmSubmitting, setSwapConfirmSubmitting] = useState(false);
   const [dataByOperator, setDataByOperator] = useState<Record<number, WorkloadUserCalendarDayResponse | null>>({});
   const [loading, setLoading] = useState(true);
   const [dragged, setDragged] = useState<{ taskId: number; fromOperatorId: number } | null>(null);
   const [taskUiState, setTaskUiState] = useState<Record<number, CalendarTaskUiState>>({});
   const [reschedulingTaskId, setReschedulingTaskId] = useState<number | null>(null);
+  const [conflictModal, setConflictModal] = useState<{
+    message: string;
+    conflicts: WorkItemOverlapConflict[];
+    suggestedSlots: WorkItemSuggestedSlot[];
+    requestedDate: string | null;
+    onPickSlot: (slot: WorkItemSuggestedSlot) => void;
+  } | null>(null);
+  const [conflictRetrySlot, setConflictRetrySlot] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
 
   const operatorIdsKey = operators.map((o) => o.id).join(",");
@@ -124,6 +147,45 @@ export function MultiOperatorCalendar({
     });
   }, []);
 
+  // ── Gestione conflitti (409) con slot consigliati ──
+  // Riprogramma (sposta) la task allo slot scelto; un nuovo 409 riapre il modal.
+  const retryMoveRef = useRef<((taskId: number, payload: MoveWorkItemPayload, reloadIds: number[]) => void) | null>(null);
+  const openOverlapModal = useCallback(
+    (err: WorkItemOverlapApiError, requestedDate: string | null, makeRetry: (slot: WorkItemSuggestedSlot) => void) => {
+      setConflictRetrySlot(null);
+      setConflictModal({
+        message: err.backendMessage,
+        conflicts: err.conflicts,
+        suggestedSlots: err.suggestedSlots,
+        requestedDate,
+        onPickSlot: makeRetry,
+      });
+    },
+    [],
+  );
+  const retryMoveToSlot = useCallback(async (taskId: number, payload: MoveWorkItemPayload, reloadIds: number[]) => {
+    const slotKey = `${payload.work_date ?? ""}T${payload.start_time ?? ""}`;
+    setConflictRetrySlot(slotKey);
+    setSaving(taskId, true);
+    try {
+      await moveWorkItemApi(taskId, payload);
+      await reloadOperators(reloadIds);
+      setConflictModal(null);
+      toast.success("Task riprogrammata allo slot scelto");
+    } catch (err) {
+      if (isWorkItemOverlapApiError(err)) {
+        openOverlapModal(err, payload.work_date ?? null, (slot) =>
+          retryMoveRef.current?.(taskId, { ...payload, work_date: slot.date, start_time: slot.start_time }, reloadIds));
+      } else {
+        toast.error(err instanceof Error ? err.message : "Impossibile riprogrammare la task");
+      }
+    } finally {
+      setConflictRetrySlot(null);
+      setSaving(taskId, false);
+    }
+  }, [openOverlapModal, reloadOperators, setSaving, toast]);
+  useEffect(() => { retryMoveRef.current = retryMoveToSlot; }, [retryMoveToSlot]);
+
   // ── Mutazioni (eseguono API + reload dell'operatore/i interessati) ──
   const moveTo = useCallback(async (taskId: number, targetOperatorId: number, startTime: string, alsoReload: number[] = []) => {
     setSaving(taskId, true);
@@ -131,18 +193,23 @@ export function MultiOperatorCalendar({
       await moveWorkItemApi(taskId, { assignee_id: targetOperatorId, work_date: selectedDate, start_time: startTime });
       await reloadOperators([targetOperatorId, ...alsoReload]);
     } catch (err) {
-      if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
-      else toast.error(err instanceof Error ? err.message : "Impossibile spostare la task");
+      if (isWorkItemOverlapApiError(err)) {
+        const reloadIds = [targetOperatorId, ...alsoReload];
+        openOverlapModal(err, selectedDate, (slot) =>
+          retryMoveRef.current?.(taskId, { assignee_id: targetOperatorId, work_date: slot.date, start_time: slot.start_time }, reloadIds));
+      } else {
+        toast.error(err instanceof Error ? err.message : "Impossibile spostare la task");
+      }
     } finally {
       setSaving(taskId, false);
       setDragged(null);
     }
-  }, [reloadOperators, selectedDate, setSaving, toast]);
+  }, [openOverlapModal, reloadOperators, selectedDate, setSaving, toast]);
 
-  const swap = useCallback(async (operatorId: number, sourceId: number, targetIds: number[]) => {
+  const performSwap = useCallback(async (operatorId: number, sourceId: number, targetIds: number[], confirm: boolean) => {
     setSaving(sourceId, true);
     try {
-      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
+      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds, confirm });
       if (res?.can_swap) {
         await reloadOperators([operatorId]);
         toast.success("Posizioni scambiate");
@@ -150,6 +217,10 @@ export function MultiOperatorCalendar({
         toast.error("Scambio non possibile");
       }
     } catch (err) {
+      if (isSwapConfirmationRequiredError(err)) {
+        setSwapConfirm({ operatorId, sourceId, targetIds, preview: err.preview });
+        return;
+      }
       if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
       else toast.error(err instanceof Error ? err.message : "Scambio non possibile");
     } finally {
@@ -157,6 +228,25 @@ export function MultiOperatorCalendar({
       setDragged(null);
     }
   }, [reloadOperators, setSaving, toast]);
+
+  const swap = useCallback((operatorId: number, sourceId: number, targetIds: number[]) => {
+    void performSwap(operatorId, sourceId, targetIds, false);
+  }, [performSwap]);
+
+  const confirmSwap = useCallback(async (dontShowAgain: boolean) => {
+    if (!swapConfirm) return;
+    const { operatorId, sourceId, targetIds } = swapConfirm;
+    setSwapConfirmSubmitting(true);
+    try {
+      if (dontShowAgain) {
+        try { await updateMeApi({ swap_confirmation_disabled: true }); await refreshSession(); } catch { /* la preferenza non blocca lo swap */ }
+      }
+      setSwapConfirm(null);
+      await performSwap(operatorId, sourceId, targetIds, true);
+    } finally {
+      setSwapConfirmSubmitting(false);
+    }
+  }, [swapConfirm, performSwap, refreshSession]);
 
   const previewSwap = useCallback(async (sourceId: number, targetIds: number[]): Promise<boolean> => {
     try {
@@ -220,12 +310,16 @@ export function MultiOperatorCalendar({
       await reloadOperators([operatorId]);
       toast.success("Task riprogrammata");
     } catch (err) {
-      if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
-      else toast.error(err instanceof Error ? err.message : "Impossibile riprogrammare la task");
+      if (isWorkItemOverlapApiError(err)) {
+        openOverlapModal(err, selectedDate, (slot) =>
+          retryMoveRef.current?.(taskId, { assignee_id: operatorId, work_date: slot.date, start_time: slot.start_time }, [operatorId]));
+      } else {
+        toast.error(err instanceof Error ? err.message : "Impossibile riprogrammare la task");
+      }
     } finally {
       setReschedulingTaskId(null);
     }
-  }, [reloadOperators, selectedDate, toast]);
+  }, [openOverlapModal, reloadOperators, selectedDate, toast]);
 
   if (loading && Object.keys(dataByOperator).length === 0) {
     return (
@@ -278,6 +372,26 @@ export function MultiOperatorCalendar({
           );
         })}
       </div>
+
+      <TaskConflictModal
+        open={!!conflictModal}
+        message={conflictModal?.message ?? ""}
+        conflicts={conflictModal?.conflicts ?? []}
+        suggestedSlots={conflictModal?.suggestedSlots ?? []}
+        requestedDate={conflictModal?.requestedDate ?? null}
+        retryingSlotKey={conflictRetrySlot}
+        onPickSlot={conflictModal?.onPickSlot}
+        onOpenTask={onOpenTask}
+        onClose={() => { setConflictModal(null); setConflictRetrySlot(null); }}
+      />
+
+      <SwapConfirmModal
+        open={swapConfirm != null}
+        preview={swapConfirm?.preview ?? null}
+        submitting={swapConfirmSubmitting}
+        onConfirm={(dontShowAgain) => { void confirmSwap(dontShowAgain); }}
+        onCancel={() => setSwapConfirm(null)}
+      />
     </div>
   );
 }

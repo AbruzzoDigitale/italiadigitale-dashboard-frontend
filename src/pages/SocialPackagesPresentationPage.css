@@ -51,6 +51,7 @@
   position: relative;
   overflow: hidden;
   padding: 64px 40px 56px;
+  flex: 1 1 auto;
 }
 
 /* puntinatura sottile come .pkg-bg .dots del prototipo */

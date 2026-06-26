@@ -279,6 +279,7 @@ function TemplateSidebarCard({
               <Avatar
                 key={u.id}
                 name={u.full_name ?? u.username}
+                src={u.avatar_url}
                 size="sm"
                 className="h-6 w-6 text-[9px] ring-2 ring-paper dark:ring-[#131316]"
               />
@@ -945,7 +946,7 @@ export function WorkItemsPage() {
 
   // ── Render
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn overflow-x-hidden">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn overflow-x-hidden">
       <PageSectionHeader
         eyebrow="Operazioni"
         eyebrowIcon={<Icon name="list" className="w-3.5 h-3.5" />}
@@ -991,11 +992,11 @@ export function WorkItemsPage() {
           placeholder="Tutti i clienti"
           searchPlaceholder="Cerca cliente…"
         />
-        <div className="inline-flex rounded-md border border-line dark:border-[#2a2a2e] overflow-hidden">
+        <div className="seg-switch">
           <button
             type="button"
             onClick={() => setViewMode("global")}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-body font-semibold uppercase tracking-wide transition-colors ${viewMode === "global" ? "bg-ink text-paper dark:bg-[#f4f4f7] dark:text-[#131316]" : "bg-paper text-muted hover:text-ink dark:bg-[#131316] dark:text-[#9999a0] dark:hover:text-[#f4f4f7]"}`}
+            className={viewMode === "global" ? "is-active" : ""}
           >
             <Icon name="list" className="h-3.5 w-3.5" />
             Globale
@@ -1003,7 +1004,7 @@ export function WorkItemsPage() {
           <button
             type="button"
             onClick={() => setViewMode("by_client")}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-body font-semibold uppercase tracking-wide transition-colors ${viewMode === "by_client" ? "bg-ink text-paper dark:bg-[#f4f4f7] dark:text-[#131316]" : "bg-paper text-muted hover:text-ink dark:bg-[#131316] dark:text-[#9999a0] dark:hover:text-[#f4f4f7]"}`}
+            className={viewMode === "by_client" ? "is-active" : ""}
           >
             <Icon name="building" className="h-3.5 w-3.5" />
             Per cliente

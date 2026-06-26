@@ -22,7 +22,7 @@
     border-radius: 3px;
   }
   html {
-    font-family: 'Lato', system-ui, sans-serif;
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -98,18 +98,89 @@
     transform-origin: top center;
   }
 
+  /* Header compatto, full-width — allineato al prototipo "card pacchetti" (.head/.crumb) */
   .section-eyebrow {
-    @apply inline-flex items-center gap-2 px-2.5 py-1 rounded-pill border border-line dark:border-[#2a2a2e] text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0] mb-3.5;
+    @apply inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted dark:text-[#8a8a8a] mb-2;
+  }
+
+  .section-eyebrow svg {
+    @apply text-brand-magenta;
   }
 
   .section-title {
-    @apply font-display font-bold leading-[1.05] tracking-tight text-ink dark:text-[#f4f4f7] mb-3;
-    font-size: 44px;
+    @apply font-display font-bold leading-none tracking-tight text-ink dark:text-[#f4f4f7];
+    font-size: 34px;
   }
 
   .section-lead {
-    @apply font-body text-[17px] text-muted dark:text-[#9999a0];
-    max-width: 720px;
+    @apply font-body text-[14px] text-muted dark:text-[#9999a0] mt-1.5;
+  }
+
+  /* Segmented switch riutilizzabile — stile prototipo "card pacchetti" .seg:
+     contenitore a pillola (superficie + bordo), bottoni a pillola,
+     attivo = antracite pieno con testo bianco. Usalo per i toggle a opzioni
+     mutuamente esclusive (Giorno/Settimana/Mese, viste, filtri di stato, ecc.).
+     Markup: <div class="seg-switch"><button class="is-active">…</button>…</div> */
+  .seg-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid theme(colors.line.DEFAULT);
+    border-radius: 999px;
+    background: theme(colors.cream);
+  }
+
+  .dark .seg-switch {
+    border-color: theme(colors.line.dark);
+    background: theme(colors.ink.2);
+  }
+
+  .seg-switch > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: theme(colors.muted.DEFAULT);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 7px 15px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all .14s ease;
+  }
+
+  .dark .seg-switch > button {
+    color: theme(colors.muted.dark);
+  }
+
+  .seg-switch > button:hover {
+    color: theme(colors.ink.DEFAULT);
+  }
+
+  .dark .seg-switch > button:hover {
+    color: theme(colors.paper);
+  }
+
+  .seg-switch > button.is-active {
+    background: theme(colors.ink.DEFAULT);
+    color: theme(colors.paper);
+  }
+
+  .dark .seg-switch > button.is-active {
+    background: theme(colors.paper);
+    color: theme(colors.ink.DEFAULT);
+  }
+
+  /* Bottoni icon-only dentro la pillola (es. densità/viste compatte) */
+  .seg-switch > button.seg-switch-icon {
+    padding: 7px 11px;
   }
 }
 

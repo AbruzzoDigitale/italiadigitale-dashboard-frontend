@@ -293,7 +293,7 @@ export function RequestsPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <div className="mb-8">
         <div className="section-eyebrow">
           <Icon name="activity" className="w-3.5 h-3.5" />
@@ -330,12 +330,12 @@ export function RequestsPage() {
           </Button>
         </div>
 
-        <div className="flex gap-1 flex-wrap">
+        <div className="seg-switch">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value || "all"}
               onClick={() => handleStatusFilter(tab.value)}
-              className={`px-3.5 py-2 rounded-full text-[12px] font-semibold transition-colors ${statusFilter === tab.value ? "bg-ink text-paper dark:bg-[#f4f4f7] dark:text-[#131316]" : "bg-cream dark:bg-[#1c1c20] text-muted dark:text-[#9999a0] hover:text-ink dark:hover:text-[#f4f4f7]"}`}
+              className={statusFilter === tab.value ? "is-active" : ""}
             >
               {tab.label}
             </button>

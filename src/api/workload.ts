@@ -148,6 +148,8 @@ export interface WorkloadTimelineArea {
 
 export interface WorkloadTimelineItem {
   kind: WorkloadTimelineKind;
+  /** Giorno (YYYY-MM-DD) cui appartiene l'item nelle risposte range/settimana. */
+  date?: string | null;
   source_id: number | null;
   title: string;
   start_time: string | null;
@@ -728,6 +730,79 @@ export async function checkWorkItemOverbookingApi(
     throw new Error(
       `[${res.status}] ${parseApiError(body, "Impossibile verificare l'overbooking")}`
     );
+  }
+  return res.json();
+}
+
+// ── "Da pianificare" a livello azienda, raggruppato per operatore ─────────────────
+export interface WorkloadToPlanReassignTask {
+  work_item_id: number;
+  title: string;
+  client_name: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  overflow_hours: number;
+  status: string | null;
+  work_areas: WorkloadTaskWorkArea[];
+}
+
+export interface WorkloadToPlanUnscheduledTask {
+  work_item_id: number;
+  title: string;
+  client_name: string | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  start_time: string | null;
+  is_all_day: boolean;
+  status: string | null;
+  work_areas: WorkloadTaskWorkArea[];
+}
+
+export interface WorkloadToPlanOperator {
+  user_id: number;
+  full_name: string | null;
+  username: string;
+  avatar_url: string | null;
+  roles: WorkloadRole[];
+  reassign: WorkloadToPlanReassignTask[];
+  unscheduled: WorkloadToPlanUnscheduledTask[];
+  reassign_count: number;
+  unscheduled_count: number;
+}
+
+export interface WorkloadToPlanResponse {
+  from_date: string;
+  to_date: string;
+  operators: WorkloadToPlanOperator[];
+  totals: { reassign: number; unscheduled: number };
+}
+
+export interface GetWorkloadToPlanParams {
+  company_id: number;
+  range_mode?: "day" | "week" | "month" | "custom";
+  anchor_date?: string;
+  week_offset?: number;
+  from_date?: string;
+  to_date?: string;
+  q?: string;
+}
+
+export async function getWorkloadToPlanApi(params: GetWorkloadToPlanParams): Promise<WorkloadToPlanResponse> {
+  const qs = buildQuery({
+    company_id: params.company_id,
+    range_mode: params.range_mode,
+    anchor_date: params.anchor_date,
+    week_offset: params.week_offset,
+    from_date: params.from_date,
+    to_date: params.to_date,
+    q: params.q,
+  });
+  const res = await authFetch(`${API_BASE}/api/v1/workload/to-plan${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le task da pianificare")}`);
   }
   return res.json();
 }

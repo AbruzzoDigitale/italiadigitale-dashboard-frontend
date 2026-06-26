@@ -27,6 +27,7 @@ import { getSocialPackageApi, listSocialPackagesApi, type SocialPackageBase, typ
 import { CONTRACT_STAGE_LABELS, createContractApi } from "../api/contracts";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
+import { FieldHelpPopover } from "../components/ui/FieldHelpPopover";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
@@ -277,6 +278,46 @@ function validateLines(lines: EditableQuoteLine[]): string | null {
 
   return null;
 }
+
+// Testi di aiuto (popover "?") che spiegano le voci del dettaglio preventivo.
+const QUOTE_HELP = {
+  totali: {
+    title: "Totali del preventivo",
+    shortText: "Come si compongono gli importi.",
+    longText: [
+      "• Mensile: somma delle righe con periodo mensile (canone ricorrente).",
+      "• Una tantum: somma delle righe a pagamento singolo (oneoff/annuale).",
+      "• Subtotale: Mensile + Una tantum, al netto dell'IVA.",
+      "• Sconto globale: (Sconto % × Subtotale) + Sconto fisso €.",
+      "• Netto: Subtotale − Sconto globale.",
+      "• IVA: imposta calcolata sul Netto (di norma 22%).",
+      "• Totale: Netto + IVA, l'importo finale.",
+    ].join("\n"),
+  },
+  periodo: {
+    title: "Periodo riga",
+    shortText: "Cadenza di fatturazione della riga.",
+    longText: [
+      "• oneoff: una tantum, pagamento singolo.",
+      "• monthly: mensile, canone ricorrente.",
+      "• yearly: annuale (dal catalogo).",
+      "",
+      "Nei totali solo 'monthly' confluisce in Mensile; oneoff e yearly vanno in Una tantum.",
+    ].join("\n"),
+  },
+  udm: {
+    title: "UDM — unità di misura",
+    shortText: "Unità della riga (es. Mese, Anno, Una tantum, Pezzo).",
+    longText:
+      "Testo descrittivo dell'unità. Per le righe importate da Fatture in Cloud determina il Periodo: se l'UDM contiene “mese/mensile/month” diventa mensile, altrimenti una tantum.",
+  },
+  iva: {
+    title: "IVA della riga",
+    shortText: "Aliquota IVA applicata alla riga.",
+    longText:
+      "Valore decimale: 0,22 = 22%. Si applica sul netto della riga (prezzo × quantità, meno l'eventuale sconto riga).",
+  },
+} as const;
 
 const HISTORY_FIELD_LABELS: Record<string, string> = {
   fic_id: "ID FIC",
@@ -961,7 +1002,7 @@ export function QuoteEditorPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <div className="section-eyebrow">
         <Icon name="list" className="w-3.5 h-3.5" />
         {`Editor ${editorLabel}`}
@@ -1199,7 +1240,7 @@ export function QuoteEditorPage() {
                           />
                         </label>
                         <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Periodo</span>
+                          <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Periodo<FieldHelpPopover {...QUOTE_HELP.periodo} /></span>
                           <select
                             className="w-full rounded-md border px-2.5 py-2 text-sm font-body bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
                             value={line.period ?? "oneoff"}
@@ -1212,7 +1253,7 @@ export function QuoteEditorPage() {
                           </select>
                         </label>
                         <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Udm</span>
+                          <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Udm<FieldHelpPopover {...QUOTE_HELP.udm} /></span>
                           <input
                             className="w-full rounded-md border px-3 py-2 text-sm font-body bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
                             value={line.udm ?? ""}
@@ -1262,7 +1303,7 @@ export function QuoteEditorPage() {
                               />
                             </label>
                             <label className="flex flex-col gap-1">
-                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Iva</span>
+                              <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Iva<FieldHelpPopover {...QUOTE_HELP.iva} /></span>
                               <input
                                 className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
                                 type="number"
@@ -1288,7 +1329,10 @@ export function QuoteEditorPage() {
         <aside className="rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-5 h-fit sticky top-5">
           {canSeePricing ? (
             <>
-              <div className="text-xs uppercase tracking-wider text-muted font-semibold">Totali</div>
+              <div className="flex items-center text-xs uppercase tracking-wider text-muted font-semibold">
+                Totali
+                <FieldHelpPopover {...QUOTE_HELP.totali} />
+              </div>
               <div className="mt-4 space-y-2 text-sm font-body">
                 <div className="flex justify-between"><span className="text-muted dark:text-[#9999a0]">Mensile</span><b>{formatEur(totals.monthly)}</b></div>
                 <div className="flex justify-between"><span className="text-muted dark:text-[#9999a0]">Una tantum</span><b>{formatEur(totals.one_time)}</b></div>

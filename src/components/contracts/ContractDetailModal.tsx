@@ -775,8 +775,8 @@ export function ContractDetailModal({
                       <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_one_time ?? 0)}</div>
                     </div>
                     <div className="rounded-md border border-line dark:border-line-dark p-3">
-                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</div>
-                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode}</div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalità prezzi</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode === "single_quote" ? "Preventivo principale" : "Totale aggregato"}</div>
                     </div>
                   </>
                 )}
@@ -833,19 +833,19 @@ export function ContractDetailModal({
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input
-                      label="signed at"
+                      label="Data firma"
                       type="datetime-local"
                       value={signedAtDraft}
                       onChange={(event) => setSignedAtDraft(event.target.value)}
                     />
                     <Input
-                      label="start date"
+                      label="Data inizio"
                       type="date"
                       value={startDateDraft}
                       onChange={(event) => setStartDateDraft(event.target.value)}
                     />
                     <Input
-                      label="end date"
+                      label="Data fine"
                       type="date"
                       value={endDateDraft}
                       onChange={(event) => setEndDateDraft(event.target.value)}
@@ -854,7 +854,7 @@ export function ContractDetailModal({
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <MultiSelect
-                      label="work areas"
+                      label="Aree di lavoro"
                       value={detailWorkAreaIdsDraft}
                       onChange={setDetailWorkAreaIdsDraft}
                       options={workAreaOptions}
@@ -863,7 +863,7 @@ export function ContractDetailModal({
                       createActionLabel="Crea area"
                     />
                     <MultiSelect
-                      label="tags"
+                      label="Tag"
                       value={detailTagIdsDraft}
                       onChange={setDetailTagIdsDraft}
                       options={workTagOptions}
@@ -1511,7 +1511,7 @@ export function ContractDetailModal({
                   { value: "aggregated", label: "Totale aggregato" },
                   { value: "single_quote", label: "Preventivo principale" },
                 ]}
-                placeholder="Modalità pricing"
+                placeholder="Modalità prezzi"
                 disabled={!isAdmin}
               />
               <div className="text-xs text-muted dark:text-muted-dark">

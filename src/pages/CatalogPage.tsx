@@ -605,7 +605,7 @@ export function CatalogPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] animate-fadeIn px-10 py-8 pb-20">
+    <div className="mx-auto w-full animate-fadeIn px-6 py-8 pb-20">
       <div className="section-eyebrow">Catalogo servizi</div>
       <h1 className="section-title">
         Catalogo Aziendale

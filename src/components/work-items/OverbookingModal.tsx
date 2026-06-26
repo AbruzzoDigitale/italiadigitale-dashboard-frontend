@@ -121,7 +121,7 @@ export function OverbookingModal({
                         : "border-line dark:border-line-dark"
                     }`}
                   >
-                    <Avatar name={name} size="sm" />
+                    <Avatar name={name} src={op.avatar_url} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-sm font-semibold text-ink dark:text-paper">

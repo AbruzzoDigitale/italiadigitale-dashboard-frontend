@@ -17,7 +17,7 @@ const base =
 
 const variantMap: Record<Variant, string> = {
   primary:
-    "bg-[#0a0a0a] text-paper border border-[#0a0a0a] hover:-translate-y-px hover:shadow-2 active:scale-95 dark:bg-paper dark:text-ink dark:border-paper dark:hover:bg-cream",
+    "bg-brand-magenta text-white border border-brand-magenta hover:bg-[#a30f6e] hover:border-[#a30f6e] active:scale-[0.98] !rounded-[8px] !normal-case !tracking-normal dark:bg-brand-magenta dark:text-white dark:border-brand-magenta dark:hover:bg-[#a30f6e]",
   secondary:
     "bg-paper text-ink border border-ink hover:bg-cream dark:bg-ink-2 dark:text-paper dark:border-line-dark",
   ghost:

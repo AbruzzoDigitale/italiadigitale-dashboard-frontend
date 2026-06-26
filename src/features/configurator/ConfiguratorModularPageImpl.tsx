@@ -430,7 +430,7 @@ export function ConfiguratorModularPage() {
   const combinedCatalogError = catalogError;
 
   return (
-    <div className="configurator-modular-page configurator-modular-page--with-overlay mx-auto w-full max-w-[1440px] px-10 py-8 pb-20 animate-fadeIn">
+    <div className="configurator-modular-page configurator-modular-page--with-overlay mx-auto w-full px-6 py-8 pb-20 animate-fadeIn">
       {catalogLoading && (
         <div className="cfg-loading-overlay" role="status" aria-live="polite">
           Aggiornamento regole catalogo in corso...

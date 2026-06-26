@@ -66,6 +66,8 @@ export interface AuthUser {
   signature: string | null;
   signature_image_url: string | null;
   operator_permissions: string[] | null;
+  /** Se true, lo scambio task viene applicato senza warning di conferma. */
+  swap_confirmation_disabled?: boolean;
 }
 
 export interface LoginResponse {

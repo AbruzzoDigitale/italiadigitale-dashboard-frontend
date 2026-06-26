@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { getClientsApi, type Client } from "../api/clients";
 import {
@@ -37,7 +38,6 @@ import { QuoteQuickCreateModal } from "../components/contracts/QuoteQuickCreateM
 import { ClientSelectorWithCreate } from "../components/clients/ClientSelectorWithCreate";
 import { Icon } from "../components/ui/Icon";
 import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
@@ -46,24 +46,30 @@ import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { Textarea } from "../components/ui/Textarea";
 import { Spinner } from "../components/ui/Spinner";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
-import { KanbanColumnShell } from "../components/ui/KanbanColumnShell";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
 import { useToast } from "../context/ToastContext";
 import { useCommercialPipeline } from "../hooks/useCommercialPipeline";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
-import { getCommercialStageTone } from "../utils/commercialStageTone";
+import "./contracts-pipeline.css";
 
-function stageTone(stage: ContractCommercialStage): string {
-  return getCommercialStageTone(stage);
-}
+// Colore della barra superiore di ogni stage (dal prototipo).
+const STAGE_BAR: Record<ContractCommercialStage, string> = {
+  bozza: "oklch(0.62 0.02 260)",
+  inviato: "oklch(0.6 0.14 264)",
+  in_trattativa: "oklch(0.74 0.13 78)",
+  accettato: "oklch(0.66 0.14 150)",
+  contratto_inviato: "oklch(0.6 0.15 300)",
+  firmato: "oklch(0.66 0.12 190)",
+  in_produzione: "oklch(0.66 0.13 232)",
+  completato: "oklch(0.64 0.15 142)",
+  perso: "oklch(0.62 0.17 18)",
+};
 
-const CARD_ICON_ACTION_CLASS =
-  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-muted transition-colors hover:text-ink hover:bg-cream dark:border-line-dark dark:text-muted-dark dark:hover:text-paper dark:hover:bg-[#1e1e22]";
+const CARD_ICON_ACTION_CLASS = "pipe-c-act";
 
-const CARD_ICON_DANGER_ACTION_CLASS =
-  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-danger/30 text-danger transition-colors hover:bg-danger/10";
+const CARD_ICON_DANGER_ACTION_CLASS = "pipe-c-act is-danger";
 
 const QUOTE_BRANCH_ACTION_CLASS =
   "inline-flex items-center gap-1 rounded-md border border-line bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-cream dark:border-line-dark dark:bg-[#131316] dark:text-paper dark:hover:bg-[#1e1e22]";
@@ -298,6 +304,29 @@ export function ContractsPipelinePage() {
   const [draggingContractId, setDraggingContractId] = useState<number | null>(null);
   const [dropStage, setDropStage] = useState<ContractCommercialStage | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  // Popover "Esito" del preventivo in trattativa: renderizzato in portale (fixed)
+  // così esce dalla colonna senza causare overflow-x e resta sopra a tutto.
+  const [esitoMenu, setEsitoMenu] = useState<{ item: CommercialPipelineItem; top: number; left: number } | null>(null);
+  const esitoCloseTimer = useRef<number | null>(null);
+  const cancelEsitoClose = () => {
+    if (esitoCloseTimer.current != null) {
+      window.clearTimeout(esitoCloseTimer.current);
+      esitoCloseTimer.current = null;
+    }
+  };
+  const scheduleEsitoClose = () => {
+    cancelEsitoClose();
+    esitoCloseTimer.current = window.setTimeout(() => setEsitoMenu(null), 160);
+  };
+  const openEsitoMenu = (item: CommercialPipelineItem, anchor: HTMLElement) => {
+    cancelEsitoClose();
+    const r = anchor.getBoundingClientRect();
+    const POP_W = 196;
+    let left = r.right + 8;
+    const maxLeft = window.innerWidth - POP_W - 12;
+    if (left > maxLeft) left = Math.max(12, maxLeft);
+    setEsitoMenu({ item, top: r.top + r.height / 2, left });
+  };
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
@@ -948,7 +977,7 @@ export function ContractsPipelinePage() {
   const boardError = error ?? pipelineError;
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 pt-4 mx-auto w-full h-full flex flex-col overflow-hidden animate-fadeIn">
       <PageSectionHeader
         eyebrow="Contratti"
         eyebrowIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
@@ -1028,8 +1057,9 @@ export function ContractsPipelinePage() {
           <Spinner size="md" />
         </div>
       ) : (
-        <div className="overflow-x-auto p-1">
-          <div className="flex items-start gap-3 w-max min-w-full">
+        <div className="pipe-board-wrap">
+        <div className="pipe-board">
+          <div className="pipe-board-inner">
             {CONTRACT_STAGE_ORDER.map((stage) => {
               const items = pipelineByStage.get(stage) ?? [];
               const stageTotal = items.reduce((acc, contract) => acc + (contract.pricing?.selected_total ?? 0), 0);
@@ -1038,15 +1068,10 @@ export function ContractsPipelinePage() {
               const isDropTarget = dropStage === stage;
 
               return (
-                <div key={stage} className="w-[320px] flex-none">
-                <KanbanColumnShell
-                  label={CONTRACT_STAGE_LABELS[stage]}
-                  count={items.length}
-                  minHeightClassName="min-h-[520px]"
-                  isDropTarget={isDropTarget}
-                  className=""
-                  headerClassName={`border-b dark:border-line-dark ${stageTone(stage)}`}
-                  bodyClassName="p-2"
+                <div
+                  key={stage}
+                  className={`pipe-col${isDropTarget ? " is-drop" : ""}`}
+                  style={{ "--bar": STAGE_BAR[stage] } as CSSProperties}
                   onDragOver={(event) => {
                     if (!isAdmin) return;
                     event.preventDefault();
@@ -1066,15 +1091,21 @@ export function ContractsPipelinePage() {
                     void handlePipelineDrop(payload, stage);
                   }}
                 >
-                  <div className="mb-1 px-1.5 text-xs text-muted dark:text-muted-dark">Tot {formatEur(stageTotal)}</div>
-                  <div className="mb-2 px-1.5 text-[11px] text-muted dark:text-muted-dark">Mese {formatEur(stageMonthly)} · Una tantum {formatEur(stageOneTime)}</div>
-                  <div className="space-y-2 flex-1">
+                  <div className="pipe-col-head">
+                    <span className="pipe-col-name">{CONTRACT_STAGE_LABELS[stage]}</span>
+                    <span className="pipe-col-count">{items.length}</span>
+                  </div>
+                  <div className="pipe-col-tot">
+                    <b>Tot {formatEur(stageTotal)}</b>
+                    <span>Mese {formatEur(stageMonthly)} · Una tantum {formatEur(stageOneTime)}</span>
+                  </div>
+                  <div className="pipe-col-body">
                     {stage === "bozza" && isAdmin && (
-                      <div className="space-y-2">
+                      <>
                         <button
                           type="button"
                           onClick={() => setCreateQuoteOpen(true)}
-                          className="w-full rounded-lg border border-dashed border-success/40 bg-success/5 px-3 py-3 text-left transition-colors hover:bg-success/10"
+                          className="pipe-create pipe-create-quote"
                         >
                           <div className="flex items-center gap-2">
                             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
@@ -1090,7 +1121,7 @@ export function ContractsPipelinePage() {
                         <button
                           type="button"
                           onClick={() => setCreateFromQuoteOpen(true)}
-                          className="w-full rounded-lg border border-dashed border-info/40 bg-info/5 px-3 py-3 text-left transition-colors hover:bg-info/10"
+                          className="pipe-create pipe-create-contract"
                         >
                           <div className="flex items-center gap-2">
                             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info/15 text-info">
@@ -1102,13 +1133,11 @@ export function ContractsPipelinePage() {
                             Anteprima guidata, avvisi e conferma finale senza uscire dalla pipeline.
                           </p>
                         </button>
-                      </div>
+                      </>
                     )}
 
-                    {items.length === 0 && (
-                      <div className="rounded-md border border-dashed border-line dark:border-line-dark px-2 py-3 text-center text-xs text-muted dark:text-muted-dark">
-                        Nessun elemento
-                      </div>
+                    {items.length === 0 && stage !== "bozza" && (
+                      <div className="pipe-col-empty">Nessun elemento</div>
                     )}
 
                     {items.map((item) => (
@@ -1141,10 +1170,11 @@ export function ContractsPipelinePage() {
                             void openDetail(item.id);
                           }
                         }}
-                        className={`group w-full text-left rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] p-3 transition-all hover:-translate-y-px hover:shadow-md hover:border-ink/30 dark:hover:border-paper/30 ${draggingContractId === item.id ? "opacity-60" : ""}`}
+                        className={`pipe-card${selectedContractIds.includes(item.id) ? " is-sel" : ""}${draggingContractId === item.id ? " is-dragging" : ""}`}
+                        style={{ "--area": item.work_areas?.[0]?.color ?? "var(--pipe-area-fallback, #94a3b8)" } as CSSProperties}
                       >
                           {isAdmin && item.entity_type === "contract" && (
-                            <div className="mb-2" onClick={(event) => event.stopPropagation()}>
+                            <div className="pipe-c-sel" onClick={(event) => event.stopPropagation()}>
                               <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-muted dark:text-muted-dark">
                                 <Checkbox
                                   checked={selectedContractIds.includes(item.id)}
@@ -1155,71 +1185,29 @@ export function ContractsPipelinePage() {
                             </div>
                           )}
 
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex items-center gap-1.5">
-                              <span className="shrink-0 font-variant-numeric text-[10px] tabular-nums text-muted dark:text-muted-dark">#{String(item.id).padStart(3, "0")}</span>
-                              <span
-                                className="truncate max-w-[170px] text-[11px] text-muted dark:text-muted-dark"
-                                title={clientLabel}
-                              >
-                                {clientLabel}
-                              </span>
-                            </div>
-                            <Badge variant={item.entity_type === "quote" ? "info" : "default"}>
+                          <div className="pipe-c-top">
+                            <span className="pipe-c-client" title={clientLabel}>{clientLabel}</span>
+                            <span className={`pipe-c-kind ${item.entity_type === "quote" ? "is-prev" : "is-contract"}`}>
                               {item.entity_type === "quote" ? "Preventivo" : "Contratto"}
-                            </Badge>
+                            </span>
                           </div>
 
-                          <div className="mt-1 flex items-start justify-between gap-2">
-                          <div className="text-sm font-semibold text-ink dark:text-paper line-clamp-2">{item.title}</div>
-                          <Badge variant={item.pricing.mode === "single_quote" ? "info" : "default"}>
-                            {item.pricing.mode === "single_quote" ? "single" : "agg"}
-                          </Badge>
-                        </div>
+                          <div className="pipe-c-title">{item.title}</div>
 
-                        <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                          {item.entity_type === "quote"
-                            ? `${item.source_number ?? "Preventivo"}${item.source_status ? ` · ${item.source_status}` : ""}`
-                            : `${item.contract_type} · ${item.engagement_type}`}
-                        </div>
-
-                        {((item.tags?.length ?? 0) > 0 || (item.work_areas?.length ?? 0) > 0) && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {(item.work_areas ?? []).map((area) => (
-                              <span
-                                key={`area-${item.id}-${area.id}`}
-                                className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                                style={area.color ? { borderColor: `${area.color}55`, color: area.color, backgroundColor: `${area.color}1A` } : undefined}
-                              >
-                                {area.name}
-                              </span>
-                            ))}
-                            {(item.tags ?? []).map((tag) => (
-                              <span
-                                key={`tag-${item.id}-${tag.id}`}
-                                className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                                style={tag.color ? { borderColor: `${tag.color}55`, color: tag.color, backgroundColor: `${tag.color}1A` } : undefined}
-                              >
-                                #{tag.name}
-                              </span>
-                            ))}
+                          <div className="pipe-c-money">
+                            <span className="pipe-c-total">{formatEur(item.pricing.selected_total)}</span>
+                            <span className="pipe-c-break">
+                              Mese {formatEur(item.pricing.selected_monthly ?? 0)} · Una tantum {formatEur(item.pricing.selected_one_time ?? 0)}
+                            </span>
                           </div>
-                        )}
 
-                        <div className="mt-2 text-sm font-semibold text-ink dark:text-paper">
-                          {formatEur(item.pricing.selected_total)}
-                        </div>
-
-                        <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                          Mese {formatEur(item.pricing.selected_monthly ?? 0)} · Una tantum {formatEur(item.pricing.selected_one_time ?? 0)}
-                        </div>
-
-                        <div className="mt-2 text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark">
-                          Aggiornato {new Date(item.updated_at).toLocaleDateString("it-IT")}
-                        </div>
+                          <div className="pipe-c-foot">
+                            <span className="pipe-c-upd">
+                              #{String(item.id).padStart(3, "0")} · {new Date(item.updated_at).toLocaleDateString("it-IT")}
+                            </span>
 
                         {isAdmin && item.entity_type === "contract" && (
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="pipe-c-actions" onClick={(event) => event.stopPropagation()}>
                             <button
                               type="button"
                               title="Indietro"
@@ -1267,7 +1255,7 @@ export function ContractsPipelinePage() {
                         )}
 
                         {isAdmin && item.entity_type === "quote" && (
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="pipe-c-actions" onClick={(event) => event.stopPropagation()}>
                             {(() => {
                               const quoteStatus = getQuoteCurrentStatus(item);
                               const { previous, next } = getQuoteArrowTargets(item);
@@ -1288,64 +1276,15 @@ export function ContractsPipelinePage() {
                                     >
                                       <Icon name="eye" className="h-4 w-4" />
                                     </button>
-                                    <div className="group/quote-branch relative py-5 -my-5">
-                                      <button
-                                        type="button"
-                                        className={QUOTE_BRANCH_ACTION_CLASS}
-                                        onClick={(event) => event.stopPropagation()}
-                                      >
-                                        Esito
-                                      </button>
-
-                                      <div className="pointer-events-none absolute left-full top-1/2 z-10 ml-2 h-32 w-44 -translate-y-1/2">
-                                        <div className="absolute left-0 top-1/2 h-px w-7 -translate-y-1/2 origin-left scale-x-0 bg-line transition-transform duration-200 group-hover/quote-branch:scale-x-100 dark:bg-line-dark" />
-
-                                        <div className="absolute left-7 top-1/2 flex -translate-y-11 items-center">
-                                          <div className="h-7 w-8 -translate-y-0.5 rounded-tr-[999px] border-r border-t border-success/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-success/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-success opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-success/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void openQuoteContractPreview(item.id, true);
-                                            }}
-                                            disabled={quoteContractPreviewLoading && quoteContractPreviewQuoteId === item.id}
-                                          >
-                                            Accettato
-                                          </button>
-                                        </div>
-
-                                        <div className="absolute left-7 top-1/2 flex -translate-y-1/2 items-center">
-                                          <div className="h-px w-8 bg-info/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-info/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-info opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-info/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void handleOpenEditQuote(item.id);
-                                            }}
-                                            disabled={editQuoteLoadingId === item.id}
-                                          >
-                                            Modifica
-                                          </button>
-                                        </div>
-
-                                        <div className="absolute left-7 top-1/2 flex translate-y-4 items-center">
-                                          <div className="h-7 w-8 translate-y-0.5 rounded-br-[999px] border-b border-r border-danger/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-danger/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-danger opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-danger/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void executeQuoteStageMove(item, "perso");
-                                            }}
-                                            disabled={actionLoadingId === item.id}
-                                          >
-                                            Perso
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      className={QUOTE_BRANCH_ACTION_CLASS}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onMouseEnter={(event) => openEsitoMenu(item, event.currentTarget)}
+                                      onMouseLeave={scheduleEsitoClose}
+                                    >
+                                      Esito
+                                    </button>
                                   </>
                                 );
                               }
@@ -1418,16 +1357,17 @@ export function ContractsPipelinePage() {
                             })()}
                           </div>
                         )}
+                          </div>
                       </button>
                         );
                       })()
                     ))}
                   </div>
-                </KanbanColumnShell>
                 </div>
               );
             })}
           </div>
+        </div>
         </div>
       )}
 
@@ -1435,6 +1375,54 @@ export function ContractsPipelinePage() {
         <p className="mt-4 text-center text-[11px] text-muted dark:text-muted-dark">
           Trascina una card tra le colonne per cambiare stage.
         </p>
+      )}
+
+      {esitoMenu && createPortal(
+        <div
+          className="pipe-esito-pop"
+          style={{ top: esitoMenu.top, left: esitoMenu.left } as CSSProperties}
+          onMouseEnter={cancelEsitoClose}
+          onMouseLeave={scheduleEsitoClose}
+        >
+          <span className="pipe-esito-stem" />
+
+          <div className="pipe-esito-branch is-top">
+            <span className="pipe-esito-corner is-tr is-ok" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-ok"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void openQuoteContractPreview(it.id, true); }}
+              disabled={quoteContractPreviewLoading && quoteContractPreviewQuoteId === esitoMenu.item.id}
+            >
+              Accettato
+            </button>
+          </div>
+
+          <div className="pipe-esito-branch is-mid">
+            <span className="pipe-esito-line is-info" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-info"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void handleOpenEditQuote(it.id); }}
+              disabled={editQuoteLoadingId === esitoMenu.item.id}
+            >
+              Modifica
+            </button>
+          </div>
+
+          <div className="pipe-esito-branch is-bot">
+            <span className="pipe-esito-corner is-br is-danger" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-danger"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void executeQuoteStageMove(it, "perso"); }}
+              disabled={actionLoadingId === esitoMenu.item.id}
+            >
+              Perso
+            </button>
+          </div>
+        </div>,
+        document.body,
       )}
 
       <ContractDetailModal
@@ -1544,13 +1532,13 @@ export function ContractsPipelinePage() {
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</label>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalità prezzi</label>
                 <SearchableSelect
                   value={quoteContractForm.pricing_view_mode}
                   onChange={(value) => updateQuoteContractForm("pricing_view_mode", value as ContractPricingMode)}
                   options={[
-                    { value: "aggregated", label: "Aggregated" },
-                    { value: "single_quote", label: "Single quote" },
+                    { value: "aggregated", label: "Totale aggregato" },
+                    { value: "single_quote", label: "Preventivo principale" },
                   ]}
                 />
               </div>
@@ -1587,7 +1575,7 @@ export function ContractsPipelinePage() {
 
               <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <MultiSelect
-                  label="work areas"
+                  label="Aree di lavoro"
                   value={quoteContractForm.work_area_ids}
                   onChange={(value) => updateQuoteContractForm("work_area_ids", value)}
                   options={workAreaOptions}
@@ -1598,7 +1586,7 @@ export function ContractsPipelinePage() {
                   createActionLabel="Crea area"
                 />
                 <MultiSelect
-                  label="tags"
+                  label="Tag"
                   value={quoteContractForm.tag_ids}
                   onChange={(value) => updateQuoteContractForm("tag_ids", value)}
                   options={workTagOptions}

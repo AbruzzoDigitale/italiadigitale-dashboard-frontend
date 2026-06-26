@@ -719,7 +719,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <MultiSelect
-              label="Work areas"
+              label="Aree di lavoro"
               value={workAreaIds}
               onChange={setWorkAreaIds}
               options={workAreaOptions}
@@ -728,7 +728,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
               createActionLabel="Crea area"
             />
             <MultiSelect
-              label="Tags"
+              label="Tag"
               value={tagIds}
               onChange={setTagIds}
               options={tagOptions}

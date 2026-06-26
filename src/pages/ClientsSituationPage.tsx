@@ -19,10 +19,7 @@ import { usePostSalesSituation } from "../hooks/usePostSalesSituation";
 import {
   CONTRACT_STAGE_ORDER,
   CONTRACT_STAGE_LABELS,
-  createContractApi,
   type ContractCommercialStage,
-  type ContractEngagementType,
-  type ContractType,
 } from "../api/contracts";
 import type { ContractDetailResponse } from "../api/contracts";
 import { createWorkAreaApi, listWorkAreasApi, type WorkArea } from "../api/workAreas";
@@ -35,67 +32,24 @@ import { ContractCreateModal } from "../components/contracts/ContractCreateModal
 import { QuoteQuickCreateModal } from "../components/contracts/QuoteQuickCreateModal";
 import { ClientModal } from "../components/clients/ClientModal";
 import { ClientFullDetails } from "../components/clients/ClientFullDetails";
+import { SituationWizardModal } from "../components/clients/SituationWizardModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { WorkItemSummaryCard } from "../components/work-items/WorkItemCard";
 import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
-import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { Icon } from "../components/ui/Icon";
+import { FieldHelpPopover } from "../components/ui/FieldHelpPopover";
 import { Spinner } from "../components/ui/Spinner";
 import { MultiSelect } from "../components/ui/MultiSelect";
 import { Checkbox } from "../components/ui/Checkbox";
 import { ViewModeToggle } from "../components/ui/ViewModeToggle";
-import { Textarea } from "../components/ui/Textarea";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
 import { useToast } from "../context/ToastContext";
 import { getCommercialStageTone } from "../utils/commercialStageTone";
 
 const PER_PAGE = 20;
-
-type SituationCreateState = {
-  client_id: string;
-  title: string;
-  contract_type: ContractType;
-  engagement_type: "" | ContractEngagementType;
-  commercial_stage: ContractCommercialStage;
-  execution_stage: string;
-  stage_accepted_at: string;
-  signed_at: string;
-  start_date: string;
-  end_date: string;
-  commercial_notes: string;
-  operational_brief: string;
-  contract_sent_at: string;
-  stage_sent_at: string;
-  stage_negotiation_at: string;
-  in_production_at: string;
-  completed_at: string;
-  lost_at: string;
-};
-
-const EMPTY_SITUATION_FORM: SituationCreateState = {
-  client_id: "",
-  title: "",
-  contract_type: "commercial",
-  engagement_type: "",
-  commercial_stage: "bozza",
-  execution_stage: "",
-  stage_accepted_at: "",
-  signed_at: "",
-  start_date: "",
-  end_date: "",
-  commercial_notes: "",
-  operational_brief: "",
-  contract_sent_at: "",
-  stage_sent_at: "",
-  stage_negotiation_at: "",
-  in_production_at: "",
-  completed_at: "",
-  lost_at: "",
-};
 
 const EMPTY_STATS: ClientPostSalesSituationStats = {
   clients_count: 0,
@@ -117,14 +71,6 @@ function formatDate(value?: string | null): string {
   return parsed.toLocaleDateString("it-IT");
 }
 
-function toIsoDatetimeValue(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
-
 function sortCountEntries(entries: ClientSituationCountEntry[]): ClientSituationCountEntry[] {
   return [...entries].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
@@ -143,6 +89,17 @@ function quoteStatusTone(status?: string | null): string {
   if (status === "inviato") return "bg-info/10 text-info border border-info/20";
   return "bg-line text-ink dark:bg-line-dark dark:text-paper";
 }
+
+// Glossario delle voci di prezzo/ingaggio, mostrato nel popover "?".
+const PRICING_TERMS_INFO = [
+  "• Canone (ongoing): contratto ricorrente nel tempo.",
+  "• Una tantum (one_time / oneoff): pagamento singolo, non ricorrente.",
+  "• Misto: presenza sia di canone sia di una tantum.",
+  "• Mensile (monthly): riga del preventivo fatturata ogni mese.",
+  "• Annuale (yearly): riga del catalogo fatturata ogni anno.",
+  "",
+  "La cadenza delle righe (mensile / una tantum) deriva dall'UDM del prodotto sincronizzato da Fatture in Cloud.",
+].join("\n");
 
 function hasAmountBreakdown(monthly?: number | null, oneTime?: number | null): boolean {
   return (monthly ?? 0) > 0 || (oneTime ?? 0) > 0;
@@ -631,18 +588,18 @@ function ClientActivityTabs({
 
   return (
     <div className="mt-3 border-t border-line dark:border-line-dark pt-2.5 space-y-2">
-      <div className="inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
+      <div className="seg-switch">
         <button
           type="button"
           onClick={() => setActiveTab("contracts")}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "contracts" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+          className={activeTab === "contracts" ? "is-active" : ""}
         >
           Contratti ({contracts.length})
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("quotes")}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "quotes" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+          className={activeTab === "quotes" ? "is-active" : ""}
         >
           Preventivi ({quotes.length})
         </button>
@@ -696,9 +653,6 @@ export function ClientsSituationPage() {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [createContractOpen, setCreateContractOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [createForm, setCreateForm] = useState<SituationCreateState>(EMPTY_SITUATION_FORM);
   const [companyClients, setCompanyClients] = useState<CompanyClient[]>([]);
   const [companyClientsLoading, setCompanyClientsLoading] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -759,10 +713,6 @@ export function ClientsSituationPage() {
     refetch: refetchSituation,
   } = usePostSalesSituation(situationParams, { enabled: effectiveCompanyId != null });
 
-  const updateCreateForm = <K extends keyof SituationCreateState>(key: K, value: SituationCreateState[K]) => {
-    setCreateForm((current) => ({ ...current, [key]: value }));
-  };
-
   const handleCreateTag = async (name: string) => {
     if (!effectiveCompanyId || !name.trim()) return;
     setCreatingTag(true);
@@ -801,15 +751,6 @@ export function ClientsSituationPage() {
       setCreatingArea(false);
     }
   };
-
-  const clientOptions = useMemo(
-    () => companyClients.map((client) => ({
-      value: String(client.id),
-      label: client.commercial_name ?? client.name,
-      keywords: `${client.commercial_name ?? ""} ${client.name} ${client.email ?? ""} ${client.vat ?? ""}`,
-    })),
-    [companyClients]
-  );
 
   useEffect(() => {
     if (effectiveCompanyId == null) {
@@ -1057,81 +998,11 @@ export function ClientsSituationPage() {
   }, [clients, selectedClientId, selectedClientSnapshot]);
 
   const openCreateSituation = () => {
-    setCreateError(null);
-    setCreateForm(EMPTY_SITUATION_FORM);
     setCreateOpen(true);
   };
 
   const closeCreateSituation = () => {
-    if (creating) return;
     setCreateOpen(false);
-    setCreateError(null);
-  };
-
-  const handleCreateClientChange = (value: string) => {
-    const nextClient = companyClients.find((client) => String(client.id) === value);
-    setCreateForm((current) => ({
-      ...current,
-      client_id: value,
-      title:
-        current.title.trim().length > 0
-          ? current.title
-          : `Situazione cliente - ${nextClient?.commercial_name ?? nextClient?.name ?? ""}`,
-    }));
-  };
-
-  const handleCreateSituation = async () => {
-    if (effectiveCompanyId == null) {
-      setCreateError("Seleziona una company valida prima di creare una situazione.");
-      return;
-    }
-    if (!createForm.client_id) {
-      setCreateError("Seleziona un cliente.");
-      return;
-    }
-    if (!createForm.title.trim()) {
-      setCreateError("Il titolo è obbligatorio.");
-      return;
-    }
-
-    setCreateError(null);
-    setCreating(true);
-    try {
-      const created = await createContractApi({
-        company_id: effectiveCompanyId,
-        client_id: Number(createForm.client_id),
-        title: createForm.title.trim(),
-        contract_type: createForm.contract_type,
-        engagement_type: createForm.engagement_type || null,
-        commercial_stage: createForm.commercial_stage,
-        execution_stage: createForm.execution_stage.trim() || null,
-        stage_accepted_at: toIsoDatetimeValue(createForm.stage_accepted_at),
-        signed_at: toIsoDatetimeValue(createForm.signed_at),
-        start_date: createForm.start_date || null,
-        end_date: createForm.end_date || null,
-        commercial_notes: createForm.commercial_notes.trim() || null,
-        operational_brief: createForm.operational_brief.trim() || null,
-        contract_sent_at: toIsoDatetimeValue(createForm.contract_sent_at),
-        stage_sent_at: toIsoDatetimeValue(createForm.stage_sent_at),
-        stage_negotiation_at: toIsoDatetimeValue(createForm.stage_negotiation_at),
-        in_production_at: toIsoDatetimeValue(createForm.in_production_at),
-        completed_at: toIsoDatetimeValue(createForm.completed_at),
-        lost_at: toIsoDatetimeValue(createForm.lost_at),
-        pricing_view_mode: "aggregated",
-      });
-
-      toast.success("Situazione cliente creata");
-      setCreateOpen(false);
-      setReloadNonce((current) => current + 1);
-      setSelectedContractId(created.id);
-      setContractModalOpen(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Errore creazione situazione cliente";
-      setCreateError(message);
-      toast.error(message);
-    } finally {
-      setCreating(false);
-    }
   };
 
   const applyContractUpdateToClients = (updated: ContractDetailResponse) => {
@@ -1171,7 +1042,7 @@ export function ClientsSituationPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
         eyebrow="Post-sales"
         eyebrowIcon={<Icon name="users" className="w-3.5 h-3.5" />}
@@ -1525,8 +1396,13 @@ export function ClientsSituationPage() {
                     </div>
                   </div>
 
-                  <div className="mt-2 text-sm font-semibold text-ink dark:text-paper">
-                    {formatAmountBreakdown(client.monthly_amount, client.one_time_amount, client.total_amount)}
+                  <div className="mt-2 flex items-center text-sm font-semibold text-ink dark:text-paper">
+                    <span>{formatAmountBreakdown(client.monthly_amount, client.one_time_amount, client.total_amount)}</span>
+                    <FieldHelpPopover
+                      title="Voci di prezzo e ingaggio"
+                      shortText="Come vengono classificati importi e tipo di contratto."
+                      longText={PRICING_TERMS_INFO}
+                    />
                   </div>
 
                   {((client.work_areas?.length ?? 0) > 0 || (client.tags?.length ?? 0) > 0) && (
@@ -1621,32 +1497,32 @@ export function ClientsSituationPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
+            <div className="seg-switch">
               <button
                 type="button"
                 onClick={() => setClientDetailTab("client")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "client" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "client" ? "is-active" : ""}
               >
                 Cliente
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("contracts")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "contracts" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "contracts" ? "is-active" : ""}
               >
                 Contratti ({selectedClient.contracts.length})
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("work-items")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "work-items" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "work-items" ? "is-active" : ""}
               >
                 Lavorazioni ({selectedClient.tasks_completion?.total_tasks ?? 0})
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("quotes")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "quotes" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "quotes" ? "is-active" : ""}
               >
                 Preventivi ({selectedClient.quotes?.length ?? 0})
               </button>
@@ -1870,157 +1746,20 @@ export function ClientsSituationPage() {
         }}
       />
 
-      <Modal
+      <SituationWizardModal
         open={createOpen}
+        companyId={effectiveCompanyId}
+        clients={companyClients}
+        clientsLoading={companyClientsLoading}
+        canCreateTaxonomy={isAdmin}
+        canSyncFromFic={isAdmin}
         onClose={closeCreateSituation}
-        title="Nuova situazione cliente"
-        size="xl"
-        footer={
-          <>
-            <Button variant="ghost" onClick={closeCreateSituation} disabled={creating}>Annulla</Button>
-            <Button variant="primary" onClick={handleCreateSituation} loading={creating}>Crea situazione</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {createError && (
-            <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
-              {createError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Cliente *</label>
-              <SearchableSelect
-                value={createForm.client_id}
-                onChange={handleCreateClientChange}
-                options={clientOptions}
-                placeholder={companyClientsLoading ? "Caricamento clienti..." : "Seleziona cliente"}
-                searchPlaceholder="Cerca cliente..."
-                disabled={companyClientsLoading}
-              />
-            </div>
-            <Input
-              label="Titolo *"
-              value={createForm.title}
-              onChange={(event) => updateCreateForm("title", event.target.value)}
-              placeholder="Situazione cliente - La Perla Del Mare"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo contratto</label>
-              <SearchableSelect
-                value={createForm.contract_type}
-                onChange={(value) => updateCreateForm("contract_type", value as ContractType)}
-                options={[
-                  { value: "commercial", label: "Commerciale" },
-                  { value: "execution", label: "Execution" },
-                ]}
-                placeholder="Tipo contratto"
-                searchPlaceholder="Cerca tipo..."
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo ingaggio</label>
-              <SearchableSelect
-                value={createForm.engagement_type}
-                onChange={(value) => updateCreateForm("engagement_type", value as "" | ContractEngagementType)}
-                options={[
-                  { value: "", label: "Non specificato" },
-                  { value: "one_time", label: "Una tantum" },
-                  { value: "ongoing", label: "Continuativo" },
-                ]}
-                placeholder="Tipo ingaggio"
-                searchPlaceholder="Cerca tipo..."
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Situazione contrattuale</label>
-              <SearchableSelect
-                value={createForm.commercial_stage}
-                onChange={(value) => updateCreateForm("commercial_stage", value as ContractCommercialStage)}
-                options={CONTRACT_STAGE_ORDER.map((stage) => ({ value: stage, label: CONTRACT_STAGE_LABELS[stage] }))}
-                placeholder="Situazione contrattuale"
-                searchPlaceholder="Cerca stato..."
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              label="Situazione operativa"
-              value={createForm.execution_stage}
-              onChange={(event) => updateCreateForm("execution_stage", event.target.value)}
-              placeholder="Es. in_produzione"
-            />
-            <Input
-              label="Firma/accettazione preventivo"
-              type="datetime-local"
-              value={createForm.stage_accepted_at}
-              onChange={(event) => updateCreateForm("stage_accepted_at", event.target.value)}
-            />
-            <Input
-              label="Firma contratto"
-              type="datetime-local"
-              value={createForm.signed_at}
-              onChange={(event) => updateCreateForm("signed_at", event.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input
-              label="Inizio periodo"
-              type="date"
-              value={createForm.start_date}
-              onChange={(event) => updateCreateForm("start_date", event.target.value)}
-            />
-            <Input
-              label="Fine periodo"
-              type="date"
-              value={createForm.end_date}
-              onChange={(event) => updateCreateForm("end_date", event.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Accordi commerciali</label>
-              <Textarea
-                rows={3}
-                value={createForm.commercial_notes}
-                onChange={(event) => updateCreateForm("commercial_notes", event.target.value)}
-                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                placeholder="Accordi economici concordati"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Accordi operativi</label>
-              <Textarea
-                rows={3}
-                value={createForm.operational_brief}
-                onChange={(event) => updateCreateForm("operational_brief", event.target.value)}
-                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                placeholder="Attività operative e vincoli cliente"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-md border border-line dark:border-line-dark p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark mb-2">Timeline opzionale</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input label="Inviato stage" type="datetime-local" value={createForm.stage_sent_at} onChange={(event) => updateCreateForm("stage_sent_at", event.target.value)} />
-              <Input label="In trattativa" type="datetime-local" value={createForm.stage_negotiation_at} onChange={(event) => updateCreateForm("stage_negotiation_at", event.target.value)} />
-              <Input label="Contratto inviato" type="datetime-local" value={createForm.contract_sent_at} onChange={(event) => updateCreateForm("contract_sent_at", event.target.value)} />
-              <Input label="In produzione" type="datetime-local" value={createForm.in_production_at} onChange={(event) => updateCreateForm("in_production_at", event.target.value)} />
-              <Input label="Completato" type="datetime-local" value={createForm.completed_at} onChange={(event) => updateCreateForm("completed_at", event.target.value)} />
-              <Input label="Perso" type="datetime-local" value={createForm.lost_at} onChange={(event) => updateCreateForm("lost_at", event.target.value)} />
-            </div>
-          </div>
-        </div>
-      </Modal>
+        onCreated={(created) => {
+          setReloadNonce((current) => current + 1);
+          setSelectedContractId(created.id);
+          setContractModalOpen(true);
+        }}
+      />
     </div>
   );
 }

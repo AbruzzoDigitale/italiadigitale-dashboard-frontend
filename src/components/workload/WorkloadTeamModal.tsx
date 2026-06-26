@@ -142,6 +142,7 @@ export function WorkloadTeamModal({ open, onClose, companyId, canManage }: Workl
   const userOptions = users.map((u) => ({
     value: String(u.id),
     label: u.full_name || u.username,
+    avatarUrl: u.avatar_url,
     keywords: `${u.full_name ?? ""} ${u.username}`,
   }));
 

@@ -673,7 +673,7 @@ export function DashboardLayout() {
                   aria-expanded={userMenuOpen}
                   className="inline-flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-pill bg-cream dark:bg-[#1c1c20] text-[13px] font-semibold text-ink dark:text-paper border border-line dark:border-[#2a2a2e]"
                 >
-                  <Avatar name={user.full_name || user.username} size="sm" />
+                  <Avatar name={user.full_name || user.username} src={user.avatar_url} size="sm" />
                   <span className="hidden sm:inline">{user.full_name || user.username}</span>
                   <Icon
                     name="chevron-down"

@@ -15,7 +15,7 @@ export function DashboardHome() {
 
   return (
     /* .view padding: 32px 40px 80px */
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full">
+    <div className="px-6 py-8 pb-20 mx-auto w-full">
 
       {/* ── Header — stile .section-* del prototipo ──────── */}
       <div className="mb-8 animate-fadeIn">
@@ -119,7 +119,7 @@ export function DashboardHome() {
                   >
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar name={u.full_name || u.username} size="sm" />
+                        <Avatar name={u.full_name || u.username} src={u.avatar_url} size="sm" />
                         <div>
                           <p className="font-semibold text-ink dark:text-[#f4f4f7]">
                             {u.full_name || u.username}

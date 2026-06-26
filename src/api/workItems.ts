@@ -37,10 +37,21 @@ export interface WorkItemOverlapConflict {
   assignee_ids: number[];
 }
 
+/** Slot libero suggerito dal backend per riprogrammare la task in conflitto. */
+export interface WorkItemSuggestedSlot {
+  date: string;             // "YYYY-MM-DD"
+  start_time: string;       // "HH:MM"
+  end_time: string;         // "HH:MM" (start + durata)
+  duration_minutes: number;
+  available_until: string;  // "HH:MM" fine del buco libero
+}
+
 export interface WorkItemOverlapApiError extends Error {
   status: 409;
   backendMessage: string;
   conflicts: WorkItemOverlapConflict[];
+  /** Slot liberi consigliati per la riprogrammazione (può essere vuoto). */
+  suggestedSlots: WorkItemSuggestedSlot[];
 }
 
 export function isWorkItemOverlapApiError(error: unknown): error is WorkItemOverlapApiError {
@@ -52,10 +63,12 @@ function buildApiError(res: Response, body: unknown, fallback: string): Error {
   const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : null;
   const conflicts = detail && typeof detail === "object" ? (detail as { conflicts?: unknown }).conflicts : null;
   if (res.status === 409 && Array.isArray(conflicts)) {
+    const suggested = detail && typeof detail === "object" ? (detail as { suggested_slots?: unknown }).suggested_slots : null;
     const error = new Error(`[${res.status}] ${message}`) as WorkItemOverlapApiError;
     error.status = 409;
     error.backendMessage = message;
     error.conflicts = conflicts as WorkItemOverlapConflict[];
+    error.suggestedSlots = Array.isArray(suggested) ? (suggested as WorkItemSuggestedSlot[]) : [];
     return error;
   }
   return new Error(`[${res.status}] ${message}`);
@@ -600,6 +613,22 @@ export interface WorkItemSwapPreviewResponse {
 export interface WorkItemSwapRequest {
   source_work_item_ids: number[];
   target_work_item_ids: number[];
+  /** Conferma esplicita dello scambio (bypassa il warning di conferma). */
+  confirm?: boolean;
+}
+
+/** 409 con detail.code === "confirmation_required": serve conferma utente. */
+export class SwapConfirmationRequiredError extends Error {
+  preview: WorkItemSwapPreviewResponse;
+  constructor(preview: WorkItemSwapPreviewResponse, message?: string) {
+    super(message || "Conferma richiesta per applicare lo scambio");
+    this.name = "SwapConfirmationRequiredError";
+    this.preview = preview;
+  }
+}
+
+export function isSwapConfirmationRequiredError(err: unknown): err is SwapConfirmationRequiredError {
+  return err instanceof SwapConfirmationRequiredError;
 }
 
 export async function swapWorkItemsPreviewApi(
@@ -625,7 +654,18 @@ export async function swapWorkItemsApi(
   });
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
-    // 409 → e.detail = { message, blockers }
+    const detail = (e as { detail?: unknown }).detail;
+    // 409 con code=confirmation_required → serve conferma (con piano preview).
+    if (
+      res.status === 409 &&
+      detail &&
+      typeof detail === "object" &&
+      (detail as { code?: string }).code === "confirmation_required"
+    ) {
+      const d = detail as { message?: string; preview: WorkItemSwapPreviewResponse };
+      throw new SwapConfirmationRequiredError(d.preview, d.message);
+    }
+    // 409 con blockers (senza code) → blocco reale.
     throw new Error(`[${res.status}] ${parseApiError(e, "Scambio non possibile")}`);
   }
   return res.json();

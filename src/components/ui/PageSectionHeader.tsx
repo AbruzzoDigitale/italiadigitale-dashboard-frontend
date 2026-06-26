@@ -18,7 +18,7 @@ export function PageSectionHeader({
   className = "",
 }: PageSectionHeaderProps) {
   return (
-    <div className={`mb-8 flex items-start justify-between gap-4 ${className}`}>
+    <div className={`mb-5 flex items-start justify-between gap-4 ${className}`}>
       <div>
         <div className="section-eyebrow">
           {eyebrowIcon}

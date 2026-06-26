@@ -508,7 +508,7 @@ export function ContractFromQuoteModal({
                   value={form.contract_type}
                   onChange={(value) => setForm((current) => ({ ...current, contract_type: value as "" | ContractType }))}
                   options={[
-                    { value: "commercial", label: "Commercial" },
+                    { value: "commercial", label: "Commerciale" },
                     { value: "execution", label: "Execution" },
                   ]}
                   menuLayer="portal"
@@ -533,8 +533,8 @@ export function ContractFromQuoteModal({
                   value={form.pricing_view_mode}
                   onChange={(value) => setForm((current) => ({ ...current, pricing_view_mode: value as "" | ContractPricingMode }))}
                   options={[
-                    { value: "aggregated", label: "Aggregated" },
-                    { value: "single_quote", label: "Single quote" },
+                    { value: "aggregated", label: "Totale aggregato" },
+                    { value: "single_quote", label: "Preventivo principale" },
                   ]}
                   menuLayer="portal"
                 />

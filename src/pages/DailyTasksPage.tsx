@@ -10,6 +10,9 @@ import { Button } from "../components/ui/Button";
 import { Accordion, type AccordionItem } from "../components/ui/Accordion";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
+import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { getWorkItemApi, type WorkItem } from "../api/workItems";
+import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
 
@@ -180,8 +183,24 @@ export function DailyTasksPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
+  const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+
+  const openTask = async (workItemId: number) => {
+    if (companyId == null) {
+      toast.error("Seleziona una company");
+      return;
+    }
+    try {
+      const item = await getWorkItemApi(workItemId);
+      setEditingItem(item);
+      setWorkItemModalOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile aprire la lavorazione");
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -368,64 +387,30 @@ export function DailyTasksPage() {
               Nessuna task per oggi.
             </div>
           ) : (
-            <div className="divide-y divide-line dark:divide-line-dark">
-              {tasks.map((task: any) => {
-                const isPedTask = Boolean(task.is_PED ?? task.is_ped);
-                return (
-                <div key={task.work_item_id} className={`p-4 ${isPedTask ? "bg-info/5 dark:bg-info/10" : ""}`}>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="font-semibold text-ink dark:text-paper">{task.title}</h4>
-                        {isPedTask && (
-                          <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-                            PED
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted dark:text-muted-dark mt-1">
-                        {task.client_name || "Senza cliente"}
-                      </p>
-                    </div>
-                    {task.is_completed && (
-                      <Badge variant="success">Completata</Badge>
-                    )}
-                    {task.is_priority && (
-                      <Icon name="star" className="w-4 h-4 text-warning" />
-                    )}
-                  </div>
-                  {task.is_left_behind && (
-                    <div className="mb-2 inline-flex rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-warning/15 text-warning border border-warning/30">
-                      Lasciata indietro
-                    </div>
-                  )}
-                  {task.work_areas && task.work_areas.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {task.work_areas.map((area: any) => (
-                        <span
-                          key={area.id}
-                          className="inline-flex text-[10px] px-2 py-1 rounded-full"
-                          style={{
-                            backgroundColor: area.color ? `${area.color}22` : "rgba(0,0,0,0.05)",
-                            color: area.color || "#666",
-                            border: area.color ? `1px solid ${area.color}44` : "1px solid #ddd",
-                          }}
-                        >
-                          {area.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 mt-3 text-[11px] text-muted dark:text-muted-dark">
-                    {task.start_time && <span>{task.start_time}</span>}
-                    {task.estimated_hours && <span>{task.estimated_hours}h stimate</span>}
-                    {typeof task.effective_load_hours === "number" && <span>{task.effective_load_hours}h effettive</span>}
-                    {typeof task.load_weight_factor === "number" && <span>peso {task.load_weight_factor.toFixed(2)}x</span>}
-                    {task.actual_hours_spent && <span>{task.actual_hours_spent}h effettive</span>}
-                    <span>{Math.round(task.progress_percent ?? 0)}%</span>
-                  </div>
-                </div>
-              );})}
+            <div className="pt-3">
+              <div className="wl-acc-tasks">
+                {tasks.map((task: any) => {
+                  // Workload endpoints can expose PED with either is_ped or is_PED.
+                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+                  return (
+                    <AccLaneTaskCard
+                      key={task.work_item_id}
+                      title={task.title}
+                      hoursLabel={hoursLabel}
+                      timeLabel={task.start_time || null}
+                      clientName={task.client_name}
+                      status={`${Math.round(task.progress_percent ?? 0)}%`}
+                      areaColor={task.work_areas?.[0]?.color ?? null}
+                      isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      priority={Boolean(task.is_priority)}
+                      completed={Boolean(task.is_completed)}
+                      leftBehind={Boolean(task.is_left_behind)}
+                      onClick={() => void openTask(task.work_item_id)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -460,7 +445,7 @@ export function DailyTasksPage() {
         itemClassName="wl-acc-lane"
         headerClassName="wl-acc-lane__row"
         chevronClassName="wl-acc-lane__toggle w-4 h-4 transition-transform"
-        contentClassName="px-0 pb-0 pt-3 mt-3 border-t border-line/70 dark:border-line-dark"
+        contentClassName=""
         renderHeader={(operatore: any) => (
           <>
             <div className="wl-acc-lane__op">
@@ -509,40 +494,36 @@ export function DailyTasksPage() {
         )}
         renderContent={(operatore: any) =>
           operatore.tasks.length === 0 ? (
-            <div className="rounded-md border border-dashed border-line dark:border-line-dark px-3 py-3 text-xs text-muted dark:text-muted-dark">
-              Nessuna task
-            </div>
+            <div className="wl-acc-empty">Nessuna task</div>
           ) : (
-            <div className="space-y-2">
-              {operatore.tasks.map((task: any) => (
-                // Workload endpoints can expose PED with either is_ped or is_PED.
-                (() => {
-                  const isPedTask = Boolean(task.is_PED ?? task.is_ped);
+            <>
+              <div className="wl-acc-day-label">
+                Task del giorno {dateFromIso(targetDate).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })}
+              </div>
+              <div className="wl-acc-tasks">
+                {operatore.tasks.map((task: any) => {
+                  // Workload endpoints can expose PED with either is_ped or is_PED.
+                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
                   return (
-                <div
-                  key={task.work_item_id}
-                  className={`w-full text-left rounded-md border border-line dark:border-line-dark bg-cream/40 dark:bg-ink-2 px-3 py-2 ${isPedTask ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-sm font-semibold text-ink dark:text-paper">{task.title}</div>
-                    {isPedTask && (
-                      <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-                        PED
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                    {task.client_name || "Senza cliente"} · {task.status}
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted dark:text-muted-dark">
-                    {typeof task.effective_load_hours === "number" ? `${task.effective_load_hours}h effettive` : "0h effettive"}
-                    {task.estimated_hours != null ? ` · ${task.estimated_hours}h stimate` : ""}
-                  </div>
-                </div>
+                    <AccLaneTaskCard
+                      key={task.work_item_id}
+                      title={task.title}
+                      hoursLabel={hoursLabel}
+                      timeLabel={task.start_time || null}
+                      clientName={task.client_name}
+                      status={`${Math.round(task.progress_percent ?? 0)}%`}
+                      areaColor={task.work_areas?.[0]?.color ?? null}
+                      isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      priority={Boolean(task.is_priority)}
+                      completed={Boolean(task.is_completed)}
+                      leftBehind={Boolean(task.is_left_behind)}
+                      onClick={() => void openTask(task.work_item_id)}
+                    />
                   );
-                })()
-              ))}
-            </div>
+                })}
+              </div>
+            </>
           )
         }
       />
@@ -550,7 +531,7 @@ export function DailyTasksPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
         eyebrow="Operazioni"
         eyebrowIcon={<Icon name="activity" className="w-3.5 h-3.5" />}
@@ -650,6 +631,22 @@ export function DailyTasksPage() {
         onClose={() => setQuickTaskModalOpen(false)}
         companyId={companyId}
         onCreated={() => {
+          void loadData();
+        }}
+      />
+
+      <WorkItemFormModal
+        open={workItemModalOpen}
+        onClose={() => {
+          setWorkItemModalOpen(false);
+          setEditingItem(null);
+        }}
+        editingItem={editingItem}
+        companyId={companyId ?? 0}
+        isAdmin={isAdmin}
+        onSaved={() => {
+          setWorkItemModalOpen(false);
+          setEditingItem(null);
           void loadData();
         }}
       />

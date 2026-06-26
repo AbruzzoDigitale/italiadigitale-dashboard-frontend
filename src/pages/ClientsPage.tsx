@@ -208,7 +208,7 @@ export function ClientsPage() {
   }, [buildParams, refetch, selectedClientIds, toast]);
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn overflow-x-hidden">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn overflow-x-hidden">
 
       {/* ── Header ── */}
       <div className="mb-8">

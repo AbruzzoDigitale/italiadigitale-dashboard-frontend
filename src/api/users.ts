@@ -62,6 +62,8 @@ export interface UpdateUserPayload {
   role_label?: string | null;
   signature?: string | null;
   operator_permissions?: string[] | null;
+  /** Disattiva il warning di conferma sullo scambio task (self-service). */
+  swap_confirmation_disabled?: boolean;
 }
 
 /** Permessi operatore disponibili */

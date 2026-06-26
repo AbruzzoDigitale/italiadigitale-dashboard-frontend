@@ -301,7 +301,7 @@ export function QuotesPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Header ── */}
       <div className="mb-8">
@@ -353,16 +353,12 @@ export function QuotesPage() {
         </div>
 
         {/* Status tabs */}
-        <div className="flex gap-1 flex-wrap">
+        <div className="seg-switch">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value}
               onClick={() => handleStatusFilter(tab.value)}
-              className={`px-3 py-1.5 rounded-pill text-[11px] font-semibold uppercase tracking-wider transition-colors font-body ${
-                statusFilter === tab.value
-                  ? "bg-ink dark:bg-[#f4f4f7] text-paper dark:text-ink"
-                  : "border border-line dark:border-[#2a2a2e] text-muted dark:text-[#9999a0] hover:border-ink dark:hover:border-[#f4f4f7] hover:text-ink dark:hover:text-[#f4f4f7]"
-              }`}
+              className={statusFilter === tab.value ? "is-active" : ""}
             >
               {tab.label}
             </button>

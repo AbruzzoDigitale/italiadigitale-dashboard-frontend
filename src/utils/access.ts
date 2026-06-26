@@ -57,7 +57,9 @@ export function canAccessRoute(
     case "llm":
       return permissions.is_admin || permissions.can_use_llm || permissions.allowed_views.includes("llm");
     case "profile":
-      return permissions.allowed_views.includes("profile");
+      // Ogni utente autenticato può accedere al PROPRIO profilo per modificare
+      // le informazioni personali (l'API applica comunque l'RBAC sui dati).
+      return true;
     case "work-items":
       // All authenticated users can access; the API enforces fine-grained RBAC
       return true;

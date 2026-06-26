@@ -629,7 +629,7 @@ export function UsersPage() {
   }, [deleteUser, toast, refetch]);
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Header ── */}
       <div className="mb-8">

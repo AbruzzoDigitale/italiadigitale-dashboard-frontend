@@ -146,7 +146,7 @@ export function ColorHexField({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[2000] w-[240px] rounded-md border border-line bg-paper p-3 shadow-lg dark:border-[#2a2a2e] dark:bg-[#1c1c20]"
+            className="fixed z-[3500] w-[240px] rounded-md border border-line bg-paper p-3 shadow-lg dark:border-[#2a2a2e] dark:bg-[#1c1c20]"
             style={{ top: menuRect.top, left: menuRect.left }}
           >
             <div className="mb-3">

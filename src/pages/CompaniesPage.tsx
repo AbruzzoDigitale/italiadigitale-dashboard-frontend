@@ -263,7 +263,7 @@ export function CompaniesPage() {
 
   if (!user?.is_admin) {
     return (
-      <div className="px-10 py-8">
+      <div className="px-6 py-8">
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Icon name="shield" className="w-12 h-12 mb-4 text-muted opacity-40" />
           <h2 className="font-display font-bold text-[20px] tracking-tight text-ink dark:text-[#f4f4f7] mb-2">
@@ -278,7 +278,7 @@ export function CompaniesPage() {
   }
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Header ── */}
       <div className="mb-8">

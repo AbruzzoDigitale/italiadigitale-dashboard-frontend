@@ -1107,7 +1107,7 @@ export function CompanyBrandPage() {
   const scheduleKindLabels = new Map(SCHEDULE_KIND_OPTIONS.map((item) => [item.value, item.label]));
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Back ── */}
       <button
@@ -1205,7 +1205,7 @@ export function CompanyBrandPage() {
                 </span>
               </div>
               <div
-                className="flex-1 flex items-center justify-center px-10"
+                className="flex-1 flex items-center justify-center px-6"
                 style={{ background: bgColor }}
               >
                 <div className="w-full max-w-[300px] flex flex-col items-center text-center">

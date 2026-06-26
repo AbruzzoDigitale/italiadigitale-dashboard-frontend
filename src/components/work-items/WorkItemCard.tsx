@@ -369,6 +369,7 @@ export function WorkItemCard({
               <Avatar
                 key={u.id}
                 name={u.full_name ?? u.username}
+                src={u.avatar_url}
                 size="sm"
                 className="h-6 w-6 text-[9px] ring-2 ring-paper dark:ring-[#131316]"
               />
@@ -541,6 +542,7 @@ export function WorkItemSummaryCard({ item, users, workAreas = [], workTags = []
               <Avatar
                 key={u.id}
                 name={u.full_name ?? u.username}
+                src={u.avatar_url}
                 size="sm"
                 className="h-6 w-6 text-[9px] ring-2 ring-paper dark:ring-[#131316]"
               />

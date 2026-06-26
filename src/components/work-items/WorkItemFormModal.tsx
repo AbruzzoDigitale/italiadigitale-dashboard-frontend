@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   createWorkItemApi,
   instantiateWorkItemTemplateApi,
@@ -20,6 +19,7 @@ import {
   type CreateWorkItemPayload,
   type WorkTag,
   type WorkItemOverlapConflict,
+  type WorkItemSuggestedSlot,
 } from "../../api/workItems";
 import {
   checkWorkItemOverbookingApi,
@@ -34,6 +34,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { Icon } from "../ui/Icon";
+import { FieldHelpPopover } from "../ui/FieldHelpPopover";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
@@ -227,82 +228,6 @@ function applyLeftBehindDefaults(reason: LeftBehindReason): Pick<WorkItemFormSta
   return { affects_daily_load: true, load_weight_factor: "1" };
 }
 
-interface FieldHelpPopoverProps {
-  title: string;
-  shortText: string;
-  longText: string;
-}
-
-function FieldHelpPopover({ title, shortText, longText }: FieldHelpPopoverProps) {
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const popupRef = useRef<HTMLDivElement | null>(null);
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const updatePosition = () => {
-      const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const width = Math.min(320, window.innerWidth - 24);
-      const left = Math.min(Math.max(12, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 12);
-      const top = Math.min(rect.bottom + 10, window.innerHeight - 160);
-      setPosition({ top, left, width });
-    };
-
-    const onMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (buttonRef.current?.contains(target) || popupRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <span className="inline-flex items-center">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line bg-paper text-[10px] font-bold text-muted transition-colors hover:border-ink hover:text-ink dark:border-line-dark dark:bg-[#1c1c20] dark:text-muted-dark dark:hover:border-paper dark:hover:text-paper"
-        aria-label={title}
-        aria-expanded={open}
-      >
-        ?
-      </button>
-      {open && position && createPortal(
-        <div
-          ref={popupRef}
-          className="fixed z-[4000] rounded-lg border border-line bg-paper px-3 py-2.5 text-left shadow-xl dark:border-line-dark dark:bg-[#131316]"
-          style={{ top: position.top, left: position.left, width: position.width }}
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink dark:text-paper">{title}</p>
-          <p className="mt-1 text-[12px] text-muted dark:text-muted-dark">{shortText}</p>
-          <p className="mt-2 text-[11px] leading-5 text-muted dark:text-muted-dark">{longText}</p>
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
-
 // ── TimeSlotRow ───────────────────────────────────────────────────────────────
 
 interface TimeSlotRowProps {
@@ -366,7 +291,12 @@ export interface WorkItemFormModalProps {
   defaultEstimatedHours?: number;
   /** Pre-fill assignee_ids when creating */
   defaultAssigneeIds?: number[];
-  onOverlapConflict?: (message: string, conflicts: WorkItemOverlapConflict[]) => void;
+  onOverlapConflict?: (
+    message: string,
+    conflicts: WorkItemOverlapConflict[],
+    suggestedSlots: WorkItemSuggestedSlot[],
+    onPickSlot: (slot: WorkItemSuggestedSlot) => void
+  ) => void;
   onSaved: () => void;
 }
 
@@ -597,7 +527,7 @@ export function WorkItemFormModal({
   };
 
   // ── Save
-  const handleSave = async () => {
+  const handleSave = async (scheduleOverride?: { work_date: string; start_time: string }) => {
     const isGeneratedRecurringItem = sourceItem?.recurrence_parent_id != null;
     const canEditRecurrence = !isGeneratedRecurringItem;
 
@@ -736,8 +666,8 @@ export function WorkItemFormModal({
         client_id: form.client_id ? parseInt(form.client_id, 10) : null,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
-        work_date: form.work_date || undefined,
-        start_time: form.start_time || undefined,
+        work_date: scheduleOverride?.work_date || form.work_date || undefined,
+        start_time: scheduleOverride?.start_time || form.start_time || undefined,
         deadline_date: form.deadline_date || undefined,
         due_time_label: form.due_time_label.trim(),
         estimated_hours: form.estimated_hours ? parseFloat(form.estimated_hours) : undefined,
@@ -867,7 +797,12 @@ export function WorkItemFormModal({
     } catch (err) {
       if (isWorkItemOverlapApiError(err)) {
         setFormError(err.backendMessage);
-        onOverlapConflict?.(err.backendMessage, err.conflicts);
+        onOverlapConflict?.(err.backendMessage, err.conflicts, err.suggestedSlots, (slot) => {
+          // Allinea i campi visibili e re-invia con lo slot scelto.
+          updateForm("work_date", slot.date);
+          updateForm("start_time", slot.start_time);
+          void handleSave({ work_date: slot.date, start_time: slot.start_time });
+        });
       } else if (err instanceof Error && err.message.includes("[403]")) {
         setFormError("Operazione non consentita");
       } else if (err instanceof Error && err.message.includes("[422]")) {
@@ -1884,7 +1819,7 @@ export function WorkItemFormModal({
           <Button variant="ghost" onClick={closeModal} disabled={saving}>
             Annulla
           </Button>
-          <Button variant="primary" onClick={handleSave} loading={saving}>
+          <Button variant="primary" onClick={() => handleSave()} loading={saving}>
             Salva
           </Button>
         </>
