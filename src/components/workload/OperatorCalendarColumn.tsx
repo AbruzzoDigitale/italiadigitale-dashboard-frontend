@@ -5,7 +5,7 @@ import type {
   WorkloadTimelineItem,
   WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
-import type { WorkItem } from "../../api/workItems";
+import type { WorkItem, WorkItemSwapEffectivePosition } from "../../api/workItems";
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
 import {
@@ -71,8 +71,8 @@ export interface OperatorCalendarColumnProps {
   /** Drop da un'altra colonna: riassegna a questo operatore e posiziona. */
   onReassign: (taskId: number, fromOperatorId: number, startTimeHHMM: string) => void;
   /** Anteprima swap (solo intra-colonna). Ritorna can_swap. */
-  previewSwap: (sourceId: number, targetIds: number[]) => Promise<boolean>;
-  onSwap: (sourceId: number, targetIds: number[]) => void;
+  previewSwap: (sourceId: number, targetIds: number[], positions?: WorkItemSwapEffectivePosition[]) => Promise<boolean>;
+  onSwap: (sourceId: number, targetIds: number[], positions?: WorkItemSwapEffectivePosition[]) => void;
   onResize: (taskId: number, endTimeHHMM: string) => void;
   onToggleComplete: (item: WorkloadTimelineItem) => void;
   onCompleteOverCapacity: (taskId: number) => void;
@@ -223,7 +223,7 @@ export function OperatorCalendarColumn({
     setSwapPreview(null);
   }, []);
 
-  const requestSwapPreview = useCallback(async (sourceId: number, targetIds: number[]) => {
+  const requestSwapPreview = useCallback(async (sourceId: number, targetIds: number[], positions?: WorkItemSwapEffectivePosition[]) => {
     if (targetIds.length === 0) {
       clearSwapPreview();
       return;
@@ -233,7 +233,7 @@ export function OperatorCalendarColumn({
     swapHoverKeyRef.current = key;
     setSwapPreview({ targetIds, canSwap: null });
     const seq = ++swapSeqRef.current;
-    const canSwap = await previewSwap(sourceId, targetIds);
+    const canSwap = await previewSwap(sourceId, targetIds, positions);
     if (seq !== swapSeqRef.current) return;
     setSwapPreview({ targetIds, canSwap });
   }, [clearSwapPreview, previewSwap]);
@@ -360,6 +360,17 @@ export function OperatorCalendarColumn({
       .filter((b) => b.item.kind === "task" && typeof b.item.work_item_id === "number" && b.item.work_item_id !== draggedTaskId && b.start < windowEnd && b.end > windowStart)
       .map((b) => b.item.work_item_id as number);
   };
+
+  // Posizioni MOSTRATE (reflow) delle task coinvolte: il backend le usa per swappare
+  // davvero le trascinate (il loro start_time salvato non corrisponde a dove appaiono).
+  const buildEffectivePositions = (ids: number[]): WorkItemSwapEffectivePosition[] =>
+    ids
+      .map((id) => {
+        const b = timelineBlocks.find((bl) => bl.item.kind === "task" && bl.item.work_item_id === id);
+        if (!b || !b.item.date) return null;
+        return { work_item_id: id, work_date: String(b.item.date).slice(0, 10), start_minutes: b.start };
+      })
+      .filter((p): p is WorkItemSwapEffectivePosition => p !== null);
 
   const openQuickAdd = (preview: CalendarCreatePreview) => {
     if (isRangeOccupied(preview.startMinutes, preview.endMinutes)) {
@@ -658,14 +669,20 @@ export function OperatorCalendarColumn({
                       event.stopPropagation();
                       setDropPreviewMinutes(null);
                       setGridDropActive(false);
-                      void requestSwapPreview(draggedTaskId as number, computeSwapTargetIds(start, end));
+                      {
+                        const tids = computeSwapTargetIds(start, end);
+                        void requestSwapPreview(draggedTaskId as number, tids, buildEffectivePositions([draggedTaskId as number, ...tids]));
+                      }
                     }}
                     onDrop={(event) => {
                       if (!isIntraColumnSwap(swapWorkItemId)) return;
                       event.preventDefault();
                       event.stopPropagation();
                       clearSwapPreview();
-                      onSwap(draggedTaskId as number, computeSwapTargetIds(start, end));
+                      {
+                        const tids = computeSwapTargetIds(start, end);
+                        onSwap(draggedTaskId as number, tids, buildEffectivePositions([draggedTaskId as number, ...tids]));
+                      }
                     }}
                     draggable={item.kind === "task" && !!item.work_item_id && !isSevereDelay && !getUiState(item.work_item_id)}
                     onDragStart={() => {
@@ -708,10 +725,11 @@ export function OperatorCalendarColumn({
                             {isResizing ? `${formatHours((renderEnd - start) / 60)} stimate` : taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
                           </div>
                         )}
-                        {!isCompactTask && (isCarriedOver || isSevereDelay || isNonDeferrable) && (
+                        {!isCompactTask && (isCarriedOver || isSevereDelay || isNonDeferrable || scheduleState?.is_overdue) && (
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             {isCarriedOver && <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200">In ritardo</span>}
                             {isSevereDelay && <span className="inline-flex items-center rounded-full border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">Ritardo grave</span>}
+                            {scheduleState?.is_overdue && <span className="inline-flex items-center rounded-full border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">{scheduleState.overdue_days && scheduleState.overdue_days > 0 ? `Scaduta ${scheduleState.overdue_days}g` : "Scaduta"}</span>}
                             {isNonDeferrable && (
                               <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
                                 <Icon name="shield" className="h-2.5 w-2.5" />
@@ -874,10 +892,11 @@ export function OperatorCalendarColumn({
                   <div className="mt-0.5 text-[10px]" style={{ color: readableText.secondary }}>
                     {taskEstimatedHours != null ? `${formatHours(taskEstimatedHours)} stimate` : "Ore stimate —"}
                   </div>
-                  {(isCarriedOver || isSevereDelay || isNonDeferrable) && (
+                  {(isCarriedOver || isSevereDelay || isNonDeferrable || scheduleState?.is_overdue) && (
                     <div className="mt-2 flex flex-wrap items-center gap-1">
                       {isCarriedOver && <span className="rounded-full border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">In ritardo</span>}
                       {isSevereDelay && <span className="rounded-full border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">Ritardo grave</span>}
+                      {scheduleState?.is_overdue && <span className="rounded-full border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">{scheduleState.overdue_days && scheduleState.overdue_days > 0 ? `Scaduta ${scheduleState.overdue_days}g` : "Scaduta"}</span>}
                       {isNonDeferrable && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
                           <Icon name="shield" className="h-2.5 w-2.5" />

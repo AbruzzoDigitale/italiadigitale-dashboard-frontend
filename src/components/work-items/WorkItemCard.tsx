@@ -1,5 +1,4 @@
 import { Avatar } from "../ui/Avatar";
-import { Checkbox } from "../ui/Checkbox";
 import { Icon } from "../ui/Icon";
 import { WorkAreaBadge } from "../work-areas/WorkAreaBadge";
 import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/workItems";
@@ -105,6 +104,17 @@ export function WorkItemCard({
   const aiJobItemId = item.ai_generation_job_item_id ?? null;
   const isAiGenerated = !!item.is_ai_generated || !!aiJobId || !!aiJobItemId || aiSourceContractId != null;
 
+  // Spina-colore + avatar tinti per area (cfr. prototipo Lavorazioni)
+  const normColor = (c: string | null | undefined) =>
+    c ? (c.startsWith("#") ? c : `#${c}`) : null;
+  const primaryArea = areas[0] ?? null;
+  const areaColor = normColor(primaryArea?.color) ?? "#8c8d87";
+  const accent = isSevereDelay
+    ? "var(--magenta)"
+    : isCarriedOver || overdue
+      ? "var(--amber)"
+      : areaColor;
+
   return (
     <div
       draggable
@@ -121,180 +131,148 @@ export function WorkItemCard({
         }
       }}
       title="Apri dettaglio lavorazione"
-      className={`group relative flex cursor-grab flex-col gap-2 rounded-lg border bg-paper p-3 transition-all active:cursor-grabbing active:opacity-50 hover:-translate-y-px hover:shadow-md
-        ${item.is_priority ? "border-l-[3px] border-l-[#E91E8A] border-r-line border-t-line border-b-line dark:border-l-[#E91E8A] dark:border-r-line-dark dark:border-t-line-dark dark:border-b-line-dark" : "border-line dark:border-line-dark"}
-        ${isSevereDelay ? "ring-1 ring-danger/40 bg-danger/5 dark:bg-danger/10" : ""}
-        ${isCarriedOver ? "ring-1 ring-warning/35 bg-warning/5 dark:bg-warning/10" : ""}
-        ${item.is_PED ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}
-        ${isDone ? "opacity-70" : ""}
-        dark:bg-[#131316]`}
+      className={`lv-card${isSelected ? " sel" : ""}${isDone ? " done" : ""}`}
+      style={{ "--area": areaColor, "--accent": accent } as React.CSSProperties}
     >
-      {/* Header row */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          {isAdmin && (
-            <span
-              className="inline-flex items-center"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              <Checkbox
-                checked={isSelected}
-                onChange={(checked) => onToggleSelect(item.id, checked)}
-              />
-            </span>
-          )}
-          <span className="font-variant-numeric text-[10px] tabular-nums text-muted dark:text-muted-dark">
-            #{String(item.id).padStart(3, "0")}
-          </span>
-          {item.is_template && (
-            <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-              Modello
-            </span>
-          )}
-          {item.template_source_id != null && (
-            <span
-              className="inline-flex cursor-help items-center rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-info"
-              title={`Task creata dal modello #${item.template_source_id}`}
-              aria-label={`Da modello ${item.template_source_id}`}
-            >
-              <Icon name="info" className="h-3 w-3" />
-            </span>
-          )}
-          {item.recurrence_parent_id != null ? (
-            <span
-              className="inline-flex cursor-help items-center rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-info"
-              title="Task creata automaticamente da una ricorrenza della task sorgente"
-              aria-label="Generata da ricorrenza"
-            >
-              <Icon name="info" className="h-3 w-3" />
-            </span>
-          ) : item.is_recurring ? (
-            <span className="inline-flex rounded-pill border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
-              Ricorrente
-            </span>
-          ) : null}
-          {item.is_PED && (
-            <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-              PED
-            </span>
-          )}
-          {isCarriedOver && (
-            <span className="inline-flex rounded-pill border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
-              In ritardo
-            </span>
-          )}
-          {isSevereDelay && (
-            <span className="inline-flex rounded-pill border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
-              Ritardo grave
-            </span>
-          )}
+      {/* Top: checkbox · id · flags + azioni hover */}
+      <div className="lv-top">
+        {isAdmin && (
+          <label
+            className="lv-check"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => onToggleSelect(item.id, e.target.checked)}
+            />
+            <span />
+          </label>
+        )}
+        <span className="lv-client min-w-0 flex-1" title={clientName ?? "Senza cliente"}>
+          <Icon name="building" className="h-3 w-3" />
+          <span className="truncate">{clientName ?? "Senza cliente"}</span>
+        </span>
+        <div className="lv-flags">
+          {item.is_priority && <Icon name="star" className="lv-star h-3.5 w-3.5" />}
+          {isSevereDelay && <span className="lv-badge grave">Ritardo grave</span>}
+          {isCarriedOver && <span className="lv-badge late">In ritardo</span>}
           {item.is_deadline_locked && (
-            <span className="inline-flex items-center gap-1 rounded-pill border border-[#E91E8A]/35 bg-[#E91E8A]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#E91E8A]">
-              <Icon name="shield" className="h-3 w-3" />
-              Non derogabile
+            <span className="lv-badge nondeg">
+              <Icon name="shield" className="h-2.5 w-2.5" /> Non derog.
             </span>
           )}
+          {item.is_template && <span className="lv-badge soft">Modello</span>}
+          {item.recurrence_parent_id == null && item.is_recurring && (
+            <span className="lv-badge soft">Ricorrente</span>
+          )}
+          {item.is_PED && <span className="lv-badge soft">PED</span>}
           {isAiGenerated && (
-            <span
-              className="inline-flex items-center gap-1 rounded-pill border border-[#7A91FF]/35 bg-[#7A91FF]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#3B4FD1] dark:border-[#7A91FF]/45 dark:bg-[#1C255A] dark:text-[#C7D2FF]"
-              title="Task generata con AI"
-            >
-              <Icon name="robot" className="h-3 w-3" />
-              AI
+            <span className="lv-badge ai" title="Task generata con AI">
+              <Icon name="robot" className="h-2.5 w-2.5" /> AI
             </span>
           )}
-        </div>
-        <div className="flex flex-shrink-0 items-center gap-1">
-          {item.is_priority && (
-            <Icon name="star" className="h-3 w-3 text-[#E91E8A]" />
-          )}
-          {overdue && (
-            <span title={`Scaduto il ${formatWorkItemDate(item.deadline_date)}`}>
-              <Icon name="alert-triangle" className="h-3 w-3 text-danger" />
+          {(overdue || isCarriedOver || isSevereDelay) && (
+            <span title={overdue ? `Scaduto il ${formatWorkItemDate(item.deadline_date)}` : "In ritardo"}>
+              <Icon name="alert-triangle" className="lv-warn h-3.5 w-3.5" />
             </span>
           )}
-          <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="lv-actions" onClick={(e) => e.stopPropagation()}>
             {item.is_template && (
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onInstantiateFromTemplate(item); }}
-                className="rounded p-0.5 text-muted hover:text-success dark:text-muted-dark dark:hover:text-success"
+                className="lv-act"
                 title="Usa modello"
+                onClick={(e) => { e.stopPropagation(); onInstantiateFromTemplate(item); }}
               >
-                <Icon name="plus" className="h-3 w-3" />
+                <Icon name="plus" className="h-3.5 w-3.5" />
               </button>
             )}
             <button
               type="button"
+              className="lv-act"
+              title="Modifica"
               onClick={(e) => { e.stopPropagation(); onEdit(item); }}
-              className="rounded p-0.5 text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
             >
-              <Icon name="pencil" className="h-3 w-3" />
+              <Icon name="pencil" className="h-3.5 w-3.5" />
             </button>
             {item.is_recurring && item.recurrence_parent_id == null && (
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onRegenerateRecurrences(item); }}
-                className="rounded p-0.5 text-muted hover:text-info dark:text-muted-dark dark:hover:text-info"
+                className="lv-act"
                 title="Rigenera occorrenze"
+                onClick={(e) => { e.stopPropagation(); onRegenerateRecurrences(item); }}
               >
-                <Icon name="refresh-cw" className="h-3 w-3" />
+                <Icon name="refresh-cw" className="h-3.5 w-3.5" />
               </button>
             )}
             {isAdmin && (
               <button
                 type="button"
+                className="lv-act danger"
+                title="Elimina"
                 onClick={(e) => { e.stopPropagation(); onDelete(item); }}
-                className="rounded p-0.5 text-muted hover:text-danger dark:text-muted-dark dark:hover:text-danger"
               >
-                <Icon name="trash" className="h-3 w-3" />
+                <Icon name="trash" className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Client */}
-      {clientName && (
-        <div className="flex min-w-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-          <Icon name="building" className="h-3 w-3 flex-shrink-0" />
-          <span className="truncate">{clientName}</span>
-        </div>
-      )}
+      <div className="lv-title">{item.title}</div>
 
-      {/* Title */}
-      <p className={`text-[13px] font-medium leading-snug text-ink dark:text-paper ${isDone ? "line-through decoration-muted" : ""}`}>
-        {item.title}
-      </p>
-
-      {/* Progress bar (in_progress only) */}
       {item.status === "in_progress" && item.progress_percent > 0 && (
-        <div className="h-[3px] w-full overflow-hidden rounded-full bg-cream dark:bg-[#2a2a2e]">
-          <div className="h-full rounded-full bg-[#378ADD]" style={{ width: `${item.progress_percent}%` }} />
+        <div className="lv-progress">
+          <i style={{ width: `${item.progress_percent}%` }} />
         </div>
       )}
 
-      {/* Areas (solo icona/badge — il nome è nel tooltip) */}
-      {areas.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+      {(areas.length > 0 || scheduleState?.delay_code) && (
+        <div className="lv-mid">
           {areas.map((area) => (
-            <WorkAreaBadge key={area.id} area={area} iconOnly />
+            <span
+              key={area.id}
+              className="lv-area"
+              style={{ "--area": normColor(area.color) ?? "#8c8d87" } as React.CSSProperties}
+            >
+              <i />
+              {area.name}
+            </span>
           ))}
+          {scheduleState?.delay_code && (
+            <span className="lv-peso">
+              Peso {scheduleState.effective_load_weight_factor.toFixed(2)}x
+              {scheduleState.overdue_days > 0 ? ` · ${scheduleState.overdue_days}g ritardo` : ""}
+            </span>
+          )}
         </div>
       )}
 
-      {/* Tags */}
+      {item.reviewer_name && (
+        <div className="lv-mid">
+          <span
+            className="lv-area"
+            style={{ "--area": "#ef3a65" } as React.CSSProperties}
+            title={`Revisore: ${item.reviewer_name}`}
+          >
+            <i />
+            Rev: {item.reviewer_name}
+          </span>
+        </div>
+      )}
+
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="lv-tags">
           {tags.map((tag) => (
             <span
               key={tag.id}
-              className="inline-flex rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              className="lv-tag"
               style={
                 tag.color
                   ? { backgroundColor: `${tag.color}22`, color: tag.color, border: `1px solid ${tag.color}44` }
-                  : { backgroundColor: "var(--color-cream)", color: "var(--color-muted)" }
+                  : { background: "var(--surface-3)", color: "var(--tx-3)" }
               }
             >
               {tag.name}
@@ -303,83 +281,64 @@ export function WorkItemCard({
         </div>
       )}
 
-      {/* AI source contract */}
-      {isAiGenerated && aiSourceContractId != null && (
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-md border border-[#7A91FF]/30 bg-[#7A91FF]/5 px-2 py-1 text-[10px] text-[#4356C9] dark:border-[#7A91FF]/40 dark:bg-[#1A2148] dark:text-[#C7D2FF]">
-          <button
-            type="button"
-            onClick={(event) => { event.stopPropagation(); onOpenAiSourceContract(aiSourceContractId); }}
-            className="inline-flex items-center gap-1 rounded-pill border border-[#7A91FF]/45 bg-paper/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#3B4FD1] hover:bg-paper dark:bg-[#131316]/75 dark:text-[#C7D2FF] dark:hover:bg-[#1C1C22]"
-            title={`Apri contratto #${aiSourceContractId}`}
-          >
-            <Icon name="document-text" className="h-3 w-3" />
-            Contratto #{aiSourceContractId}
-          </button>
-        </div>
-      )}
-
       {item.is_left_behind && (
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="inline-flex rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-warning/15 text-warning border border-warning/30">
-            Lasciata indietro
-          </span>
+        <div className="lv-mid">
+          <span className="lv-badge late">Lasciata indietro</span>
           {item.left_behind_reason && (
-            <span className="text-[10px] text-muted dark:text-muted-dark">
-              {leftBehindReasonLabel(item.left_behind_reason)}
-            </span>
+            <span className="lv-peso">{leftBehindReasonLabel(item.left_behind_reason)}</span>
           )}
         </div>
       )}
 
-      {scheduleState?.delay_code && (
-        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted dark:text-muted-dark">
-          <span>
-            Peso effettivo {scheduleState.effective_load_weight_factor.toFixed(2)}x
-          </span>
-          <span>·</span>
-          <span>{fmtHours(scheduleState.effective_load_hours)} effettive</span>
-          {scheduleState.overdue_days > 0 && (
-            <>
-              <span>·</span>
-              <span>{scheduleState.overdue_days}g ritardo</span>
-            </>
-          )}
-        </div>
+      {isAiGenerated && aiSourceContractId != null && (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onOpenAiSourceContract(aiSourceContractId); }}
+          className="lv-badge ai mt-2 self-start"
+          title={`Apri contratto #${aiSourceContractId}`}
+        >
+          <Icon name="document-text" className="h-2.5 w-2.5" /> Contratto #{aiSourceContractId}
+        </button>
       )}
 
-      {/* Footer: hours + deadline + avatars */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${hoursWeightClass(item.estimated_hours)}`}>
-            <Icon name={isDone ? "check-circle" : "activity"} className="h-3 w-3" />
-            {fmtHours(item.estimated_hours)}
+      {/* Footer: ore · scadenza · effettive · operatori */}
+      <div className="lv-foot">
+        <span className="lv-est">
+          <Icon name={isDone ? "check-circle" : "activity"} className="h-3 w-3" />
+          {fmtHours(item.estimated_hours)}
+        </span>
+        {item.deadline_date && (
+          <span className={`lv-due${overdue ? " late" : ""}`}>
+            {formatWorkItemDate(item.deadline_date)}
           </span>
-          {item.deadline_date && (
-            <span className={`text-[11px] ${overdue ? "font-semibold text-danger" : "text-muted dark:text-muted-dark"}`}>
-              {formatWorkItemDate(item.deadline_date)}
-            </span>
-          )}
-          <span className="text-[11px] text-muted dark:text-muted-dark">
-            {effectiveHoursLabel(item)}
-          </span>
-        </div>
-        {assignees.length > 0 && (
-          <div className="flex -space-x-1.5">
-            {assignees.slice(0, 3).map((u) => (
-              <Avatar
-                key={u.id}
-                name={u.full_name ?? u.username}
-                src={u.avatar_url}
-                size="sm"
-                className="h-6 w-6 text-[9px] ring-2 ring-paper dark:ring-[#131316]"
-              />
-            ))}
+        )}
+        <span className="lv-eff">{effectiveHoursLabel(item)}</span>
+        <span className="lv-spacer" />
+        {assignees.length > 0 ? (
+          <div className="lv-avs">
+            {assignees.slice(0, 3).map((u) =>
+              u.avatar_url ? (
+                <Avatar
+                  key={u.id}
+                  name={u.full_name ?? u.username}
+                  src={u.avatar_url}
+                  size="sm"
+                  className="!h-[26px] !w-[26px] !text-[10px] shadow-[0_0_0_2px_var(--surface)]"
+                />
+              ) : (
+                <span key={u.id} className="lv-av" title={u.full_name ?? u.username}>
+                  {(u.full_name ?? u.username ?? "?").trim().charAt(0).toUpperCase()}
+                </span>
+              ),
+            )}
             {assignees.length > 3 && (
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cream text-[9px] font-bold text-muted ring-2 ring-paper dark:bg-[#2a2a2e] dark:text-muted-dark dark:ring-[#131316]">
-                +{assignees.length - 3}
-              </span>
+              <span className="lv-av more">+{assignees.length - 3}</span>
             )}
           </div>
+        ) : (
+          <span className="lv-av none" title="Senza operatore">
+            <Icon name="users" className="h-3.5 w-3.5" />
+          </span>
         )}
       </div>
     </div>

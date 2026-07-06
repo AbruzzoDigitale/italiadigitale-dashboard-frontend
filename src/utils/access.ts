@@ -16,6 +16,8 @@ export type AppRouteKey =
   | "llm"
   | "profile"
   | "work-items"
+  | "comunicazioni"
+  | "fatturazione"
   | "admin";
 
 export function canAccessRoute(
@@ -26,6 +28,11 @@ export function canAccessRoute(
   if (route === "admin") return permissions.is_admin;
 
   switch (route) {
+    case "comunicazioni":
+      return permissions.is_admin || permissions.is_project_manager;
+    case "fatturazione":
+      // Area amministrativa: riservata SOLO agli admin.
+      return permissions.is_admin;
     case "dashboard":
       return permissions.allowed_views.includes("dashboard");
     case "contracts":

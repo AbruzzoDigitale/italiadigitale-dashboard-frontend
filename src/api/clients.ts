@@ -83,6 +83,8 @@ export interface Client {
   notes: string | null;
   is_active: boolean;
   assigned_user_ids?: number[] | null;
+  /** Numero di contratti attivi del cliente (calcolato dalla lista clienti). */
+  active_contract_count?: number;
 
   // Metadati
   company_id: number;
@@ -162,6 +164,8 @@ export interface GetClientsParams {
   country?: string;
   e_invoice?: boolean;
   has_intent_declaration?: boolean;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 export interface ClientsListResponse {
@@ -396,6 +400,8 @@ export async function getClientsApi(params?: GetClientsParams): Promise<ClientsL
   if (params?.country) qs.set("country", params.country);
   if (params?.e_invoice != null) qs.set("e_invoice", String(params.e_invoice));
   if (params?.has_intent_declaration != null) qs.set("has_intent_declaration", String(params.has_intent_declaration));
+  if (params?.sort_by) qs.set("sort_by", params.sort_by);
+  if (params?.sort_dir) qs.set("sort_dir", params.sort_dir);
   const suffix = qs.toString() ? `?${qs}` : "";
   const res = await authFetch(`${API_BASE}/api/v1/clients${suffix}`);
   if (!res.ok) {
@@ -403,6 +409,34 @@ export async function getClientsApi(params?: GetClientsParams): Promise<ClientsL
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare la lista clienti")}`);
   }
   return res.json();
+}
+
+/** Scarica il CSV di tutti i clienti che rispettano i filtri correnti (endpoint backend). */
+export async function exportClientsCsvApi(params?: GetClientsParams): Promise<void> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (params?.company_id != null) qs.set("company_id", String(params.company_id));
+  if (params?.type) qs.set("type", params.type);
+  if (params?.city) qs.set("city", params.city);
+  if (params?.prov) qs.set("prov", params.prov);
+  if (params?.country) qs.set("country", params.country);
+  if (params?.e_invoice != null) qs.set("e_invoice", String(params.e_invoice));
+  if (params?.has_intent_declaration != null) qs.set("has_intent_declaration", String(params.has_intent_declaration));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await authFetch(`${API_BASE}/api/v1/clients/export${suffix}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile esportare i clienti")}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "clienti.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function createClientApi(payload: CreateClientPayload): Promise<Client> {

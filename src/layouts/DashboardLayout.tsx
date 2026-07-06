@@ -15,6 +15,9 @@ import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { syncFicClientsApi } from "../api/fic";
 import { syncCompanyItalianHolidaysApi } from "../api/companies";
 import { useFicQuotesSync } from "../hooks/useFicQuotesSync";
+import { useNotifications } from "../features/notifications/useNotifications";
+import { NotificationCenter } from "../features/notifications/NotificationCenter";
+import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { canAccessRoute } from "../utils/access";
 
 interface NavItem {
@@ -55,6 +58,13 @@ const allNavItems: NavItem[] = [
     group: "operations",
   },
   {
+    label: "Comunicazioni",
+    to: "/comunicazioni",
+    icon: <Icon name="annotation" />,
+    routeKey: "comunicazioni",
+    group: "operations",
+  },
+  {
     label: "Clienti",
     to: "/clients",
     icon: <Icon name="user-circle" />,
@@ -87,6 +97,13 @@ const allNavItems: NavItem[] = [
     to: "/contracts-pipeline",
     icon: <Icon name="document-text" />,
     routeKey: "contracts",
+    group: "commercial",
+  },
+  {
+    label: "Fatturazione",
+    to: "/fatturazione",
+    icon: <Icon name="credit-card" />,
+    routeKey: "fatturazione",
     group: "commercial",
   },
   {
@@ -160,6 +177,9 @@ export function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
+  const notifications = useNotifications();
   const [syncing, setSyncing] = useState(false);
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
   const [ficQuotesModalOpen, setFicQuotesModalOpen] = useState(false);
@@ -247,10 +267,6 @@ export function DashboardLayout() {
       kind_on_import: ficQuotesKindOnImport || undefined,
     };
   }, [ficQuotesKindOnImport, ficQuotesMaxPages, ficQuotesOnlyFromDate, ficQuotesPerPage, ficQuotesStatusOnImport, ficQuotesSyncMode]);
-
-  const onTopbarPlaceholderClick = () => {
-    // Placeholder: i pulsanti sono presenti come nel prototipo ma senza azione.
-  };
 
   useEffect(() => {
     const allowedIds = new Set(companyOptions.map((company) => company.id));
@@ -460,14 +476,8 @@ export function DashboardLayout() {
 
         {/* Nav */}
         <nav className="no-scrollbar flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
-          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-dark">
-            Navigazione
-          </p>
-          <div className="px-3 pb-3">
+          <div className="px-3 pb-3 pt-1">
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-dark">
-                Company
-              </span>
               <SearchableSelect
                 value={currentCompanyId != null ? String(currentCompanyId) : ""}
                 onChange={(value) => handleCompanySwitch(value ? Number(value) : null)}
@@ -570,32 +580,21 @@ export function DashboardLayout() {
           {/* Spacer */}
           <div className="flex-1" />
 
-          <div className="hidden md:flex items-center gap-2">
-            <span className="sr-only">
-              Seleziona company
-            </span>
-            <SearchableSelect
-              value={currentCompanyId != null ? String(currentCompanyId) : ""}
-              onChange={(value) => handleCompanySwitch(value ? Number(value) : null)}
-              options={companySelectOptions}
-              placeholder="Seleziona azienda"
-              searchPlaceholder="Cerca azienda..."
-              emptyMessage="Nessuna azienda trovata"
-              className="min-w-[220px]"
-              triggerClassName="h-9 rounded-pill px-3 py-0 text-[12px] font-semibold"
-            />
-          </div>
-
           {/* Right actions */}
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onTopbarPlaceholderClick}
-              aria-label="Notifiche"
-              title="Notifiche richieste preventivo"
-              className="relative inline-flex h-9 w-9 items-center justify-center rounded-pill border border-line bg-paper text-ink transition-colors hover:bg-cream dark:border-[#2a2a2e] dark:bg-[#1c1c20] dark:text-[#f4f4f7] dark:hover:bg-[#252529]"
+              onClick={() => setNotifOpen((prev) => { const next = !prev; if (next) void notifications.reload(); return next; })}
+              aria-label="Centro notifiche"
+              title="Centro notifiche"
+              className={`relative inline-flex h-9 w-9 items-center justify-center rounded-pill border bg-paper text-ink transition-colors hover:bg-cream dark:bg-[#1c1c20] dark:text-[#f4f4f7] dark:hover:bg-[#252529] ${notifOpen ? "border-brand-magenta text-brand-magenta dark:border-brand-magenta dark:text-brand-magenta" : "border-line dark:border-[#2a2a2e]"}`}
             >
               <Icon name="bell" className="w-4 h-4" />
+              {notifications.totalUnread > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 grid min-w-[17px] h-[17px] place-items-center rounded-full border-2 border-paper bg-brand-magenta px-1 text-[10px] font-bold tabular-nums text-white dark:border-[#131316]">
+                  {notifications.totalUnread > 99 ? "99+" : notifications.totalUnread}
+                </span>
+              )}
             </button>
 
             <span className="hidden md:inline-flex items-center rounded-pill border border-line px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:border-[#2a2a2e] dark:text-[#9999a0]">
@@ -723,6 +722,21 @@ export function DashboardLayout() {
           open={quickTaskModalOpen}
           onClose={() => setQuickTaskModalOpen(false)}
           companyId={currentCompanyId}
+        />
+
+        <NotificationCenter
+          open={notifOpen}
+          onClose={() => setNotifOpen(false)}
+          notifications={notifications}
+          onOpenPreferences={() => {
+            setNotifOpen(false);
+            setNotifPrefsOpen(true);
+          }}
+        />
+
+        <NotificationPreferencesModal
+          open={notifPrefsOpen}
+          onClose={() => setNotifPrefsOpen(false)}
         />
 
         <Modal

@@ -19,6 +19,7 @@ import { ClientDetailPage } from "./pages/ClientDetailPage";
 import { ClientsSituationPage } from "./pages/ClientsSituationPage";
 import { QuotesPage } from "./pages/QuotesPage";
 import { RequestsPage } from "./pages/RequestsPage";
+import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { QuoteEditorPage } from "./pages/QuoteEditorPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ConfiguratorModularPage } from "./pages/ConfiguratorModularPage";
@@ -29,6 +30,7 @@ import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkloadPage } from "./pages/WorkloadPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
+import { FatturazionePage } from "./pages/FatturazionePage";
 import { canAccessRoute, getFallbackRoute } from "./utils/access";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -103,8 +105,10 @@ function AppRoutes() {
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
+        <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
+        <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
       {/* Fallback */}

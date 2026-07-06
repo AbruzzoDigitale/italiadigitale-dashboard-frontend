@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
 import { ColorHexField } from "../ui/ColorHexField";
 import { EmojiPickerField } from "../ui/EmojiPickerField";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 
@@ -91,6 +92,7 @@ export function WorkAreaCreateModal({ open, companyId, onClose, onCreated }: Pro
       open={open}
       onClose={close}
       title="Nuova area"
+      icon={<Icon name="grid" className="h-5 w-5" />}
       size="sm"
       footer={(
         <>
@@ -101,9 +103,10 @@ export function WorkAreaCreateModal({ open, companyId, onClose, onCreated }: Pro
     >
       <div className="space-y-3">
         {error && <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</div>}
-        <Input label="Nome" value={name} onChange={(e) => handleName(e.target.value)} placeholder="Es. Social Media" />
+        <Input label="Nome" labelIcon={<Icon name="pencil" className="h-3 w-3" />} value={name} onChange={(e) => handleName(e.target.value)} placeholder="Es. Social Media" />
         <Input
           label="Slug"
+          labelIcon={<Icon name="list" className="h-3 w-3" />}
           value={slug}
           onChange={(e) => {
             setSlugTouched(true);
@@ -111,7 +114,7 @@ export function WorkAreaCreateModal({ open, companyId, onClose, onCreated }: Pro
           }}
           placeholder="es. social-media"
         />
-        <Input label="Descrizione" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descrizione opzionale" />
+        <Input label="Descrizione" labelIcon={<Icon name="annotation" className="h-3 w-3" />} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descrizione opzionale" />
         <EmojiPickerField label="Icona" value={icon} onChange={setIcon} />
         <ColorHexField label="Colore" value={color} onChange={setColor} />
         <label className="inline-flex items-center gap-2 text-sm text-ink dark:text-paper">

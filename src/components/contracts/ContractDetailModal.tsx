@@ -37,6 +37,7 @@ interface ContractDetailModalProps {
   isAdmin: boolean;
   companyId?: number | null;
   onContractUpdated?: (updated: ContractDetailResponse) => void;
+  onQuoteLineClick?: (line: QuoteLineItem, quoteId: number) => void;
   modalPosition?: "center" | "left" | "right";
   modalShowOverlay?: boolean;
   modalMobileFullscreen?: boolean;
@@ -93,6 +94,7 @@ export function ContractDetailModal({
   isAdmin,
   companyId,
   onContractUpdated,
+  onQuoteLineClick,
   modalPosition = "center",
   modalShowOverlay = true,
   modalMobileFullscreen = false,
@@ -1114,9 +1116,17 @@ export function ContractDetailModal({
                                         {quoteLinesById[link.quote_id].map((line, lineIndex) => (
                                           <div
                                             key={`summary-quote-${link.quote_id}-line-${lineIndex}`}
-                                            className="rounded border border-line dark:border-line-dark px-2 py-1.5"
+                                            role={onQuoteLineClick ? "button" : undefined}
+                                            tabIndex={onQuoteLineClick ? 0 : undefined}
+                                            title={onQuoteLineClick ? "Precompila una task da questa voce" : undefined}
+                                            onClick={onQuoteLineClick ? () => onQuoteLineClick(line, link.quote_id) : undefined}
+                                            onKeyDown={onQuoteLineClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onQuoteLineClick(line, link.quote_id); } } : undefined}
+                                            className={`rounded border border-line dark:border-line-dark px-2 py-1.5${onQuoteLineClick ? " cursor-pointer transition-colors hover:border-brand-magenta/60 hover:bg-brand-magenta/5 focus:outline-none focus:ring-2 focus:ring-brand-magenta/40" : ""}`}
                                           >
                                             <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
+                                            {line.desc ? (
+                                              <div className="mt-0.5 whitespace-pre-line text-[11px] text-muted dark:text-muted-dark">{line.desc}</div>
+                                            ) : null}
                                             <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
                                               Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
                                               {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}
@@ -1472,9 +1482,17 @@ export function ContractDetailModal({
                                     {quoteLinesById[link.quote_id].map((line, lineIndex) => (
                                       <div
                                         key={`quote-${link.quote_id}-line-${lineIndex}`}
-                                        className="rounded border border-line dark:border-line-dark px-2 py-1.5"
+                                        role={onQuoteLineClick ? "button" : undefined}
+                                        tabIndex={onQuoteLineClick ? 0 : undefined}
+                                        title={onQuoteLineClick ? "Precompila una task da questa voce" : undefined}
+                                        onClick={onQuoteLineClick ? () => onQuoteLineClick(line, link.quote_id) : undefined}
+                                        onKeyDown={onQuoteLineClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onQuoteLineClick(line, link.quote_id); } } : undefined}
+                                        className={`rounded border border-line dark:border-line-dark px-2 py-1.5${onQuoteLineClick ? " cursor-pointer transition-colors hover:border-brand-magenta/60 hover:bg-brand-magenta/5 focus:outline-none focus:ring-2 focus:ring-brand-magenta/40" : ""}`}
                                       >
                                         <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
+                                        {line.desc ? (
+                                          <div className="mt-0.5 whitespace-pre-line text-[11px] text-muted dark:text-muted-dark">{line.desc}</div>
+                                        ) : null}
                                         <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
                                           Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
                                           {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}

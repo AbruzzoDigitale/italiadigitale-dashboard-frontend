@@ -44,6 +44,7 @@ import { WorkAreasTab } from "../features/company/WorkAreasTab";
 import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
+import { NotificheTab } from "../features/company/NotificheTab";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "media" | "settings" | "operations" | "llm" | "areas" | "roles" | "tags";
+type BrandTab = "login" | "brand" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
@@ -78,6 +79,7 @@ const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   media: "Media",
   settings: "Settings",
   operations: "Regole",
+  notifiche: "Notifiche",
   llm: "LLM",
   areas: "Aree",
   roles: "Ruoli",
@@ -699,8 +701,6 @@ export function CompanyBrandPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [form, setForm] = useState<FormState>({});
   const [saving, setSaving] = useState(false);
-  const [uploadingSound, setUploadingSound] = useState(false);
-  const soundInputRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<CompanySettingResponse[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -755,7 +755,6 @@ export function CompanyBrandPage() {
           bg_color:           b.bg_color           ?? "#0a0a0a",
           theme_color:        b.theme_color        ?? "#2b1342",
           dashboard_kpis:     b.dashboard_kpis     ?? ["active", "accepted", "pipeline", "clients"],
-          notif_sound_enabled: b.notif_sound_enabled ?? false,
         });
       })
       .catch(() => toast.error("Impossibile caricare il brand"))
@@ -830,23 +829,6 @@ export function CompanyBrandPage() {
     setBrand(updated);
     refetchGlobalBrand();
   }, [refetchGlobalBrand]);
-
-  const handleSoundUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingSound(true);
-    try {
-      const updated = await uploadCompanyAssetApi(companyId, "notif_sound", file);
-      setBrand(updated);
-      refetchGlobalBrand();
-      toast.success("Suono notifica caricato");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Errore upload");
-    } finally {
-      setUploadingSound(false);
-      e.target.value = "";
-    }
-  }, [companyId, toast, refetchGlobalBrand]);
 
   const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
@@ -1345,71 +1327,6 @@ export function CompanyBrandPage() {
                 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
                 style={{ fontSize: "17px" }}
               >
-                Suono notifiche
-              </h2>
-              <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
-                MP3 · WAV · OGG — max 1 MB
-              </p>
-              <div className="flex flex-col gap-4">
-                <label className="flex items-center gap-3 cursor-pointer w-fit">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={!!form.notif_sound_enabled}
-                    onClick={() => set("notif_sound_enabled", !form.notif_sound_enabled)}
-                    className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${
-                      form.notif_sound_enabled
-                        ? "bg-ink dark:bg-[#f4f4f7]"
-                        : "bg-line dark:bg-[#2a2a2e]"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full transition-all duration-150 ${
-                        form.notif_sound_enabled
-                          ? "left-5 bg-paper dark:bg-ink"
-                          : "left-1 bg-muted"
-                      }`}
-                    />
-                  </button>
-                  <span className="font-body text-sm font-semibold text-ink dark:text-[#f4f4f7]">
-                    Abilita suono notifiche
-                  </span>
-                </label>
-
-                {form.notif_sound_enabled && (
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {brand?.notif_sound && (
-                      <audio controls src={brand.notif_sound} className="h-8 max-w-xs" />
-                    )}
-                    <button
-                      onClick={() => soundInputRef.current?.click()}
-                      disabled={uploadingSound}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-line dark:border-[#2a2a2e] text-[11px] font-body font-bold uppercase tracking-wide text-muted dark:text-[#9999a0] hover:text-ink dark:hover:text-[#f4f4f7] hover:border-ink dark:hover:border-[#f4f4f7] transition-colors disabled:opacity-40 whitespace-nowrap"
-                    >
-                      {uploadingSound ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        <Icon name="upload" className="w-3.5 h-3.5" />
-                      )}
-                      {brand?.notif_sound ? "Sostituisci" : "Carica suono"}
-                    </button>
-                    <input
-                      ref={soundInputRef}
-                      type="file"
-                      accept="audio/mpeg,audio/wav,audio/ogg"
-                      className="hidden"
-                      onChange={handleSoundUpload}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
-              <h2
-                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
-                style={{ fontSize: "17px" }}
-              >
                 KPI Dashboard
               </h2>
               <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
@@ -1756,6 +1673,10 @@ export function CompanyBrandPage() {
           </div>
 
           </>
+        )}
+
+        {activeTab === "notifiche" && (
+          <NotificheTab companyId={companyId} isAdmin={!!user?.is_admin} />
         )}
 
         {activeTab === "llm" && (

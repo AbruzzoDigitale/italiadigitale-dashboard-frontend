@@ -1,0 +1,436 @@
+/* =========================================================================
+   Clienti — tabella anagrafica + personalizzazione colonne.
+   Restyle derivato dal prototipo "Card pacchetti social (5)" (clienti-tab.css).
+   Token replicati e scoping su .cl-scope; light di default, dark via .dark.
+   ========================================================================= */
+
+.cl-scope {
+  --magenta: #ef3a65;
+  --mint: #16eb96;
+  --amber: #f5b800;
+  --antracite: #1b1c1b;
+
+  --app: #ffffff;
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --surface-3: #f1efea;
+  --line: #e7e4dd;
+  --line-2: #d8d4cb;
+  --line-strong: #c7c2b7;
+  --tx: #1b1c1b;
+  --tx-2: #5a5b57;
+  --tx-3: #8c8d87;
+  --tx-4: #aeafa8;
+
+  --shadow-1: 0 1px 2px rgba(27, 28, 27, 0.06);
+  --shadow-2: 0 6px 18px rgba(27, 28, 27, 0.1);
+  --shadow-3: 0 18px 48px rgba(27, 28, 27, 0.16);
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.dark .cl-scope {
+  --app: #131413;
+  --bg: #0e0f0e;
+  --surface: #191a19;
+  --surface-2: #1f211f;
+  --surface-3: #23251f;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.14);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --tx: #f4f4f2;
+  --tx-2: rgba(244, 244, 242, 0.66);
+  --tx-3: rgba(244, 244, 242, 0.44);
+  --tx-4: rgba(244, 244, 242, 0.3);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 22px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 22px 54px rgba(0, 0, 0, 0.6);
+}
+
+/* toolbar controls */
+.cl-count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--tx-3);
+  white-space: nowrap;
+}
+
+/* viste dropdown */
+.cl-views {
+  position: relative;
+  flex: none;
+}
+.cl-viewbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.14s var(--ease);
+}
+.cl-viewbtn:hover,
+.cl-viewbtn.on {
+  border-color: var(--line-strong);
+}
+.cl-viewbtn svg {
+  color: var(--tx-3);
+}
+.cl-views-back {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.cl-views-menu {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  z-index: 50;
+  width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow-3);
+  padding: 7px;
+}
+.cl-views-h {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+  padding: 7px 10px 6px;
+}
+.cl-views-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--tx);
+  cursor: pointer;
+  transition: background 0.12s var(--ease);
+}
+.cl-views-opt:hover {
+  background: var(--surface-2);
+}
+.cl-views-opt > span:first-child {
+  flex: 1;
+  text-align: left;
+}
+.cl-views-n {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tx-2);
+}
+.cl-views-opt.on {
+  color: var(--magenta);
+}
+.cl-views-opt.on svg {
+  color: var(--magenta);
+}
+
+/* icon-only buttons */
+.cl-iconbtn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--tx-2);
+  cursor: pointer;
+  transition: all 0.14s var(--ease);
+}
+.cl-iconbtn:hover,
+.cl-iconbtn.on {
+  border-color: var(--magenta);
+  color: var(--magenta);
+}
+.cl-iconbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cl-iconbtn-n {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--magenta);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--app);
+}
+
+/* board + table */
+.cl-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+}
+.cl-tablewrap {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.cl-tablewrap::-webkit-scrollbar {
+  height: 11px;
+  width: 11px;
+}
+.cl-tablewrap::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 99px;
+  border: 3px solid var(--surface);
+}
+.cl-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 13px;
+}
+
+.cl-th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  text-align: left;
+  padding: 12px 14px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+  border-bottom: 1.5px solid var(--line-2);
+  white-space: nowrap;
+}
+.cl-th.pin {
+  position: sticky;
+  left: 42px;
+  z-index: 3;
+  border-right: 1px solid var(--line);
+}
+
+/* colonna checkbox selezione (sticky a sinistra, prima della colonna fissata) */
+.cl-th.chk,
+.cl-td.chk {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 42px;
+  padding: 0 6px 0 14px;
+  text-align: center;
+}
+.cl-th.chk {
+  background: var(--surface-2);
+}
+.cl-td.chk {
+  z-index: 1;
+  background: var(--surface);
+}
+.cl-table tbody tr:nth-child(even) .cl-td.chk {
+  background: color-mix(in srgb, var(--tx) 4%, var(--surface));
+}
+.cl-table tbody tr:hover .cl-td.chk {
+  background: var(--surface-2);
+}
+.cl-th.num {
+  text-align: right;
+}
+/* intestazioni ordinabili: click per ordinare i dati, freccia indicatrice */
+.cl-th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.cl-th.sortable:hover {
+  color: var(--tx-2);
+}
+.cl-th-label {
+  vertical-align: middle;
+}
+.cl-th-sort {
+  display: inline-flex;
+  margin-left: 5px;
+  vertical-align: middle;
+  color: var(--magenta);
+  transition: opacity 0.12s var(--ease);
+}
+.cl-th-sort.idle {
+  opacity: 0;
+  color: var(--tx-4);
+}
+.cl-th.sortable:hover .cl-th-sort.idle {
+  opacity: 1;
+}
+.cl-th.act {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--surface-2);
+  border-left: 1px solid var(--line);
+}
+
+.cl-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s var(--ease);
+}
+.cl-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--tx) 4%, transparent);
+}
+.cl-table tbody tr:nth-child(even) .cl-td.pin,
+.cl-table tbody tr:nth-child(even) .cl-td.act {
+  background: color-mix(in srgb, var(--tx) 4%, var(--surface));
+}
+.cl-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.cl-table tbody tr:hover .cl-td.pin,
+.cl-table tbody tr:hover .cl-td.act {
+  background: var(--surface-2);
+}
+.cl-td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx);
+  vertical-align: middle;
+  position: relative;
+}
+.cl-td.pin {
+  position: sticky;
+  left: 42px;
+  z-index: 1;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.cl-val {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.cl-empty {
+  color: var(--tx-4);
+  font-style: normal;
+}
+.cl-td.num {
+  text-align: right;
+}
+.cl-num {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* copia cella */
+.cl-td.copyable {
+  padding-right: 34px;
+}
+.cl-copy {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--app);
+  color: var(--tx-3);
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  cursor: pointer;
+  transition: all 0.12s var(--ease);
+}
+.cl-td.copyable:hover .cl-copy {
+  opacity: 1;
+}
+.cl-copy:hover {
+  border-color: var(--magenta);
+  color: var(--magenta);
+}
+
+/* colonna azioni (sticky a destra) */
+.cl-td.act {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+.cl-rowact {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cl-rowbtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--app);
+  color: var(--tx-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.14s var(--ease);
+}
+.cl-rowbtn:hover {
+  border-color: var(--magenta);
+  color: var(--magenta);
+}
+.cl-rowbtn.danger:hover {
+  border-color: var(--magenta);
+  color: var(--magenta);
+}
+
+/* Il pannello "Personalizza colonne" usa il componente condiviso RightSidebarPanel
+   (portal, sopra l'header), non più un pannello custom qui. */

@@ -20,6 +20,10 @@ export interface AccLaneTaskCardProps {
   priority?: boolean;
   completed?: boolean;
   leftBehind?: boolean;
+  /** Task oltre la deadline (schedule_state.is_overdue). */
+  overdue?: boolean;
+  /** Giorni di ritardo (schedule_state.overdue_days), opzionale per il testo del badge. */
+  overdueDays?: number;
   unassigned?: boolean;
   onClick?: () => void;
   draggable?: boolean;
@@ -38,6 +42,8 @@ export function AccLaneTaskCard({
   priority = false,
   completed = false,
   leftBehind = false,
+  overdue = false,
+  overdueDays,
   unassigned = false,
   onClick,
   draggable,
@@ -75,6 +81,11 @@ export function AccLaneTaskCard({
         {leftBehind && (
           <span className="inline-flex rounded-pill border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
             Arretrata
+          </span>
+        )}
+        {overdue && (
+          <span className="inline-flex rounded-pill border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+            {overdueDays && overdueDays > 0 ? `Scaduta ${overdueDays}g` : "Scaduta"}
           </span>
         )}
         {completed && (

@@ -7,15 +7,16 @@ import { formatHours, type WorkloadTrayItem } from "./calendarUtils";
 
 export type { WorkloadTrayItem };
 export type WorkloadTrayLayout = "sidebar" | "dock";
-export type WorkloadTrayTab = "reassign" | "unsched" | "unassigned";
+export type WorkloadTrayTab = "reassign" | "unsched" | "unassigned" | "overdue";
 
-/** Un operatore con i suoi due bucket di task "da pianificare". */
+/** Un operatore con i suoi bucket di task "da pianificare" + scadute. */
 export interface WorkloadTrayGroup {
   userId: number;
   name: string;
   avatarUrl: string | null;
   reassign: WorkloadTrayItem[];
   unscheduled: WorkloadTrayItem[];
+  overdue: WorkloadTrayItem[];
 }
 
 interface WorkloadTrayProps {
@@ -65,11 +66,13 @@ export function WorkloadTray({
 }: WorkloadTrayProps) {
   const reassignTotal = groups.reduce((s, g) => s + g.reassign.length, 0);
   const unschedTotal = groups.reduce((s, g) => s + g.unscheduled.length, 0);
+  const overdueTotal = groups.reduce((s, g) => s + g.overdue.length, 0);
   const unassignedTotal = unassignedItems.length;
-  const total = reassignTotal + unschedTotal + unassignedTotal;
+  const total = reassignTotal + unschedTotal + overdueTotal + unassignedTotal;
   const showOpHeader = groups.length > 1;
 
-  const itemsOf = (g: WorkloadTrayGroup) => (tab === "reassign" ? g.reassign : g.unscheduled);
+  const itemsOf = (g: WorkloadTrayGroup) =>
+    tab === "reassign" ? g.reassign : tab === "overdue" ? g.overdue : g.unscheduled;
   const visibleGroups = tab === "unassigned" ? [] : groups.filter((g) => itemsOf(g).length > 0);
 
   const renderCard = (item: WorkloadTrayItem) => (
@@ -91,6 +94,14 @@ export function WorkloadTray({
           <i />
           {formatHours(item.durationMinutes / 60)}
         </span>
+        {item.isOverdue && (
+          <span className={`wlcal-tc-overdue ${item.nonDeferrable ? "is-hard" : ""}`}>
+            <Icon name="alert-triangle" className="h-3 w-3 shrink-0" />
+            {item.daysOverdue != null && item.daysOverdue > 0
+              ? `scaduta da ${item.daysOverdue}g`
+              : "scaduta"}
+          </span>
+        )}
         {item.overflowHours != null && item.overflowHours > 0 && (
           <span className="wlcal-tc-over">+{formatHours(item.overflowHours)} oltre limite</span>
         )}
@@ -122,6 +133,9 @@ export function WorkloadTray({
         <button type="button" className={tab === "unsched" ? "on" : ""} onClick={() => onTab("unsched")}>
           Senza orario <span className="b">{unschedTotal}</span>
         </button>
+        <button type="button" className={tab === "overdue" ? "on" : ""} onClick={() => onTab("overdue")}>
+          Scadute <span className="b">{overdueTotal}</span>
+        </button>
         <button type="button" className={tab === "unassigned" ? "on" : ""} onClick={() => onTab("unassigned")}>
           Da assegnare <span className="b">{unassignedTotal}</span>
         </button>
@@ -133,6 +147,15 @@ export function WorkloadTray({
           <span>
             <b>Oltre capacità.</b> Queste lavorazioni non rientrano nella giornata pianificata. Riportale in un altro giorno
             trascinandole sul calendario.
+          </span>
+        </div>
+      )}
+
+      {tab === "overdue" && overdueTotal > 0 && (
+        <div className="wlcal-tray-note wlcal-tray-note--danger">
+          <Icon name="alert-triangle" className="h-4 w-4 shrink-0" />
+          <span>
+            <b>Oltre la scadenza.</b> Queste lavorazioni hanno superato la data di scadenza. Riprogrammale o completale al più presto.
           </span>
         </div>
       )}
@@ -159,9 +182,19 @@ export function WorkloadTray({
           )
         ) : visibleGroups.length === 0 ? (
           <div className="wlcal-tray-empty">
-            Tutto pianificato.
-            <br />
-            Nessuna scheda in coda.
+            {tab === "overdue" ? (
+              <>
+                Nessuna task scaduta.
+                <br />
+                Tutto entro i tempi.
+              </>
+            ) : (
+              <>
+                Tutto pianificato.
+                <br />
+                Nessuna scheda in coda.
+              </>
+            )}
           </div>
         ) : (
           visibleGroups.map((g) => (

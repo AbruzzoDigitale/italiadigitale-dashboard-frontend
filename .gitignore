@@ -34,3 +34,10 @@ preventivatore-abruzzo-digitale*/
 preventivatore-abruzzo-digitale-*.zip
 Pacchetti Social Media (standalone).html
 handoff.md
+handoff-*.md
+Card pacchetti social Abruzzo Digitale*/
+Card pacchetti social Abruzzo Digitale*.zip
+jsoncalendario.json
+
+# Vite cache
+.vite/

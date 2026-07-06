@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../../hooks/useAuth";
 import {
   createWorkItemApi,
   instantiateWorkItemTemplateApi,
@@ -10,6 +11,7 @@ import {
   createTimeSlotApi,
   updateTimeSlotApi,
   deleteTimeSlotApi,
+  isReviewSendBack,
   type WorkItem,
   type WorkItemStatus,
   type UrgencyLevel,
@@ -34,7 +36,9 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { Icon } from "../ui/Icon";
+import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
+import { EstimatedHoursField } from "../ui/EstimatedHoursField";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
@@ -69,11 +73,89 @@ const LEFT_BEHIND_REASON_OPTIONS: { value: LeftBehindReason; label: string }[] =
 ];
 
 const WORKLOAD_FIELD_HELP = {
+  client: {
+    title: "Cliente",
+    shortText: "Cliente a cui è associata la lavorazione.",
+    longText:
+      "Opzionale. Collega la task a un cliente per filtri, report e contratti.",
+  },
+  is_template: {
+    title: "Salva come modello",
+    shortText: "Salva la task come modello riutilizzabile invece di una lavorazione reale.",
+    longText:
+      "I modelli non finiscono in calendario: servono a creare velocemente nuove task con gli stessi campi precompilati.",
+  },
+  title: {
+    title: "Titolo",
+    shortText: "Nome breve e riconoscibile della lavorazione.",
+    longText:
+      "È l'etichetta mostrata in calendario e negli elenchi. Obbligatorio.",
+  },
+  is_priority: {
+    title: "Priorità alta",
+    shortText: "Segnala la task come prioritaria.",
+    longText:
+      "Evidenzia la lavorazione per distinguerla a colpo d'occhio; non cambia la pianificazione automatica.",
+  },
+  is_completed: {
+    title: "Completata",
+    shortText: "Segna la task come completata.",
+    longText:
+      "Una task completata non occupa più slot in calendario e non rientra nei calcoli di carico.",
+  },
+  work_date: {
+    title: "Data lavorazione",
+    shortText: "Giorno in cui si prevede di lavorare la task.",
+    longText:
+      "Se lasci vuoto l'orario di inizio, il sistema assegna automaticamente il primo slot libero di questo giorno (partendo dall'ora attuale se è oggi) e, se è pieno, spilla ai giorni successivi fino alla scadenza.",
+  },
+  start_time: {
+    title: "Orario inizio",
+    shortText: "Ora di inizio nel giorno di lavorazione.",
+    longText:
+      "Se lo imposti, l'orario è fisso (scelto da te). Se lo lasci vuoto viene assegnato automaticamente e resta riposizionabile.",
+  },
+  deadline_date: {
+    title: "Scadenza",
+    shortText: "Data entro cui la task deve essere completata.",
+    longText:
+      "Determina fin dove la pianificazione automatica può spostare la task sui giorni successivi. Superata la scadenza, la task risulta in ritardo.",
+  },
   due_time_label: {
     title: "Orario di scadenza",
     shortText: "Orario entro cui la task deve essere completata nel giorno di scadenza (HH:MM).",
     longText:
       "Opzionale. Se valorizzato, nel giorno di scadenza la task risulta in ritardo solo dopo quell'orario.",
+  },
+  estimated_hours: {
+    title: "Ore stimate",
+    shortText: "Durata stimata della lavorazione.",
+    longText:
+      "Determina quanto spazio occupa in calendario e quanto pesa sul carico giornaliero dell'assegnatario.",
+  },
+  load_weight_factor: {
+    title: "Fattore peso",
+    shortText: "Quanto la task pesa sul carico giornaliero (1 = pieno).",
+    longText:
+      "Valore tra 0 e 1: ad es. 0,5 conta metà delle ore stimate nel calcolo del carico/capacità. Utile per attività a impegno parziale.",
+  },
+  affects_daily_load: {
+    title: "Impatta il carico giornaliero",
+    shortText: "Se attivo, la task conta nel carico/capacità del giorno.",
+    longText:
+      "Disattivalo per attività che non devono pesare sul calcolo della saturazione dell'operatore (es. promemoria).",
+  },
+  is_deadline_locked: {
+    title: "Task non derogabile",
+    shortText: "Rende non derogabile la scadenza della task evitando spostamenti automatici.",
+    longText:
+      "Quando attivo, la scadenza impostata viene mantenuta anche durante ricalcoli o ripianificazioni.",
+  },
+  is_left_behind: {
+    title: "Task lasciata indietro",
+    shortText: "Marca la task come arretrata, indicandone il motivo.",
+    longText:
+      "Usato quando una task non è stata svolta nel giorno previsto: permette di indicare la responsabilità e di gestirne il peso residuo.",
   },
   is_fractionable: {
     title: "Suddivisione attività",
@@ -81,11 +163,53 @@ const WORKLOAD_FIELD_HELP = {
     longText:
       "Attiva questa opzione quando il lavoro può essere distribuito su più giorni o slot. Disattivala per attività che richiedono continuità.",
   },
-  is_deadline_locked: {
-    title: "Task non derogabile",
-    shortText: "Rende non derogabile la scadenza della task evitando spostamenti automatici.",
+  status: {
+    title: "Stato",
+    shortText: "Stato di avanzamento della lavorazione.",
     longText:
-      "Quando attivo, la scadenza impostata viene mantenuta anche durante ricalcoli o ripianificazioni.",
+      "Indica la fase corrente (es. pianificata, in corso, completata). Usato per filtri e viste.",
+  },
+  progress_percent: {
+    title: "Avanzamento (%)",
+    shortText: "Percentuale di completamento della task (0–100).",
+    longText:
+      "Indicativo dello stato di avanzamento, separato dallo stato.",
+  },
+  urgency_level: {
+    title: "Urgenza",
+    shortText: "Livello di urgenza della task.",
+    longText:
+      "Classifica quanto è urgente la lavorazione, a supporto di ordinamento e priorità visiva.",
+  },
+  assignee_ids: {
+    title: "Assegnatari",
+    shortText: "Operatori responsabili della lavorazione.",
+    longText:
+      "La pianificazione automatica cerca uno slot libero per tutti gli assegnatari. Senza assegnatari la task non riceve un orario automatico.",
+  },
+  work_area_ids: {
+    title: "Aree di lavoro",
+    shortText: "Aree/reparti a cui appartiene la task.",
+    longText:
+      "Servono a classificare e filtrare le lavorazioni per area operativa.",
+  },
+  tag_ids: {
+    title: "Tag",
+    shortText: "Etichette libere per classificare la task.",
+    longText:
+      "Usa i tag per raggruppare e filtrare le lavorazioni trasversalmente alle aree.",
+  },
+  status_comment: {
+    title: "Commento cambio stato",
+    shortText: "Nota opzionale registrata quando cambi lo stato della task.",
+    longText:
+      "Utile in revisione: admin/PM può rimandare la task in lavorazione o confermarla spiegando il motivo. Appare nella timeline accanto al passaggio di stato.",
+  },
+  reviewer: {
+    title: "Revisore",
+    shortText: "Chi revisiona la task. Lo nominano solo PM/Admin.",
+    longText:
+      "Default automatico: il PM dell'area della task. In revisione la lavorazione pesa 0.25 sul revisore (che diventa assegnatario) e 0 sull'operatore.",
   },
 } as const;
 
@@ -222,11 +346,66 @@ function fmtHours(n: number): string {
   return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
 }
 
+function workItemEventLabel(eventType: string): string {
+  switch (eventType) {
+    case "work_item_created":
+      return "Task creata";
+    case "work_item_created_from_recurrence":
+      return "Creata da ricorrenza";
+    case "work_item_created_from_template":
+      return "Creata da template";
+    case "recurrence_generated":
+      return "Ricorrenze generate";
+    case "field_updated":
+      return "Campo aggiornato";
+    case "work_item_date_moved":
+      return "Spostata di giorno";
+    case "work_item_carried_forward":
+      return "Trascinata in avanti";
+    case "work_item_became_overdue":
+      return "Diventata in ritardo";
+    case "status_changed":
+      return "Stato cambiato";
+    case "comment":
+      return "Commento";
+    case "reviewer_assigned":
+      return "Revisore aggiornato";
+    case "work_item_rescheduled_next_available":
+      return "Rischedulata (primo slot disponibile)";
+    case "work_item_deleted":
+      return "Task archiviata";
+    default:
+      return eventType;
+  }
+}
+
+function formatHistoryValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// Etichette stato in italiano per la timeline (es. "in_progress" → "In corso").
+function statusHistoryLabel(value: unknown): string {
+  const v = typeof value === "string" ? value : value == null ? "" : String(value);
+  switch (v) {
+    case "planned": return "Da fare";
+    case "in_progress": return "In corso";
+    case "review": return "Revisione";
+    case "completed":
+    case "done": return "Completato";
+    case "blocked": return "Bloccata";
+    case "cancelled": return "Annullata";
+    default: return v;
+  }
+}
+
 function applyLeftBehindDefaults(reason: LeftBehindReason): Pick<WorkItemFormState, "affects_daily_load" | "load_weight_factor"> {
   if (reason === "client_protection") return { affects_daily_load: false, load_weight_factor: "0" };
   if (reason === "justified_delay") return { affects_daily_load: true, load_weight_factor: "0.5" };
   return { affects_daily_load: true, load_weight_factor: "1" };
 }
+
 
 // ── TimeSlotRow ───────────────────────────────────────────────────────────────
 
@@ -283,6 +462,8 @@ export interface WorkItemFormModalProps {
   instantiateTemplate?: WorkItem | null;
   companyId: number;
   isAdmin: boolean;
+  /** PM/Admin: può nominare/cambiare il revisore. */
+  canManageReviewer?: boolean;
   /** Pre-fill work_date when creating */
   defaultWorkDate?: string;
   /** Pre-fill start_time when creating */
@@ -309,6 +490,7 @@ export function WorkItemFormModal({
   instantiateTemplate = null,
   companyId,
   isAdmin,
+  canManageReviewer = false,
   defaultWorkDate,
   defaultStartTime,
   defaultEstimatedHours,
@@ -351,7 +533,11 @@ export function WorkItemFormModal({
   // ── Scheda attiva nel layout di creazione singola
   const [createTab, setCreateTab] = useState<"dettagli" | "tag" | "template">("dettagli");
   // ── Scheda attiva nel layout di modifica (mostra tutto, diviso in schede)
-  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist">("dettagli");
+  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist" | "timeline">("dettagli");
+  // ── Commento opzionale per il cambio stato (salvato come nota nella timeline)
+  const [statusComment, setStatusComment] = useState("");
+  // ── Revisore selezionato (PM/Admin). Inizializzato dal dettaglio task.
+  const [reviewerUserId, setReviewerUserId] = useState<number | null>(null);
 
   // ── Options
   const [users, setUsers] = useState<User[]>([]);
@@ -362,6 +548,13 @@ export function WorkItemFormModal({
   const [clients, setClients] = useState<Client[]>([]);
   const [pedConfigs, setPedConfigs] = useState<PedConfiguration[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
+
+  // Utente corrente: in creazione la task viene preassegnata a lui con le sue aree.
+  // Ref per leggerlo nell'effetto di init senza farlo rientrare nelle dipendenze.
+  const { user: currentUser } = useAuth();
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const autofilledRef = useRef(false);
 
   // ── Form
   const [form, setForm] = useState<WorkItemFormState>(EMPTY_FORM);
@@ -408,10 +601,41 @@ export function WorkItemFormModal({
       listWorkAreasApi({ company_id: companyId }).then(setWorkAreas).catch(() => {}),
       listWorkTagsApi(companyId).then(setWorkTags).catch(() => {}),
       listWorkItemsApi({ company_id: companyId, only_templates: true }).then(setTemplates).catch(() => setTemplates([])),
-      getClientsApi({ company_id: companyId, per_page: 200 }).then((r) => setClients(r.data)).catch(() => {}),
+      getClientsApi({ company_id: companyId, per_page: 1000 }).then((r) => setClients(r.data)).catch(() => {}),
       listPedConfigurationsApi(companyId).then(setPedConfigs).catch(() => setPedConfigs([])),
     ]).finally(() => setOptionsLoading(false));
   }, [open, companyId]);
+
+  // Il commento del cambio stato è transitorio: si azzera ad ogni apertura/cambio task.
+  useEffect(() => {
+    setStatusComment("");
+  }, [open, activeWorkItemId]);
+
+  // Revisore: inizializzato dal dettaglio task (si aggiorna quando il dettaglio arriva).
+  useEffect(() => {
+    setReviewerUserId(sourceItem?.reviewer_user_id ?? null);
+  }, [open, activeWorkItemId, sourceItem?.reviewer_user_id]);
+
+  // Preselezione in CREAZIONE: operatore corrente + sue aree di lavoro, ma:
+  // - solo se l'operatore appartiene all'azienda visualizzata (è tra gli utenti caricati);
+  // - limitando le aree a quelle dell'azienda visualizzata (intersezione con le opzioni).
+  // Gira dopo il load delle opzioni e riempie solo i campi ancora vuoti (non sovrascrive
+  // assegnatari imposti dal chiamante né modifiche dell'utente).
+  useEffect(() => {
+    if (!open || optionsLoading) return;
+    if (sourceItem || templateSeedItem || isInstantiateMode) return; // solo create puro
+    if (autofilledRef.current) return;
+    autofilledRef.current = true;
+    const me = currentUserRef.current;
+    if (!me || !users.some((u) => u.id === me.id)) return; // operatore non di questa azienda
+    const validAreas = new Set(workAreas.map((a) => a.id));
+    const myAreas = (me.work_area_ids ?? []).filter((id) => validAreas.has(id));
+    setForm((current) => ({
+      ...current,
+      assignee_ids: current.assignee_ids.length ? current.assignee_ids : [me.id],
+      work_area_ids: current.work_area_ids.length ? current.work_area_ids : myAreas,
+    }));
+  }, [open, optionsLoading, users, workAreas, sourceItem, templateSeedItem, isInstantiateMode]);
 
   useEffect(() => {
     if (!open || activeWorkItemId == null) return;
@@ -508,6 +732,9 @@ export function WorkItemFormModal({
         is_fractionable: true,
         is_deadline_locked: false,
       });
+      // La preassegnazione (operatore corrente + sue aree) avviene dopo il caricamento
+      // delle opzioni dell'azienda, così le aree sono filtrate su quella visualizzata.
+      autofilledRef.current = false;
       setSlots([]);
     }
     hydratedFormKeyRef.current = hydrationKey;
@@ -748,7 +975,15 @@ export function WorkItemFormModal({
 
       let createdItem: WorkItem | null = null;
       if (sourceItem) {
-        await updateWorkItemApi(sourceItem.id, payload);
+        await updateWorkItemApi(sourceItem.id, {
+          ...payload,
+          status_comment:
+            (isReviewSendBack(sourceItem.status, form.status) && statusComment.trim()) || undefined,
+          reviewer_user_id:
+            canManageReviewer && reviewerUserId !== (sourceItem.reviewer_user_id ?? null)
+              ? reviewerUserId
+              : undefined,
+        });
         toast.success("Lavorazione aggiornata");
       } else if (instantiateTemplate?.id != null) {
         const {
@@ -922,7 +1157,9 @@ export function WorkItemFormModal({
           items: [
             ...checklist.items,
             {
-              title: "Nuovo elemento",
+              // Vuoto: così appare il placeholder "Titolo elemento" (grigio) che sparisce
+              // da solo appena scrivi, invece di un testo da cancellare a mano.
+              title: "",
               description: null,
               is_completed: false,
               due_at: null,
@@ -1084,7 +1321,7 @@ export function WorkItemFormModal({
   };
 
   // ── Options for selectors
-  const userOptions = users.map((u) => ({ id: u.id, label: u.full_name ?? u.username }));
+  const userOptions = users.map((u) => ({ id: u.id, label: u.full_name ?? u.username, avatarUrl: u.avatar_url }));
   const areaOptions = workAreas.map((a) => ({ id: a.id, label: a.name, color: a.color }));
   const tagOptions = workTags.map((t) => ({ id: t.id, label: t.name, color: t.color }));
   const isGeneratedRecurringItem = sourceItem?.recurrence_parent_id != null;
@@ -1095,11 +1332,7 @@ export function WorkItemFormModal({
 
   // ── Sezioni riutilizzabili (usate sia nel layout completo di modifica sia nelle schede di creazione)
   const renderRecurrenceSection = () => (
-    <fieldset className="flex flex-col gap-3">
-      <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-        Ricorrenza
-      </legend>
-
+    <SectionCard icon="refresh-cw" title="Ricorrenza">
       {isGeneratedRecurringItem && (
         <div className="rounded-md border border-info/25 bg-info/10 px-3 py-2 text-xs text-info">
           <p>Questa task è generata da ricorrenza. La configurazione ricorrenza è gestibile solo sulla task sorgente.</p>
@@ -1250,15 +1483,15 @@ export function WorkItemFormModal({
           </label>
         </>
       )}
-    </fieldset>
+    </SectionCard>
   );
 
   const renderChecklistSection = () => (
-    <fieldset className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <legend className="text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-          Checklist ({form.checklists.length})
-        </legend>
+    <SectionCard
+      icon="check-circle"
+      title="Checklist"
+      count={form.checklists.length}
+      actions={
         <button
           type="button"
           onClick={addChecklist}
@@ -1267,8 +1500,8 @@ export function WorkItemFormModal({
           <Icon name="plus" className="h-3 w-3" />
           Aggiungi checklist
         </button>
-      </div>
-
+      }
+    >
       {form.checklists.length === 0 ? (
         <p className="text-sm text-muted dark:text-muted-dark">Nessuna checklist aggiunta.</p>
       ) : (
@@ -1460,17 +1693,11 @@ export function WorkItemFormModal({
           ))}
         </div>
       )}
-    </fieldset>
+    </SectionCard>
   );
 
   const renderPedSection = () => (
-    <fieldset className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <legend className="text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-          PED
-        </legend>
-      </div>
-
+    <SectionCard icon="grid" title="PED">
       {!sourceItem ? (
         <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
           <Checkbox
@@ -1581,7 +1808,7 @@ export function WorkItemFormModal({
           )}
         </div>
       )}
-    </fieldset>
+    </SectionCard>
   );
 
   const CREATE_TABS = [
@@ -1643,6 +1870,7 @@ export function WorkItemFormModal({
         <div className="flex flex-col gap-3">
           <Input
             label="Titolo *"
+            labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
             value={form.title}
             onChange={(e) => updateForm("title", e.target.value)}
             placeholder="Titolo della lavorazione"
@@ -1722,14 +1950,9 @@ export function WorkItemFormModal({
               value={form.start_time}
               onChange={(e) => updateForm("start_time", e.target.value)}
             />
-            <Input
-              label="Ore stimate"
-              type="number"
-              min="0"
-              step="0.5"
+            <EstimatedHoursField
               value={form.estimated_hours}
-              onChange={(e) => updateForm("estimated_hours", e.target.value)}
-              placeholder="es. 4"
+              onChange={(v) => updateForm("estimated_hours", v == null ? "" : String(v))}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1809,6 +2032,7 @@ export function WorkItemFormModal({
     <Modal
       open={open}
       onClose={closeModal}
+      icon={<Icon name="check-circle" className="h-5 w-5" />}
       title={sourceItem ? "Modifica lavorazione" : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")}
       description="Compila i dati della lavorazione. I campi con * sono obbligatori."
       size="xl"
@@ -1861,6 +2085,14 @@ export function WorkItemFormModal({
                     Occorrenza da ricorrenza
                   </span>
                 )}
+                {sourceItem.schedule_state?.should_force_today && sourceItem.work_date && (
+                  <span
+                    className="inline-flex rounded-pill border border-[#c41284]/35 bg-[#c41284]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#a30f6e] dark:text-[#e91e8a]"
+                    title="Non completata nel giorno pianificato: portata a oggi"
+                  >
+                    ↪ dal {sourceItem.work_date.slice(8, 10)}/{sourceItem.work_date.slice(5, 7)}
+                  </span>
+                )}
               </div>
 
               {(isFromTemplate || isGeneratedRecurringItem) && (
@@ -1911,6 +2143,7 @@ export function WorkItemFormModal({
               { id: "dettagli", label: "Dettagli" },
               { id: "assegnazioni", label: "Assegnazioni & Tag" },
               { id: "checklist", label: "Checklist & PED" },
+              { id: "timeline", label: "Timeline eventi" },
             ] as const).map((tab) => (
               <button
                 key={tab.id}
@@ -1927,13 +2160,78 @@ export function WorkItemFormModal({
             ))}
           </div>
 
+          {editTab === "timeline" && (
+            <div className="rounded-md border border-line dark:border-line-dark p-3">
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Timeline eventi</div>
+              {isDetailLoading ? (
+                <div className="text-sm text-muted dark:text-muted-dark">Caricamento cronologia…</div>
+              ) : (sourceItem?.history ?? []).length === 0 ? (
+                <div className="text-sm text-muted dark:text-muted-dark">Nessun evento disponibile.</div>
+              ) : (
+                <div className="space-y-2">
+                  {(sourceItem?.history ?? [])
+                    .slice()
+                    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                    .map((event, index) => {
+                      const isCarried = event.event_type === "work_item_carried_forward";
+                      const isStatus = event.event_type === "status_changed";
+                      const isComment = event.event_type === "comment";
+                      // Il commento utente (status_changed / comment) va in un blocco a sé;
+                      // le note di sistema (carried_forward, overdue) restano inline.
+                      const showCommentBlock = (isStatus || isComment) && !!event.notes;
+                      const boxClass = isCarried
+                        ? "border-warning/40 bg-warning/10"
+                        : isStatus
+                          ? "border-info/45 bg-info/10"
+                          : isComment
+                            ? "border-brand-magenta/45 bg-brand-magenta/5"
+                            : "border-line dark:border-line-dark";
+                      const labelClass = isCarried
+                        ? "text-warning"
+                        : isStatus
+                          ? "text-info"
+                          : isComment
+                            ? "text-brand-magenta"
+                            : "text-ink dark:text-paper";
+                      const fromStr = isStatus ? statusHistoryLabel(event.from_value) : formatHistoryValue(event.from_value);
+                      const toStr = isStatus ? statusHistoryLabel(event.to_value) : formatHistoryValue(event.to_value);
+                      const showField = !!event.field_name && event.event_type !== "work_item_date_moved" && !isStatus;
+                      const segments: string[] = [];
+                      if (fromStr || toStr) {
+                        const change = toStr ? `${fromStr ? `${fromStr} ` : ""}→ ${toStr}` : fromStr;
+                        segments.push(showField ? `${event.field_name}: ${change}` : change);
+                      } else if (showField) {
+                        segments.push(String(event.field_name));
+                      }
+                      if (!showCommentBlock && event.notes) segments.push(event.notes);
+                      return (
+                        <div key={`${event.event_type}-${event.created_at}-${index}`} className={`rounded-md border p-2 ${boxClass}`}>
+                          <div className={`text-xs font-semibold ${labelClass}`}>{workItemEventLabel(event.event_type)}</div>
+                          <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
+                            {new Date(event.created_at).toLocaleString("it-IT")}
+                            {event.actor_name ? ` · ${event.actor_name}` : ""}
+                          </div>
+                          {segments.length > 0 && (
+                            <div className="mt-1 text-xs text-muted dark:text-muted-dark">{segments.join(" · ")}</div>
+                          )}
+                          {showCommentBlock && (
+                            <div className="mt-2 rounded-md border-l-2 border-brand-magenta/60 bg-cream px-2.5 py-1.5 dark:bg-[#1c1c20]">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-magenta">Commento</div>
+                              <div className="mt-0.5 whitespace-pre-line break-words text-xs text-ink dark:text-paper">{event.notes}</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
           {editTab === "dettagli" && (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Base — */}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-              Base
-            </legend>
+          <SectionCard icon="document-text" title="Base">
             {!sourceItem && !isInstantiateMode && (
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
@@ -1955,8 +2253,9 @@ export function WorkItemFormModal({
               </div>
             )}
               <div className="flex min-w-0 flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+              <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
                 Cliente
+                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.client} />
               </label>
                 <ClientSelectorWithCreate
                   value={form.client_id}
@@ -1977,6 +2276,7 @@ export function WorkItemFormModal({
                 disabled={isInstantiateMode}
               />
               Salva come modello riutilizzabile
+              <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_template} />
             </label>
             {form.is_template && (
               <p className="text-xs text-muted dark:text-muted-dark">
@@ -1985,6 +2285,7 @@ export function WorkItemFormModal({
             )}
             <Input
               label="Titolo *"
+              labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
               value={form.title}
               onChange={(e) => updateForm("title", e.target.value)}
               placeholder="Titolo della lavorazione"
@@ -2008,6 +2309,7 @@ export function WorkItemFormModal({
                   onChange={(v) => updateForm("is_priority", v)}
                 />
                 🚩 Priorità alta
+                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_priority} />
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
                 <Checkbox
@@ -2015,9 +2317,10 @@ export function WorkItemFormModal({
                   onChange={(v) => updateForm("is_completed", v)}
                 />
                 Completata
+                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_completed} />
               </label>
             </div>
-          </fieldset>
+          </SectionCard>
 
           </div>
           )}
@@ -2025,25 +2328,28 @@ export function WorkItemFormModal({
           {editTab === "dettagli" && (
           <div className="flex min-w-0 flex-col gap-5 border-t border-line pt-5 dark:border-line-dark">
           {/* — Pianificazione (mostrata nella stessa scheda Dettagli) — */}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-              Pianificazione
-            </legend>
+          <SectionCard icon="calendar" title="Pianificazione">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Input
                 label="Data lavorazione"
+                labelIcon={<Icon name="calendar" className="h-3.5 w-3.5" />}
+                help={WORKLOAD_FIELD_HELP.work_date}
                 type="date"
                 value={form.work_date}
                 onChange={(e) => updateForm("work_date", e.target.value)}
               />
               <Input
                 label="Orario inizio"
+                labelIcon={<Icon name="clock" className="h-3.5 w-3.5" />}
+                help={WORKLOAD_FIELD_HELP.start_time}
                 type="time"
                 value={form.start_time}
                 onChange={(e) => updateForm("start_time", e.target.value)}
               />
               <Input
                 label="Scadenza"
+                labelIcon={<Icon name="calendar" className="h-3.5 w-3.5" />}
+                help={WORKLOAD_FIELD_HELP.deadline_date}
                 type="date"
                 value={form.deadline_date}
                 onChange={(e) => updateForm("deadline_date", e.target.value)}
@@ -2062,17 +2368,14 @@ export function WorkItemFormModal({
                   onChange={(e) => updateForm("due_time_label", e.target.value)}
                 />
               </div>
-              <Input
-                label="Ore stimate"
-                type="number"
-                min="0"
-                step="0.5"
+              <EstimatedHoursField
                 value={form.estimated_hours}
-                onChange={(e) => updateForm("estimated_hours", e.target.value)}
-                placeholder="es. 4"
+                onChange={(v) => updateForm("estimated_hours", v == null ? "" : String(v))}
+                help={WORKLOAD_FIELD_HELP.estimated_hours}
               />
                 <Input
                   label="Fattore peso"
+                  help={WORKLOAD_FIELD_HELP.load_weight_factor}
                   type="number"
                   min="0"
                   max="3"
@@ -2089,6 +2392,7 @@ export function WorkItemFormModal({
                     onChange={(v) => updateForm("affects_daily_load", v)}
                   />
                   Impatta il carico giornaliero
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.affects_daily_load} />
                 </label>
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
                   <Checkbox
@@ -2104,6 +2408,7 @@ export function WorkItemFormModal({
                     onChange={handleLeftBehindToggle}
                   />
                   Task lasciata indietro
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_left_behind} />
                 </label>
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
                   <Checkbox
@@ -2136,24 +2441,18 @@ export function WorkItemFormModal({
                   />
                 </div>
               )}
-          </fieldset>
-
-          <div className="h-px bg-line dark:bg-line-dark" />
+          </SectionCard>
 
           {/* — Ricorrenza — */}
           {renderRecurrenceSection()}
 
-          <div className="h-px bg-line dark:bg-line-dark" />
-
           {/* — Stato — */}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-              Stato
-            </legend>
+          <SectionCard icon="activity" title="Stato">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
                   Stato
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.status} />
                 </label>
                 <SearchableSelect
                   value={form.status}
@@ -2165,6 +2464,7 @@ export function WorkItemFormModal({
               </div>
               <Input
                 label="Avanzamento (%)"
+                help={WORKLOAD_FIELD_HELP.progress_percent}
                 type="number"
                 min="0"
                 max="100"
@@ -2173,8 +2473,9 @@ export function WorkItemFormModal({
                 placeholder="0"
               />
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
                   Urgenza
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.urgency_level} />
                 </label>
                 <SearchableSelect
                   value={form.urgency_level}
@@ -2188,7 +2489,26 @@ export function WorkItemFormModal({
                 />
               </div>
             </div>
-          </fieldset>
+            {sourceItem && isReviewSendBack(sourceItem.status, form.status) && (
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                  Motivo del rimando (opzionale)
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.status_comment} />
+                </label>
+                <Textarea
+                  value={statusComment}
+                  onChange={(e) => setStatusComment(e.target.value)}
+                  placeholder="Es. rimandata in lavorazione: rivedere il claim…"
+                  rows={2}
+                  maxLength={2000}
+                  className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
+                />
+                <p className="text-[11px] text-muted dark:text-muted-dark">
+                  Stai riportando indietro la task da {statusHistoryLabel(sourceItem.status)}: la nota finisce in timeline.
+                </p>
+              </div>
+            )}
+          </SectionCard>
 
           </div>
           )}
@@ -2196,12 +2516,10 @@ export function WorkItemFormModal({
           {editTab === "assegnazioni" && (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Assegnazioni — */}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-              Assegnazioni
-            </legend>
+          <SectionCard icon="users" title="Assegnazioni">
             <MultiSelect
               label="Assegnatari"
+              help={WORKLOAD_FIELD_HELP.assignee_ids}
               value={form.assignee_ids}
               onChange={(v) => updateForm("assignee_ids", v)}
               options={userOptions}
@@ -2209,6 +2527,7 @@ export function WorkItemFormModal({
             />
             <MultiSelect
               label="Aree di lavoro"
+              help={WORKLOAD_FIELD_HELP.work_area_ids}
               value={form.work_area_ids}
               onChange={(v) => updateForm("work_area_ids", v)}
               options={areaOptions}
@@ -2216,18 +2535,43 @@ export function WorkItemFormModal({
               onCreateClick={isAdmin ? () => setWorkAreaModalOpen(true) : undefined}
               createActionLabel="Crea area"
             />
-          </fieldset>
-
-          <div className="h-px bg-line dark:bg-line-dark" />
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                Revisore
+                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.reviewer} />
+              </label>
+              {canManageReviewer ? (
+                <SearchableSelect
+                  value={reviewerUserId != null ? String(reviewerUserId) : ""}
+                  onChange={(v) => setReviewerUserId(v ? Number(v) : null)}
+                  options={[
+                    { value: "", label: "— nessuno —" },
+                    ...users.map((u) => ({
+                      value: String(u.id),
+                      label: u.full_name ?? u.username,
+                      avatarUrl: u.avatar_url,
+                    })),
+                  ]}
+                  placeholder="— nessuno —"
+                  searchPlaceholder="Cerca revisore…"
+                  menuLayer="portal"
+                />
+              ) : (
+                <div className="rounded-md border border-line bg-cream px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-[#1c1c20] dark:text-paper">
+                  {sourceItem?.reviewer_name ?? "—"}
+                </div>
+              )}
+              <p className="text-[11px] text-muted dark:text-muted-dark">
+                Default: il PM dell'area. In revisione pesa 0.25 sul revisore, 0 sull'operatore.
+              </p>
+            </div>
+          </SectionCard>
 
           {/* — Tag — */}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-              Tag
-            </legend>
-
+          <SectionCard icon="list" title="Tag">
             <MultiSelect
               label="Tag"
+              help={WORKLOAD_FIELD_HELP.tag_ids}
               value={form.tag_ids}
               onChange={(v) => updateForm("tag_ids", v)}
               options={tagOptions}
@@ -2235,7 +2579,7 @@ export function WorkItemFormModal({
               onCreateClick={isAdmin ? () => setWorkTagModalOpen(true) : undefined}
               createActionLabel="Crea tag"
             />
-          </fieldset>
+          </SectionCard>
 
           </div>
           )}
@@ -2253,13 +2597,12 @@ export function WorkItemFormModal({
           {/* — Slot orari (edit only) — */}
           {sourceItem && (
             <>
-              <div className="h-px bg-line dark:bg-line-dark" />
-              <fieldset className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <legend className="text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">
-                    Slot orari ({slots.length})
-                  </legend>
-                  {!addingSlot && (
+              <SectionCard
+                icon="clock"
+                title="Slot orari"
+                count={slots.length}
+                actions={
+                  !addingSlot ? (
                     <button
                       type="button"
                       onClick={() => setAddingSlot(true)}
@@ -2268,9 +2611,9 @@ export function WorkItemFormModal({
                       <Icon name="plus" className="h-3 w-3" />
                       Aggiungi
                     </button>
-                  )}
-                </div>
-
+                  ) : undefined
+                }
+              >
                 {slots.length > 0 && (
                   <div className="flex flex-col gap-1.5">
                     {slots
@@ -2335,7 +2678,7 @@ export function WorkItemFormModal({
                     </div>
                   </div>
                 )}
-              </fieldset>
+              </SectionCard>
             </>
           )}
           </div>

@@ -5,6 +5,7 @@ import {
   type WorkloadTimelineItem,
   type WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
+import type { WorkItemSwapEffectivePosition } from "../../api/workItems";
 import { Spinner } from "../ui/Spinner";
 import {
   CALENDAR_CREATE_SLOT_MINUTES,
@@ -12,7 +13,6 @@ import {
   CALENDAR_SLOT_MINUTES,
   clampTimelineInRange,
   formatHours,
-  getReadableTaskTextColors,
   hhmmToMinutes,
   layoutCalendarTimelineBlocks,
   minutesToHHMM,
@@ -60,7 +60,7 @@ export interface WorkloadCalendarProps {
   /** Sposta una task (stesso operatore) in un giorno+slot. */
   onMove: (taskId: number, day: string, startTime: string) => void;
   /** Scambia le posizioni di due task (drop di una task su un'altra). */
-  onSwap: (sourceId: number, targetId: number) => void;
+  onSwap: (sourceId: number, targetId: number, positions?: WorkItemSwapEffectivePosition[]) => void;
   /** Crea per drag su slot vuoto. */
   onCreateByDrag: (args: { day: string; startTime: string; estimatedHours: number }) => void;
   /** Cambia periodo (−1 prec / +1 succ): usato per l'auto-paging trascinando sulle frecce. */
@@ -167,6 +167,33 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
   const { dayStartMinutes, dayEndMinutes, totalMinutes, hourSlots, openingMinutes, closingMinutes } = bounds;
 
   const [dayStates, setDayStates] = useState<DayState[]>([]);
+  const dayStatesRef = useRef<DayState[]>([]);
+  dayStatesRef.current = dayStates;
+
+  // Posizioni MOSTRATE (reflow) di source/target: il backend le usa per swappare davvero
+  // le trascinate (il loro start_time salvato non corrisponde a dove appaiono).
+  const buildSwapPositions = (sourceId: number, targetId: number): WorkItemSwapEffectivePosition[] => {
+    let src: WorkloadTimelineItem | null = null;
+    let tgt: WorkloadTimelineItem | null = null;
+    for (const s of dayStatesRef.current) {
+      for (const it of s.data?.timeline ?? []) {
+        if (it.kind !== "task") continue;
+        if (it.work_item_id === sourceId && !src) src = it;
+        if (it.work_item_id === targetId && !tgt) tgt = it;
+      }
+    }
+    const out: WorkItemSwapEffectivePosition[] = [];
+    const push = (it: WorkloadTimelineItem | null, id: number) => {
+      if (!it) return;
+      const day = (resolveTimelineScheduleState(it)?.effective_work_date ?? it.task?.work_date ?? "").slice(0, 10);
+      const mins = hhmmToMinutes(it.start_time);
+      if (!day || mins == null) return;
+      out.push({ work_item_id: id, work_date: day, start_minutes: mins });
+    };
+    push(src, sourceId);
+    push(tgt, targetId);
+    return out;
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const capacityHours = maxCapacityHours && maxCapacityHours > 0 ? maxCapacityHours : 8;
@@ -406,7 +433,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
     if (d && d.active) {
       if (swapId != null && d.kind === "event") {
         cbRef.current.applyOptimisticSwap(d.taskId, swapId);
-        cbRef.current.onSwap(d.taskId, swapId);
+        cbRef.current.onSwap(d.taskId, swapId, buildSwapPositions(d.taskId, swapId));
       } else if (drop) {
         // Anteprima ottimistica immediata (solo per gli eventi già a calendario).
         if (d.kind === "event") cbRef.current.applyOptimisticMove(d, drop.day, drop.minutes);
@@ -555,7 +582,9 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
         // Per le task arretrate (carried-over) l'OCCUPAZIONE sul calendario riflette
         // le ore EFFETTIVE (peso ridotto), non la durata stimata start→end.
         const sched = resolveTimelineScheduleState(item);
-        const overdue = item.kind === "task" && !!sched && (sched.delay_code != null || sched.is_overdue || sched.is_left_behind);
+        // carried_forward NON è arretrata: peso pieno, durata normale start→end.
+        const overdue = item.kind === "task" && !!sched && sched.delay_code !== "carried_forward" &&
+          (sched.delay_code != null || sched.is_overdue || sched.is_left_behind);
         if (overdue) {
           const effMin = Math.round(resolveTimelineEffectiveHours(item) * 60);
           if (effMin > 0) end = start + Math.max(CALENDAR_SLOT_MINUTES, effMin);
@@ -566,7 +595,8 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
       })
       .filter((b): b is { item: WorkloadTimelineItem; start: number; end: number } => !!b);
     const laidOut = layoutCalendarTimelineBlocks(blocks);
-    const tasks = timeline.filter((i) => i.kind === "task");
+    // I ghost (traccia sul giorno d'origine) sono solo visuali: non contano nel carico.
+    const tasks = timeline.filter((i) => i.kind === "task" && !i.is_ghost);
     const totalHours = tasks.reduce((acc, i) => acc + resolveTimelineEffectiveHours(i), 0);
     const loadPct = (totalHours / capacityHours) * 100;
     return { day, data, laidOut, taskCount: tasks.length, totalHours, loadPct };
@@ -721,8 +751,10 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                     const isBreak = isBreakKind(item.kind);
                     const isExiting = item.kind === "task" && item.work_item_id != null && exitingIds.includes(item.work_item_id);
                     const isDone = (item.kind === "task" && (item.status === "completed" || item.status === "done")) || isExiting;
+                    const isGhost = item.kind === "task" && item.is_ghost === true;
+                    const isReview = item.kind === "task" && item.is_review === true;
                     const scheduleState = resolveTimelineScheduleState(item);
-                    const isOverdue = item.kind === "task" && !!scheduleState &&
+                    const isOverdue = item.kind === "task" && !!scheduleState && scheduleState.delay_code !== "carried_forward" &&
                       (scheduleState.delay_code != null || scheduleState.is_overdue || scheduleState.is_left_behind);
                     const effectiveHours = resolveTimelineEffectiveHours(item);
                     const areaColor = resolveTimelineTaskColor(item);
@@ -748,17 +780,18 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                       );
                     }
 
-                    const readable = getReadableTaskTextColors(areaColor);
                     return (
                       <div
                         key={key}
                         data-wlcal-task="true"
                         data-task-id={item.kind === "task" && item.work_item_id ? item.work_item_id : undefined}
-                        className={`wlcal-ev ${compact ? "is-compact" : ""} ${isDone ? "is-done" : ""} ${isOverdue ? "is-overdue" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${swapTargetId === item.work_item_id ? "is-swap-target" : ""} ${item.work_item_id && swapPendingIds.includes(item.work_item_id) ? "is-swap-pending" : ""} ${drag?.taskId === item.work_item_id ? "is-dragging" : ""}`}
+                        className={`wlcal-ev ${compact ? "is-compact" : ""} ${isDone ? "is-done" : ""} ${isOverdue ? "is-overdue" : ""} ${isGhost ? "is-ghost" : ""} ${isReview ? "is-review" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${swapTargetId === item.work_item_id ? "is-swap-target" : ""} ${item.work_item_id && swapPendingIds.includes(item.work_item_id) ? "is-swap-pending" : ""} ${drag?.taskId === item.work_item_id ? "is-dragging" : ""}`}
                         style={blockStyle}
-                        title={`${resolveTimelineClientLabel(item)} · ${resolveTimelineTaskTitle(item)} · ${item.start_time}–${item.end_time}`}
+                        title={isGhost
+                          ? `${resolveTimelineTaskTitle(item)} · pianificata qui, in lavorazione oggi`
+                          : `${resolveTimelineClientLabel(item)} · ${resolveTimelineTaskTitle(item)} · ${item.start_time}–${item.end_time}`}
                         onPointerDown={(event) => {
-                          if (item.kind !== "task" || !item.work_item_id || isDone) return;
+                          if (item.kind !== "task" || !item.work_item_id || isDone || isGhost) return;
                           if ((event.target as HTMLElement).closest('[data-wlcal-check="true"]')) return;
                           startDrag(event, {
                             kind: "event",
@@ -776,7 +809,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                           if (item.kind === "task" && item.work_item_id) onOpenEdit(item.work_item_id);
                         }}
                       >
-                        {isOverdue && (
+                        {isOverdue && !isGhost && (
                           <span
                             className="wlcal-ev-late"
                             title={`Arretrata${scheduleState?.overdue_days ? ` · ${scheduleState.overdue_days}g di ritardo` : ""}`}
@@ -784,7 +817,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                             ⟲
                           </span>
                         )}
-                        {item.kind === "task" && item.work_item_id && (
+                        {item.kind === "task" && item.work_item_id && !isGhost && (
                           <button
                             type="button"
                             data-wlcal-check="true"
@@ -796,16 +829,21 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                             {isDone ? "✓" : ""}
                           </button>
                         )}
-                        <div className="wlcal-ev-client" style={areaColor ? { color: readable.primary } : undefined}>
+                        <div className="wlcal-ev-client">
                           {resolveTimelineClientLabel(item)}
                         </div>
                         {!compact && (
-                          <div className="wlcal-ev-type" style={areaColor ? { color: readable.secondary } : undefined}>
+                          <div className="wlcal-ev-type">
                             {resolveTimelineTaskTitle(item)}
                           </div>
                         )}
                         <div className="wlcal-ev-foot">
                           <span className="wlcal-ev-dur"><i />{formatHours(isOverdue ? effectiveHours : durationHours)}</span>
+                          {scheduleState?.is_overdue && !isGhost && (
+                            <span className="inline-flex rounded-pill border border-danger/30 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+                              {scheduleState.overdue_days && scheduleState.overdue_days > 0 ? `Scaduta ${scheduleState.overdue_days}g` : "Scaduta"}
+                            </span>
+                          )}
                           {showRange && !isOverdue && item.start_time && item.end_time && (
                             <span className="wlcal-ev-range">{item.start_time}–{item.end_time}</span>
                           )}
@@ -852,14 +890,10 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
 
           {/* Linea unica inizio/limite orario (una sola, non ripetuta per colonna) */}
           {showOpening && (
-            <div className="wlcal-workline-full" style={{ top: `${yPct(openingMinutes!)}%`, left: GUTTER_WIDTH }}>
-              <span>Inizio {minutesToHHMM(openingMinutes!)}</span>
-            </div>
+            <div className="wlcal-workline-full" style={{ top: `${yPct(openingMinutes!)}%`, left: GUTTER_WIDTH }} />
           )}
           {showClosing && (
-            <div className="wlcal-limite-full" style={{ top: `${yPct(closingMinutes!)}%`, left: GUTTER_WIDTH }}>
-              <span>Limite {minutesToHHMM(closingMinutes!)}</span>
-            </div>
+            <div className="wlcal-limite-full" style={{ top: `${yPct(closingMinutes!)}%`, left: GUTTER_WIDTH }} />
           )}
         </div>
       </div>

@@ -21,10 +21,25 @@ function parseApiError(body: unknown, fallback: string): string {
 
 export type WorkItemStatus = "planned" | "in_progress" | "review" | "completed";
 export type UrgencyLevel = "low" | "normal" | "high" | "critical";
+
+const STATUS_STAGE: Record<string, number> = {
+  planned: 0,
+  in_progress: 1,
+  review: 2,
+  completed: 3,
+  done: 3,
+};
+
+/** True se è un "rimando indietro": da revisione/completato a uno stadio precedente. */
+export function isReviewSendBack(oldStatus: string, newStatus: string): boolean {
+  const from = STATUS_STAGE[oldStatus] ?? 0;
+  const to = STATUS_STAGE[newStatus] ?? 0;
+  return (oldStatus === "review" || oldStatus === "completed" || oldStatus === "done") && to < from;
+}
 export type WorkItemTaskType = "standard" | "quick";
 export type LeftBehindReason = "operator_responsibility" | "client_protection" | "justified_delay" | "other";
 export type WorkItemRecurrenceType = "daily_interval" | "monthly_day";
-export type WorkItemScheduleDelayCode = "carried_over" | "non_deferrable_overdue" | null;
+export type WorkItemScheduleDelayCode = "carried_over" | "carried_forward" | "non_deferrable_overdue" | null;
 
 export interface WorkItemOverlapConflict {
   work_item_id: number;
@@ -152,6 +167,7 @@ export interface ChecklistInput {
 export interface WorkItemHistoryEvent {
   id: number;
   actor_user_id: number | null;
+  actor_name: string | null;
   event_type: string;
   field_name: string | null;
   from_value: unknown;
@@ -196,6 +212,8 @@ export interface WorkItem {
   task_type?: WorkItemTaskType;
   is_priority: boolean;
   schedule_state?: WorkItemScheduleState | null;
+  reviewer_user_id?: number | null;
+  reviewer_name?: string | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
@@ -330,7 +348,14 @@ export interface CreateWorkItemPayload {
   checklists?: ChecklistInput[];
 }
 
-export type UpdateWorkItemPayload = Partial<CreateWorkItemPayload>;
+export type UpdateWorkItemPayload = Partial<CreateWorkItemPayload> & {
+  /** Commento opzionale del cambio stato, salvato come nota nella timeline. */
+  status_comment?: string | null;
+  /** Revisore nominato (solo PM/Admin). null per rimuovere. */
+  reviewer_user_id?: number | null;
+  /** Contratti collegati alla lavorazione (sostituisce l'insieme corrente). */
+  contract_ids?: number[] | null;
+};
 
 export interface InstantiateTemplatePayload {
   client_id?: number | null;
@@ -610,11 +635,20 @@ export interface WorkItemSwapPreviewResponse {
   blockers: WorkItemSwapConflict[];
 }
 
+/** Posizione MOSTRATA (reflow) di una task nel calendario, inviata allo swap. */
+export interface WorkItemSwapEffectivePosition {
+  work_item_id: number;
+  work_date: string;     // "YYYY-MM-DD"
+  start_minutes: number; // minuti dalla mezzanotte
+}
+
 export interface WorkItemSwapRequest {
   source_work_item_ids: number[];
   target_work_item_ids: number[];
   /** Conferma esplicita dello scambio (bypassa il warning di conferma). */
   confirm?: boolean;
+  /** Posizioni mostrate nel calendario delle task coinvolte (per swap coerente delle trascinate). */
+  effective_positions?: WorkItemSwapEffectivePosition[];
 }
 
 /** 409 con detail.code === "confirmation_required": serve conferma utente. */

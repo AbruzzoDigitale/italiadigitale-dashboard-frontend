@@ -14,6 +14,12 @@ export interface WorkloadTrayItem {
   durationMinutes: number;
   areaColor: string | null;
   overflowHours?: number;
+  /** Task oltre la scadenza (deadline superata). */
+  isOverdue?: boolean;
+  /** Giorni di ritardo rispetto alla deadline. */
+  daysOverdue?: number;
+  /** Scadenza non derogabile (delay_code = non_deferrable_overdue). */
+  nonDeferrable?: boolean;
 }
 
 // ── Costanti griglia ────────────────────────────────────────────────────────────
@@ -57,8 +63,14 @@ export function minutesToHHMM(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** Durata leggibile in ore/minuti: 2.8 → "2h 48m", 0.8 → "48m", 1 → "1h", 0 → "0m". */
 export function formatHours(value: number) {
-  return `${value.toFixed(1)}h`;
+  const totalMinutes = Math.round((value || 0) * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
 }
 
 export function snapMinutesToSlotInRange(totalMinutes: number, min: number, max: number, slotMinutes = CALENDAR_SLOT_MINUTES): number {

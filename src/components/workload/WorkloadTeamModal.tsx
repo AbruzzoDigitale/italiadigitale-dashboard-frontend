@@ -12,9 +12,11 @@ import { getUsersApi, type User } from "../../api/users";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
+import { FieldLabel } from "../ui/FieldLabel";
 import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
+import { SectionCard } from "../ui/SectionCard";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Spinner } from "../ui/Spinner";
 import { useToast } from "../../context/ToastContext";
@@ -202,6 +204,7 @@ export function WorkloadTeamModal({ open, onClose, companyId, canManage }: Workl
         onClose={onClose}
         title="Team e capacità"
         description="Profili di capacità e disponibilità degli operatori"
+        icon={<Icon name="users" className="h-5 w-5" />}
         size="xl"
         footer={
           canManage ? (
@@ -286,6 +289,7 @@ export function WorkloadTeamModal({ open, onClose, companyId, canManage }: Workl
         open={profileModalOpen}
         onClose={() => { if (!savingProfile) setProfileModalOpen(false); }}
         title={editingProfile ? "Modifica profilo capacità" : "Nuovo profilo capacità"}
+        icon={<Icon name="user-circle" className="h-5 w-5" />}
         size="lg"
         footer={
           <>
@@ -299,70 +303,90 @@ export function WorkloadTeamModal({ open, onClose, companyId, canManage }: Workl
             <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{profileError}</div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Operatore</label>
-              <SearchableSelect
-                value={profileForm.user_id}
-                onChange={(next) => setProfileForm((c) => ({ ...c, user_id: next }))}
-                options={userOptions}
-                placeholder="Seleziona utente"
-                searchPlaceholder="Cerca utente..."
-                disabled={!!editingProfile}
+          <SectionCard icon="user-circle" title="Operatore e disponibilità">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <FieldLabel icon={<Icon name="user-circle" className="h-3 w-3" />}>Operatore</FieldLabel>
+                <SearchableSelect
+                  value={profileForm.user_id}
+                  onChange={(next) => setProfileForm((c) => ({ ...c, user_id: next }))}
+                  options={userOptions}
+                  placeholder="Seleziona utente"
+                  searchPlaceholder="Cerca utente..."
+                  disabled={!!editingProfile}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <FieldLabel icon={<Icon name="activity" className="h-3 w-3" />}>Disponibilità</FieldLabel>
+                <SearchableSelect
+                  value={profileForm.availability_status}
+                  onChange={(next) => setProfileForm((c) => ({ ...c, availability_status: next as WorkloadAvailabilityStatus }))}
+                  options={AVAILABILITY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  placeholder="Stato"
+                />
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard icon="clock" title="Capacità">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Capacità ore/giorno"
+                labelIcon={<Icon name="clock" className="h-3 w-3" />}
+                type="number"
+                value={profileForm.max_capacity_hours_day}
+                onChange={(e) => setProfileForm((c) => ({ ...c, max_capacity_hours_day: e.target.value }))}
+                placeholder="8"
+              />
+              <Input
+                label="Capacità ore/settimana (opzionale)"
+                labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+                type="number"
+                value={profileForm.max_capacity_hours_week}
+                onChange={(e) => setProfileForm((c) => ({ ...c, max_capacity_hours_week: e.target.value }))}
+                placeholder="40"
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Disponibilità</label>
-              <SearchableSelect
-                value={profileForm.availability_status}
-                onChange={(next) => setProfileForm((c) => ({ ...c, availability_status: next as WorkloadAvailabilityStatus }))}
-                options={AVAILABILITY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                placeholder="Stato"
+          </SectionCard>
+
+          <SectionCard icon="target" title="Soglie di utilizzo">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Warning %"
+                labelIcon={<Icon name="alert-triangle" className="h-3 w-3" />}
+                help={{
+                  title: "Soglia di attenzione",
+                  shortText: "Percentuale oltre la quale l'operatore risulta quasi saturo.",
+                  longText: "Quando l'utilizzo supera questa percentuale, l'operatore viene segnalato come in avvicinamento alla saturazione.",
+                }}
+                type="number"
+                value={profileForm.utilization_warn_pct}
+                onChange={(e) => setProfileForm((c) => ({ ...c, utilization_warn_pct: e.target.value }))}
+                placeholder="85"
+              />
+              <Input
+                label="Overload %"
+                labelIcon={<Icon name="alert-triangle" className="h-3 w-3" />}
+                help={{
+                  title: "Soglia di sovraccarico",
+                  shortText: "Percentuale oltre la quale l'operatore è sovraccarico.",
+                  longText: "Quando l'utilizzo supera questa percentuale, l'operatore viene considerato in overbooking rispetto alla capacità disponibile.",
+                }}
+                type="number"
+                value={profileForm.utilization_over_pct}
+                onChange={(e) => setProfileForm((c) => ({ ...c, utilization_over_pct: e.target.value }))}
+                placeholder="100"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Capacità ore/giorno"
-              type="number"
-              value={profileForm.max_capacity_hours_day}
-              onChange={(e) => setProfileForm((c) => ({ ...c, max_capacity_hours_day: e.target.value }))}
-              placeholder="8"
-            />
-            <Input
-              label="Capacità ore/settimana (opzionale)"
-              type="number"
-              value={profileForm.max_capacity_hours_week}
-              onChange={(e) => setProfileForm((c) => ({ ...c, max_capacity_hours_week: e.target.value }))}
-              placeholder="40"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Warning %"
-              type="number"
-              value={profileForm.utilization_warn_pct}
-              onChange={(e) => setProfileForm((c) => ({ ...c, utilization_warn_pct: e.target.value }))}
-              placeholder="85"
-            />
-            <Input
-              label="Overload %"
-              type="number"
-              value={profileForm.utilization_over_pct}
-              onChange={(e) => setProfileForm((c) => ({ ...c, utilization_over_pct: e.target.value }))}
-              placeholder="100"
-            />
-          </div>
-
-          <label className="flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5">
-            <Checkbox
-              checked={profileForm.is_active}
-              onChange={(checked) => setProfileForm((c) => ({ ...c, is_active: checked }))}
-            />
-            <span className="text-sm font-semibold text-ink dark:text-paper">Profilo attivo</span>
-          </label>
+            <label className="flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5">
+              <Checkbox
+                checked={profileForm.is_active}
+                onChange={(checked) => setProfileForm((c) => ({ ...c, is_active: checked }))}
+              />
+              <span className="text-sm font-semibold text-ink dark:text-paper">Profilo attivo</span>
+            </label>
+          </SectionCard>
         </div>
       </Modal>
 

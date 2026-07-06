@@ -19,6 +19,8 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   description?: string;
+  icon?: React.ReactNode;
+  subHeader?: React.ReactNode;
   size?: ModalSize;
   position?: ModalPosition;
   showOverlay?: boolean;
@@ -47,6 +49,8 @@ export function Modal({
   onClose,
   title,
   description,
+  icon,
+  subHeader,
   size = "md",
   position = "center",
   showOverlay = true,
@@ -63,6 +67,10 @@ export function Modal({
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Protezione chiusura accidentale: chiudi solo se il gesto (mousedown→mouseup)
+  // inizia E finisce sull'overlay. Evita la chiusura quando si trascina/seleziona
+  // dentro al dialog e si rilascia il mouse fuori.
+  const overlayPointerDownRef = useRef(false);
 
   const storageKey = `modal-draft:${draftId ?? `${window.location.pathname}:${title ?? "untitled"}`}`;
 
@@ -245,8 +253,8 @@ export function Modal({
         : "justify-center";
   const mobileContainerClass = mobileFullscreen ? "items-stretch p-0 sm:items-center sm:p-4" : "items-center p-4";
   const mobileDialogClass = mobileFullscreen
-    ? "max-w-none h-[100dvh] max-h-[100dvh] rounded-none sm:h-auto sm:max-h-[90vh] sm:rounded-xl"
-    : "max-h-[90vh] rounded-xl";
+    ? "max-w-none h-[100dvh] max-h-[100dvh] rounded-none sm:h-auto sm:max-h-[90vh] sm:rounded-lg"
+    : "max-h-[90vh] rounded-lg";
 
   const dialogContent = (
     <div
@@ -254,27 +262,34 @@ export function Modal({
       aria-modal
       aria-labelledby={title ? "modal-title" : undefined}
       ref={dialogRef}
-      className={`relative min-h-0 w-full ${sizeMap[size]} ${mobileDialogClass} flex flex-col overflow-hidden bg-paper dark:bg-ink-soft shadow-3 animate-fadeIn ${dialogClassName}`}
+      className={`relative min-h-0 w-full ${sizeMap[size]} ${mobileDialogClass} flex flex-col overflow-hidden bg-paper dark:bg-ink-soft border border-line dark:border-line-dark shadow-3 animate-fadeIn ${dialogClassName}`}
     >
       {title && (
-        <div className="flex-shrink-0 flex items-start justify-between px-6 pt-6 pb-4 border-b border-line dark:border-line-dark">
-          <div>
-            <h2
-              id="modal-title"
-              className="font-display font-bold text-lg tracking-tight text-ink dark:text-paper"
-            >
-              {title}
-            </h2>
-            {description && (
-              <p className="mt-1 text-sm text-muted dark:text-muted-dark">
-                {description}
-              </p>
+        <div className="flex-shrink-0 flex items-center justify-between gap-4 px-6 py-4 border-b border-line dark:border-line-dark">
+          <div className="flex items-center gap-3 min-w-0">
+            {icon && (
+              <span className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-brand-magenta/10 text-brand-magenta">
+                {icon}
+              </span>
             )}
+            <div className="min-w-0">
+              <h2
+                id="modal-title"
+                className="font-display font-bold text-lg leading-tight tracking-tight text-ink dark:text-paper"
+              >
+                {title}
+              </h2>
+              {description && (
+                <p className="mt-0.5 text-xs text-muted dark:text-muted-dark">
+                  {description}
+                </p>
+              )}
+            </div>
           </div>
           {!hideCloseButton && (
             <button
               onClick={onClose}
-              className="ml-4 p-1 rounded-md text-muted hover:text-ink dark:hover:text-paper transition-colors"
+              className="flex-none inline-flex h-9 w-9 items-center justify-center rounded-md border border-line dark:border-line-dark text-muted dark:text-muted-dark transition-colors hover:border-brand-magenta hover:text-brand-magenta"
               aria-label="Chiudi"
             >
               <svg
@@ -295,10 +310,12 @@ export function Modal({
         </div>
       )}
 
+      {subHeader && <div className="flex-shrink-0">{subHeader}</div>}
+
       <div className={`min-h-0 flex-1 overflow-y-auto px-6 py-5 ${bodyClassName}`}>{children}</div>
 
       {footer && (
-        <div className="flex-shrink-0 flex items-center justify-end gap-3 px-6 pb-6 pt-2 border-t border-line dark:border-line-dark">
+        <div className="flex-shrink-0 flex items-center justify-end gap-3 px-6 py-3.5 border-t border-line dark:border-line-dark">
           {footer}
         </div>
       )}
@@ -313,8 +330,12 @@ export function Modal({
     <div
       ref={overlayRef}
       className={`fixed inset-0 z-[3000] flex ${alignmentClass} ${mobileContainerClass} animate-fadeIn ${showOverlay ? "bg-ink/60 backdrop-blur-sm" : "bg-transparent"} ${containerClassName}`}
+      onMouseDown={(e) => {
+        overlayPointerDownRef.current = e.target === overlayRef.current;
+      }}
       onClick={(e) => {
-        if (e.target === overlayRef.current) onClose();
+        if (e.target === overlayRef.current && overlayPointerDownRef.current) onClose();
+        overlayPointerDownRef.current = false;
       }}
     >
       {dialogContent}

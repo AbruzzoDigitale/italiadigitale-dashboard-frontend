@@ -4,6 +4,8 @@ import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
 import { ColorHexField } from "../../components/ui/ColorHexField";
 import { EmojiPickerField } from "../../components/ui/EmojiPickerField";
+import { FieldHelpPopover } from "../../components/ui/FieldHelpPopover";
+import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Icon } from "../../components/ui/Icon";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
@@ -380,6 +382,7 @@ export function RolesTab({ companyId, canManageRoles }: RolesTabProps) {
         open={modalOpen}
         onClose={closeModal}
         title={editingRole ? "Modifica ruolo" : "Nuovo ruolo"}
+        icon={<Icon name="shield" className="h-5 w-5" />}
         size="lg"
         footer={(
           <>
@@ -396,8 +399,8 @@ export function RolesTab({ companyId, canManageRoles }: RolesTabProps) {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Nome *" value={form.name} onChange={(e) => updateName(e.target.value)} placeholder="SEO Manager" />
-            <Input label="Slug" value={form.slug} onChange={(e) => updateSlug(e.target.value)} placeholder="seo-manager" />
+            <Input label="Nome *" labelIcon={<Icon name="pencil" className="h-3 w-3" />} value={form.name} onChange={(e) => updateName(e.target.value)} placeholder="SEO Manager" />
+            <Input label="Slug" labelIcon={<Icon name="list" className="h-3 w-3" />} value={form.slug} onChange={(e) => updateSlug(e.target.value)} placeholder="seo-manager" />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-[92px_132px] gap-3 items-start">
@@ -420,7 +423,7 @@ export function RolesTab({ companyId, canManageRoles }: RolesTabProps) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">Descrizione</label>
+            <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Descrizione</FieldLabel>
             <Textarea
               value={form.description}
               onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
@@ -437,13 +440,18 @@ export function RolesTab({ companyId, canManageRoles }: RolesTabProps) {
               />
               <span className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">Attivo</span>
             </label>
-            <label className="flex items-center gap-2 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2.5">
+            <div className="flex items-center gap-2 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2.5">
               <Checkbox
                 checked={form.is_system}
                 onChange={(v) => setForm((current) => ({ ...current, is_system: v }))}
               />
               <span className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">Ruolo sistema</span>
-            </label>
+              <FieldHelpPopover
+                title="Ruolo sistema"
+                shortText="Ruolo predefinito e protetto."
+                longText="I ruoli di sistema sono gestiti dalla piattaforma e non possono essere eliminati. Attiva solo per ruoli standard e non modificabili dagli utenti."
+              />
+            </div>
           </div>
         </div>
       </Modal>

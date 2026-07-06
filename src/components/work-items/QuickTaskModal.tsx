@@ -6,9 +6,12 @@ import { useToast } from "../../context/ToastContext";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
+import { FieldLabel } from "../ui/FieldLabel";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { SectionCard } from "../ui/SectionCard";
 import { Textarea } from "../ui/Textarea";
 import { getUsersApi, type User } from "../../api/users";
 
@@ -67,7 +70,7 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
     reset();
 
     Promise.all([
-      getClientsApi({ company_id: companyId ?? undefined, per_page: 200 })
+      getClientsApi({ company_id: companyId ?? undefined, per_page: 1000 })
         .then((res) => setClients(res.data))
         .catch(() => setClients([]))
         .finally(() => setClientsLoading(false)),
@@ -127,6 +130,7 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
       }}
       title="Nuova task rapida"
       description="Flusso rapido: dettaglio, cliente, scadenza. Assegnazione automatica lato backend."
+      icon={<Icon name="check-circle" className="h-5 w-5" />}
       size="lg"
       footer={(
         <>
@@ -135,17 +139,16 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
         </>
       )}
     >
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         {(localError || error) && (
           <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
             {localError || error}
           </div>
         )}
 
+        <SectionCard icon="list" title="Dettagli task">
         <div className="space-y-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-            Dettaglio *
-          </label>
+          <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />} required>Dettaglio</FieldLabel>
           <Textarea
             value={form.detail}
             onChange={(event) => setForm((prev) => ({ ...prev, detail: event.target.value }))}
@@ -156,10 +159,8 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
         </div>
 
         <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-              Cliente *
-            </label>
+          <div className="space-y-1">
+            <FieldLabel icon={<Icon name="user-circle" className="h-3 w-3" />} required>Cliente</FieldLabel>
             <ClientSelectorWithCreate
               value={form.client_id}
               onChange={(value) => setForm((prev) => ({ ...prev, client_id: value }))}
@@ -176,16 +177,20 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Input
             label="Scadenza *"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
             type="date"
             value={form.deadline_date}
             onChange={(event) => setForm((prev) => ({ ...prev, deadline_date: event.target.value }))}
             error={missingFieldSet.has("deadline_date") ? "Campo richiesto" : undefined}
           />
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <div className="space-y-1">
+              <FieldLabel
+                icon={<Icon name="alert-triangle" className="h-3 w-3" />}
+                help={{ title: "Urgenza", shortText: "Livello di priorità della task.", longText: "Facoltativo. Indica quanto è urgente la task (Bassa/Normale/Alta/Critica) e ne influenza l'ordinamento nei carichi di lavoro." }}
+              >
                 Urgenza
-              </label>
+              </FieldLabel>
               <SearchableSelect
                 value={form.urgency_level}
                 onChange={(value) => setForm((prev) => ({ ...prev, urgency_level: value as "" | UrgencyLevel }))}
@@ -198,10 +203,13 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+          <div className="space-y-1">
+            <FieldLabel
+              icon={<Icon name="user-circle" className="h-3 w-3" />}
+              help={{ title: "Operatore", shortText: "Lascia vuoto per assegnazione automatica.", longText: "Se non selezioni un operatore, il backend assegna automaticamente la task in base a carichi e competenze. Seleziona un operatore per forzare l'assegnatario." }}
+            >
               Operatore
-            </label>
+            </FieldLabel>
             <SearchableSelect
               value={form.operator_id}
               onChange={(value) => setForm((prev) => ({ ...prev, operator_id: value }))}
@@ -231,6 +239,7 @@ export function QuickTaskModal({ open, onClose, companyId, onCreated }: QuickTas
             </label>
           </div>
         </div>
+        </SectionCard>
       </div>
     </Modal>
   );

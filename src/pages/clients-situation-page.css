@@ -1,0 +1,690 @@
+/* =========================================================================
+   Situazione clienti — 3 viste (card / lista / compatta).
+   Restyle derivato dal prototipo "Card pacchetti social (5)" (clienti.css).
+   Prefisso .cs-* per non collidere con la tabella anagrafica (.cl-*).
+   Token su .cs-scope; light di default, dark via .dark.
+   ========================================================================= */
+
+.cs-scope {
+  --magenta: #ef3a65;
+  --mint: #16eb96;
+  --amber: #f5b800;
+  --antracite: #1b1c1b;
+
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --surface-3: #f1efea;
+  --line: #e7e4dd;
+  --line-2: #d8d4cb;
+  --line-strong: #c7c2b7;
+  --tx: #1b1c1b;
+  --tx-2: #5a5b57;
+  --tx-3: #8c8d87;
+  --tx-4: #aeafa8;
+
+  --shadow-1: 0 1px 2px rgba(27, 28, 27, 0.06);
+  --shadow-2: 0 6px 18px rgba(27, 28, 27, 0.1);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ct-accent: oklch(0.62 0.14 264);
+}
+.dark .cs-scope {
+  --bg: #0e0f0e;
+  --surface: #191a19;
+  --surface-2: #1f211f;
+  --surface-3: #23251f;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.14);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --tx: #f4f4f2;
+  --tx-2: rgba(244, 244, 242, 0.66);
+  --tx-3: rgba(244, 244, 242, 0.44);
+  --tx-4: rgba(244, 244, 242, 0.3);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+
+/* summary bar */
+.cs-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--tx-2);
+}
+.cs-summary > span {
+  white-space: nowrap;
+}
+.cs-summary b {
+  color: var(--tx);
+  font-weight: 700;
+}
+.cs-sum-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line-2);
+}
+
+/* ---- badge condivisi ---- */
+.cs-type {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.cs-type.misto {
+  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
+  color: oklch(0.55 0.16 264);
+}
+.dark .cs-type.misto {
+  color: oklch(0.78 0.13 264);
+}
+.cs-type.canone {
+  background: color-mix(in srgb, var(--mint) 18%, transparent);
+  color: #0c8a57;
+}
+.dark .cs-type.canone {
+  color: var(--mint);
+}
+.cs-type.tantum {
+  background: color-mix(in srgb, var(--amber) 20%, transparent);
+  color: #b07d00;
+}
+.dark .cs-type.tantum {
+  color: var(--amber);
+}
+.cs-state {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 99px;
+  white-space: nowrap;
+  flex: none;
+}
+.cs-state.ok {
+  background: color-mix(in srgb, var(--mint) 18%, transparent);
+  color: #0c8a57;
+}
+.dark .cs-state.ok {
+  color: var(--mint);
+}
+.cs-state.prod {
+  background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
+  color: oklch(0.55 0.16 264);
+}
+.dark .cs-state.prod {
+  color: oklch(0.78 0.13 264);
+}
+.cs-state.warn {
+  background: color-mix(in srgb, var(--amber) 20%, transparent);
+  color: #b07d00;
+}
+.dark .cs-state.warn {
+  color: var(--amber);
+}
+.cs-state.perso {
+  background: color-mix(in srgb, var(--magenta) 14%, transparent);
+  color: var(--magenta);
+}
+.cs-banner {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 8px;
+  white-space: nowrap;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  color: var(--tx-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cs-banner::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--tx-3);
+}
+.cs-banner.prod::before {
+  background: var(--ct-accent);
+}
+.cs-banner.ok::before {
+  background: var(--mint);
+}
+.cs-canone {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--mint) 40%, transparent);
+  color: #0c8a57;
+}
+.dark .cs-canone {
+  color: var(--mint);
+}
+.cs-canone.sm {
+  padding: 3px 8px;
+  font-size: 9px;
+}
+
+/* ---- elementi cliente condivisi ---- */
+.cs-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+  line-height: 1.2;
+}
+.cs-ref {
+  font-size: 12.5px;
+  color: var(--tx-2);
+  margin-top: 6px;
+}
+.cs-ref b {
+  color: var(--tx-3);
+  font-weight: 600;
+}
+.cs-ref a,
+.cs-ref button {
+  color: oklch(0.6 0.15 264);
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.dark .cs-ref a,
+.dark .cs-ref button {
+  color: oklch(0.74 0.13 264);
+}
+.cs-ref a:hover,
+.cs-ref button:hover {
+  text-decoration: underline;
+}
+.cs-loc {
+  font-size: 12px;
+  color: var(--tx-3);
+  margin-top: 3px;
+}
+
+.cs-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.cs-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 10px;
+}
+.cs-stats span {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-4);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.cs-stats b {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cs-money {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx-2);
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+.cs-money-t {
+  flex: 1;
+  min-width: 0;
+}
+.cs-money b {
+  color: var(--tx);
+  font-weight: 700;
+}
+
+/* deal tabs + items */
+.cs-deals {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.cs-tabs {
+  display: inline-flex;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  border-radius: 99px;
+  padding: 3px;
+  gap: 2px;
+}
+.cs-tabs button {
+  border: none;
+  background: none;
+  color: var(--tx-3);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all 0.14s var(--ease);
+}
+.cs-tabs button:hover {
+  color: var(--tx);
+}
+.cs-tabs button.on {
+  background: var(--surface);
+  color: var(--tx);
+  box-shadow: var(--shadow-1);
+}
+.dark .cs-tabs button.on {
+  background: var(--antracite);
+  color: #fff;
+}
+.cs-sublabel {
+  font-size: 11.5px;
+  color: var(--tx-3);
+  margin: 12px 0 8px;
+}
+.cs-deal-empty {
+  margin-top: 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: 9px;
+  padding: 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--tx-4);
+}
+.cs-deal {
+  margin-top: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 13px 14px;
+  border-left: 3px solid var(--ct-accent);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  display: block;
+  transition: border-color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+}
+.cs-deal:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+.cs-deal-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cs-deal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx);
+  line-height: 1.3;
+}
+.cs-deal-meta {
+  font-size: 11.5px;
+  color: var(--tx-3);
+  margin-top: 5px;
+}
+.cs-deal-tot {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tx);
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.cs-deal-sub {
+  font-size: 11.5px;
+  color: var(--tx-3);
+  margin-top: 3px;
+}
+
+/* carosello (slide) dei deal */
+.cs-deal-carousel {
+  position: relative;
+  overflow: hidden;
+}
+.cs-deal-track {
+  display: flex;
+  transition: transform 0.3s var(--ease);
+}
+.cs-deal-slide {
+  width: 100%;
+  flex: none;
+}
+.cs-deal-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--tx);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  z-index: 2;
+}
+.cs-deal-nav.prev {
+  left: 4px;
+}
+.cs-deal-nav.next {
+  right: 4px;
+}
+.cs-deal-nav:hover {
+  border-color: var(--line-strong);
+}
+.cs-deal-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cs-deal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  border: none;
+  background: var(--line-2);
+  cursor: pointer;
+  padding: 0;
+}
+.cs-deal-dot.on {
+  background: var(--tx);
+}
+/* riga lavorazioni dentro la card contratto */
+.cs-deal-work {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--tx-2);
+}
+.cs-deal-worklink {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--magenta);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.cs-deal-worklink:hover {
+  text-decoration: underline;
+}
+
+/* ---- VISTA CARD ---- */
+.cs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.cs-card {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+}
+.cs-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+.cs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cs-head-main {
+  min-width: 0;
+}
+.cs-head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  flex: none;
+}
+
+/* ---- VISTA LISTA ---- */
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cs-row {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  padding: 20px;
+  cursor: pointer;
+}
+.cs-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.cs-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cs-row-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 1.6fr;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.cs-row-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+.cs-row-stats span {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-4);
+}
+.cs-row-stats b {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+.cs-row-money b {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---- VISTA COMPATTA ---- */
+.cs-compact {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+  gap: 14px;
+  grid-auto-rows: 1fr;
+}
+.cs-mini {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 15px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: border-color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+}
+.cs-mini:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+.cs-mini-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-mini .cs-ref {
+  margin-top: 7px;
+}
+.cs-mini-mail {
+  display: block;
+  font-size: 11.5px;
+  color: oklch(0.6 0.15 264);
+  text-decoration: none;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.dark .cs-mini-mail {
+  color: oklch(0.74 0.13 264);
+}
+.cs-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.cs-mini-attivi {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tx-2);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  border-radius: 99px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.cs-mini-money {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--tx);
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cs-mini-stato {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tx-2);
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
+  padding: 3px 9px;
+  border-radius: 99px;
+}
+.cs-mini-tot {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--tx);
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.cs-mini-tot span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-4);
+  display: block;
+  margin-bottom: 2px;
+}
+.cs-mini-chip {
+  margin-top: auto;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-mini-spacer {
+  flex: 1;
+}

@@ -262,6 +262,8 @@ export interface CreateContractPayload {
   commercial_notes?: string | null;
   operational_brief?: string | null;
   pricing_view_mode: ContractPricingMode;
+  /** "situation" se creato dalla pagina Situazione clienti → escluso dalla pipeline commerciale. */
+  created_from?: string | null;
   featured_quote_id?: number | null;
   quote_links?: ContractQuoteLink[];
   tag_ids?: number[];
@@ -392,6 +394,21 @@ export interface ContractManualGenerateWorkItemsResponse {
   generated_items: ContractAiWorkItemGeneratedDraft[];
 }
 
+/** Snapshot della voce di preventivo sorgente, congelato sulla lavorazione (fatturazione per-voce). */
+export interface WorkItemBillingSourceInput {
+  quote_id?: number | null;
+  line_key?: string | null;
+  label?: string | null;
+  description?: string | null;
+  billing_period?: string | null;
+  unit_net?: number | null;
+  quantity?: number | null;
+  discount_pct?: number | null;
+  vat?: number | null;
+  area_id?: number | null;
+  area_name?: string | null;
+}
+
 export interface ContractAiWorkItemDraftUpsert {
   draft_id: string;
   title: string;
@@ -428,6 +445,7 @@ export interface ContractAiWorkItemDraftUpsert {
   contract_ids: number[];
   time_slots: ContractAiDraftTimeSlotInput[];
   checklists: ContractAiChecklistInput[];
+  billing_source?: WorkItemBillingSourceInput | null;
 }
 
 export interface ContractAiSaveOneWorkItemPayload {

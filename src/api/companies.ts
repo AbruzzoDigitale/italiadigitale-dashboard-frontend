@@ -71,6 +71,7 @@ export interface CompanyBrand {
   logo_hero: string | null;
   notif_sound: string | null;
   notif_sound_enabled: boolean | null;
+  notification_settings: Record<string, unknown> | null;
   dashboard_kpis: string[] | null;
 }
 
@@ -105,6 +106,7 @@ export interface UpdateCompanyBrandPayload {
   bg_color?: string | null;
   theme_color?: string | null;
   notif_sound_enabled?: boolean | null;
+  notification_settings?: Record<string, unknown> | null;
   dashboard_kpis?: string[] | null;
 }
 

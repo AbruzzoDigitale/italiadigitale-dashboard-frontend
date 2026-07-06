@@ -90,6 +90,12 @@ export function usePostSalesSituation(
     void fetch();
   }, [fetch]);
 
+  // Identita' stabile: se ricreata a ogni render, gli effect dei consumer che la
+  // includono fra le dipendenze (es. refetch su `reloadNonce`) andrebbero in loop.
+  const refetch = useCallback(() => {
+    void fetch();
+  }, [fetch]);
+
   return {
     clients,
     stats,
@@ -99,8 +105,6 @@ export function usePostSalesSituation(
     totalPages,
     isLoading,
     error,
-    refetch: () => {
-      void fetch();
-    },
+    refetch,
   };
 }

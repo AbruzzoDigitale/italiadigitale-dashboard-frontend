@@ -1,14 +1,17 @@
 import React, { forwardRef, useRef } from "react";
 import { Icon } from "./Icon";
+import { FieldHelpPopover, type FieldHelpPopoverProps } from "./FieldHelpPopover";
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
+  labelIcon?: React.ReactNode;
   error?: string;
   hint?: string;
+  help?: FieldHelpPopoverProps;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, id, className = "", ...rest }, ref) => {
+  ({ label, labelIcon, error, hint, help, id, className = "", ...rest }, ref) => {
     const internalRef = useRef<HTMLInputElement | null>(null);
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, "-");
     const inputType = rest.type ?? "text";
@@ -81,12 +84,20 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1">
         {label && (
-          <label
-            htmlFor={inputId}
-            className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark"
-          >
-            {label}
-          </label>
+          <span className="flex items-center gap-1.5">
+            {labelIcon && (
+              <span className="inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-line bg-cream text-muted dark:border-line-dark dark:bg-[#0e0f0e] dark:text-muted-dark">
+                {labelIcon}
+              </span>
+            )}
+            <label
+              htmlFor={inputId}
+              className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark"
+            >
+              {label}
+            </label>
+            {help && <FieldHelpPopover {...help} />}
+          </span>
         )}
         <div className="relative">
           <input

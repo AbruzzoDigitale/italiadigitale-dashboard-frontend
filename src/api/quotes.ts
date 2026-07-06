@@ -19,7 +19,7 @@ export type QuoteStatus =
   | "perso"
   | "rifiutato";
 
-export type QuoteSortBy = "date" | "created_at" | "updated_at" | "number" | "title";
+export type QuoteSortBy = "date" | "created_at" | "updated_at" | "number" | "title" | "status" | "client";
 export type QuoteSortDir = "asc" | "desc";
 
 export interface QuoteLineItem {
@@ -87,6 +87,9 @@ export interface Quote {
   duplicated_from: string | null;
   is_active: boolean;
   client_id: number | null;
+  /** Nome / nome commerciale del cliente (arricchiti dalla lista preventivi). */
+  client_name?: string | null;
+  client_commercial_name?: string | null;
   company_id: number | null;
   company_ids: number[] | null;
   created_by: number | null;
@@ -295,6 +298,27 @@ export async function getQuotesApi(params?: ListQuotesParams): Promise<QuotesLis
     throw new Error("Impossibile recuperare la lista preventivi");
   }
   return res.json();
+}
+
+/** Scarica il CSV di tutti i preventivi che rispettano i filtri correnti (endpoint backend). */
+export async function exportQuotesCsvApi(params?: ListQuotesParams): Promise<void> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.company_id != null) qs.set("company_id", String(params.company_id));
+  if (params?.client_id != null) qs.set("client_id", String(params.client_id));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await authFetch(`${API_BASE}/api/v1/quotes/export${suffix}`);
+  if (!res.ok) throw new Error("Impossibile esportare i preventivi");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "preventivi.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function getQuoteApi(id: number): Promise<Quote> {

@@ -7,10 +7,31 @@ import { useCatalogProductsFlat } from "../../hooks/useCatalogProductsFlat";
 import { useFicQuoteImport } from "../../hooks/useFicQuoteImport";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
+import { FieldLabel } from "../ui/FieldLabel";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { SectionCard } from "../ui/SectionCard";
 import { Textarea } from "../ui/Textarea";
+
+/* Cella dei totali (mp-tot-grid). */
+function TotalCell({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "discount" | "final" }) {
+  if (tone === "final") {
+    return (
+      <div className="flex flex-col gap-0.5 rounded-md border border-ink-soft bg-ink-soft px-3 py-2.5 dark:border-paper dark:bg-paper">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-paper/60 dark:text-ink/60">{label}</span>
+        <b className="text-base font-bold tabular-nums text-paper dark:text-ink">{value}</b>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md border border-line dark:border-line-dark bg-cream dark:bg-[#0e0f0e] px-3 py-2.5">
+      <span className="text-[10px] font-bold uppercase tracking-wide text-muted dark:text-muted-dark">{label}</span>
+      <b className={`text-base font-bold tabular-nums ${tone === "discount" ? "text-danger" : "text-ink dark:text-paper"}`}>{value}</b>
+    </div>
+  );
+}
 
 type QuoteQuickCreateState = {
   title: string;
@@ -300,12 +321,8 @@ export function QuoteQuickCreateModal({
   useEffect(() => {
     if (!open || !quoteToEdit) return;
     const mapped = mapQuoteToQuickCreateState(quoteToEdit);
-    const expanded = mapped.lines.reduce<Record<string, boolean>>((acc, line) => {
-      acc[line.rowId] = true;
-      return acc;
-    }, {});
     rowIdCounterRef.current = mapped.lines.length;
-    setExpandedLineIds(expanded);
+    setExpandedLineIds({});
     setIsReadOnly(false);
     setActiveTab("details");
     setFicSyncOpen(false);
@@ -480,10 +497,7 @@ export function QuoteQuickCreateModal({
         const refreshedQuote = await getQuoteApi(quoteToEdit.id);
         const mapped = mapQuoteToQuickCreateState(refreshedQuote);
         rowIdCounterRef.current = mapped.lines.length;
-        setExpandedLineIds(mapped.lines.reduce<Record<string, boolean>>((acc, line) => {
-          acc[line.rowId] = true;
-          return acc;
-        }, {}));
+        setExpandedLineIds({});
         setForm(mapped);
         setActiveTab("details");
         setFicSyncOpen(false);
@@ -566,61 +580,73 @@ export function QuoteQuickCreateModal({
     }
   };
 
+  const selectedClientName = useMemo(() => {
+    const client = clients.find((item) => String(item.id) === form.client_id);
+    return client?.name ?? null;
+  }, [clients, form.client_id]);
+
+  const headerSubtitle = isEditMode
+    ? ([quoteToEdit?.number != null ? `#${quoteToEdit.number}` : null, selectedClientName].filter(Boolean).join(" · ") || undefined)
+    : undefined;
+
   return (
     <Modal
       open={open}
       onClose={close}
       title={isEditMode ? "Modifica preventivo" : "Nuovo preventivo"}
+      description={headerSubtitle}
+      icon={<Icon name="document-text" className="h-5 w-5" />}
       size={isEditMode ? "2xl" : "xl"}
+      bodyClassName="bg-cream dark:bg-[#0e0f0e]"
+      subHeader={(isEditMode || canSyncFromFic) ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line dark:border-line-dark bg-cream dark:bg-[#0e0f0e] px-6 py-3">
+          {canSyncFromFic ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const next = !ficSyncOpen;
+                setFicSyncOpen(next);
+                if (next) {
+                  void runFicSearch(1);
+                }
+              }}
+              leftIcon={<Icon name="refresh-cw" className="h-3.5 w-3.5" />}
+            >
+              {isEditMode ? "Sincronizza da Fatture in Cloud" : "Importa da Fatture in Cloud"}
+            </Button>
+          ) : <span />}
+
+          {isEditMode && (
+          <div className="seg-switch">
+          <button
+            type="button"
+            className={activeTab === "details" ? "is-active" : ""}
+            onClick={() => setActiveTab("details")}
+          >
+            Dettagli
+          </button>
+          <button
+            type="button"
+            className={activeTab === "timeline" ? "is-active" : ""}
+            onClick={() => setActiveTab("timeline")}
+          >
+            Timeline
+          </button>
+          </div>
+          )}
+        </div>
+      ) : undefined}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={loading}>Annulla</Button>
-          <Button onClick={() => void saveQuote()} loading={loading} disabled={isReadOnly}>
+          <Button onClick={() => void saveQuote()} loading={loading} disabled={isReadOnly} leftIcon={<Icon name="check" className="h-4 w-4" />}>
             {isEditMode ? "Salva modifiche" : "Crea preventivo"}
           </Button>
         </>
       }
     >
-      <div className={isEditMode ? "h-[72vh] min-h-[32rem] max-h-[72vh] overflow-y-auto pr-1" : ""}>
-      <div className="space-y-3">
-        {(isEditMode || canSyncFromFic) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {canSyncFromFic && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const next = !ficSyncOpen;
-                  setFicSyncOpen(next);
-                  if (next) {
-                    void runFicSearch(1);
-                  }
-                }}
-              >
-                {isEditMode ? "Sincronizza da Fatture in Cloud" : "Importa da Fatture in Cloud"}
-              </Button>
-            )}
-
-            {isEditMode && (
-            <div className="inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
-            <button
-              type="button"
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "details" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
-              onClick={() => setActiveTab("details")}
-            >
-              Dettagli
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "timeline" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
-              onClick={() => setActiveTab("timeline")}
-            >
-              Timeline
-            </button>
-            </div>
-            )}
-          </div>
-        )}
+      <div className="flex flex-col gap-4">
 
         {canSyncFromFic && ficSyncOpen && (
           <div className="rounded-md border border-line dark:border-line-dark p-3 space-y-3">
@@ -783,113 +809,144 @@ export function QuoteQuickCreateModal({
           </div>
         ) : (
           <>
-        <Input
-          label="Titolo *"
-          value={form.title}
-          onChange={(event) => updateForm("title", event.target.value)}
-          placeholder="Es. Preventivo Social Media Q3"
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <SectionCard icon="document-text" title="Anagrafica">
           <Input
-            label="Data"
-            type="date"
-            value={form.date}
-            onChange={(event) => updateForm("date", event.target.value)}
+            label="Titolo *"
+            labelIcon={<Icon name="pencil" className="h-3 w-3" />}
+            value={form.title}
+            onChange={(event) => updateForm("title", event.target.value)}
+            placeholder="Es. Preventivo Social Media Q3"
           />
-          <Input
-            label="Tag"
-            value={form.tag}
-            onChange={(event) => updateForm("tag", event.target.value)}
-            placeholder="Es. Starter"
-          />
-        </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Note</label>
-          <Textarea
-            rows={2}
-            value={form.notes}
-            onChange={(event) => updateForm("notes", event.target.value)}
-            className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-          />
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input
+              label="Data"
+              labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+              type="date"
+              value={form.date}
+              onChange={(event) => updateForm("date", event.target.value)}
+            />
+            <Input
+              label="Tag"
+              labelIcon={<Icon name="star" className="h-3 w-3" />}
+              help={{ title: "Tag", shortText: "Etichetta libera per raggruppare i preventivi.", longText: "Testo libero usato per raggruppare o filtrare i preventivi (es. \"Starter\", \"Q3\", \"Rinnovo\"). Non influisce sui calcoli." }}
+              value={form.tag}
+              onChange={(event) => updateForm("tag", event.target.value)}
+              placeholder="Es. Starter"
+            />
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Cliente</label>
-          <ClientSelectorWithCreate
-            value={form.client_id}
-            onChange={(value) => updateForm("client_id", value)}
-            clients={clients}
-            clientsLoading={clientsLoading}
-            companyId={companyId}
-            disabled={isReadOnly}
-            placeholder="Seleziona cliente"
-            emptyMessage="Nessun cliente"
-            menuLayer="portal"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Appunti commerciali</label>
+            <FieldLabel icon={<Icon name="user-circle" className="h-3 w-3" />}>Cliente</FieldLabel>
+            <ClientSelectorWithCreate
+              value={form.client_id}
+              onChange={(value) => updateForm("client_id", value)}
+              clients={clients}
+              clientsLoading={clientsLoading}
+              companyId={companyId}
+              disabled={isReadOnly}
+              placeholder="Seleziona cliente"
+              emptyMessage="Nessun cliente"
+              menuLayer="portal"
+            />
+          </div>
+        </SectionCard>
+
+        <SectionCard icon="annotation" title="Note e brief">
+          <div className="flex flex-col gap-1">
+            <FieldLabel
+              icon={<Icon name="annotation" className="h-3 w-3" />}
+              help={{ title: "Note", shortText: "Note generali del preventivo.", longText: "Note descrittive del preventivo. Possono comparire nel documento condiviso col cliente." }}
+            >
+              Note
+            </FieldLabel>
             <Textarea
-              rows={3}
-              value={form.appunti_commerciali}
-              onChange={(event) => updateForm("appunti_commerciali", event.target.value)}
+              rows={2}
+              value={form.notes}
+              onChange={(event) => updateForm("notes", event.target.value)}
               className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Brief operativo</label>
-            <Textarea
-              rows={3}
-              value={form.brief_operativo}
-              onChange={(event) => updateForm("brief_operativo", event.target.value)}
-              className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <FieldLabel
+                icon={<Icon name="mail" className="h-3 w-3" />}
+                help={{ title: "Appunti commerciali", shortText: "Note interne del team commerciale.", longText: "Appunti a uso interno del reparto commerciale (strategia, margini, contesto trattativa). Non destinati al cliente." }}
+              >
+                Appunti commerciali
+              </FieldLabel>
+              <Textarea
+                rows={3}
+                value={form.appunti_commerciali}
+                onChange={(event) => updateForm("appunti_commerciali", event.target.value)}
+                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <FieldLabel
+                icon={<Icon name="target" className="h-3 w-3" />}
+                help={{ title: "Brief operativo", shortText: "Indicazioni operative per il team.", longText: "Istruzioni per chi eseguirà il lavoro: obiettivi, deliverable, vincoli. Utile quando dal preventivo si generano le lavorazioni." }}
+              >
+                Brief operativo
+              </FieldLabel>
+              <Textarea
+                rows={3}
+                value={form.brief_operativo}
+                onChange={(event) => updateForm("brief_operativo", event.target.value)}
+                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+              />
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard icon="credit-card" title="Sconti generali">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input
+              label="Sconto %"
+              labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
+              help={{ title: "Sconto %", shortText: "Percentuale sul subtotale.", longText: "Sconto percentuale applicato sul subtotale complessivo del preventivo (dopo gli sconti di riga). Si somma allo sconto fisso." }}
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={String(form.discount_pct)}
+              onChange={(event) => updateForm("discount_pct", Number(event.target.value) || 0)}
+            />
+            <Input
+              label="Sconto fisso €"
+              labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
+              help={{ title: "Sconto fisso €", shortText: "Importo in euro sul subtotale.", longText: "Importo fisso in euro sottratto dal subtotale, oltre all'eventuale sconto percentuale." }}
+              type="number"
+              min={0}
+              step={0.01}
+              value={String(form.discount_eur)}
+              onChange={(event) => updateForm("discount_eur", Number(event.target.value) || 0)}
             />
           </div>
-        </div>
+        </SectionCard>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Input
-            label="Sconto %"
-            type="number"
-            min={0}
-            max={100}
-            step={0.5}
-            value={String(form.discount_pct)}
-            onChange={(event) => updateForm("discount_pct", Number(event.target.value) || 0)}
-          />
-          <Input
-            label="Sconto fisso €"
-            type="number"
-            min={0}
-            step={0.01}
-            value={String(form.discount_eur)}
-            onChange={(event) => updateForm("discount_eur", Number(event.target.value) || 0)}
-          />
-        </div>
-
-        <div className="rounded-md border border-line dark:border-line-dark p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Righe preventivo</div>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={addCustomLine} disabled={isReadOnly}>
+        <SectionCard
+          icon="list"
+          title="Righe preventivo"
+          count={form.lines.length}
+          actions={
+            <>
+              <Button variant="ghost" size="sm" onClick={addCustomLine} disabled={isReadOnly} leftIcon={<Icon name="plus" className="h-3.5 w-3.5" />}>
                 Riga custom
               </Button>
               <Button variant="secondary" size="sm" onClick={() => setCatalogOpen((v) => !v)} disabled={isReadOnly}>
-              {catalogOpen ? "Chiudi catalogo" : "Aggiungi da catalogo"}
+                {catalogOpen ? "Chiudi catalogo" : "Aggiungi da catalogo"}
               </Button>
-            </div>
-          </div>
-
+            </>
+          }
+        >
           {catalogError && (
-            <div className="mt-2 text-xs text-danger">{catalogError}</div>
+            <div className="text-xs text-danger">{catalogError}</div>
           )}
 
           {catalogOpen && (
-            <div className="mt-3 rounded-md border border-line dark:border-line-dark p-2 space-y-2">
+            <div className="rounded-md border border-line dark:border-line-dark p-2 space-y-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <Input
                   label="Cerca servizio"
@@ -931,11 +988,14 @@ export function QuoteQuickCreateModal({
             </div>
           )}
 
-          <div className="mt-3 space-y-2">
+          <div className="space-y-2">
             {form.lines.length === 0 ? (
               <div className="text-xs text-muted dark:text-muted-dark">Nessuna riga presente.</div>
             ) : form.lines.map((line, index) => (
-              <div key={line.rowId} className="rounded-md border border-line dark:border-line-dark p-2">
+              <div
+                key={line.rowId}
+                className={`rounded-lg border bg-cream dark:bg-ink-2 p-3 transition-shadow ${expandedLineIds[line.rowId] ? "border-ink/40 dark:border-paper/30 shadow-1" : "border-line dark:border-line-dark"}`}
+              >
                 {(() => {
                   const quantity = Math.max(0, Number(line.quantity ?? 1));
                   const unitNet = Math.max(0, Number(line.net ?? 0));
@@ -945,32 +1005,32 @@ export function QuoteQuickCreateModal({
 
                   return (
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0">
+                  <div className="min-w-0 md:flex-1">
                     <div className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">
                       {line.category || "Senza categoria"} · {line.period ?? "oneoff"}
                     </div>
                     <div className="text-sm font-semibold text-ink dark:text-paper truncate">{line.name || "(Senza nome)"}</div>
                     {line.desc ? <div className="text-[11px] text-muted dark:text-muted-dark line-clamp-2">{line.desc}</div> : null}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-                    <span className="rounded-md border border-line dark:border-line-dark px-2 py-1">Q.ta {line.quantity ?? 1}</span>
-                    <span className="rounded-md border border-line dark:border-line-dark px-2 py-1">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-muted dark:text-muted-dark md:flex-nowrap md:shrink-0">
+                    <span className="whitespace-nowrap rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-1.5 py-1 tabular-nums">Q.tà {line.quantity ?? 1}</span>
+                    <span className="whitespace-nowrap rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-1.5 py-1 tabular-nums">
                       {lineDiscountPct > 0 ? (
                         <>
-                          <span className="line-through opacity-70 mr-1">{formatEur(unitNet)}</span>
+                          <span className="line-through opacity-60 mr-1">{formatEur(unitNet)}</span>
                           <span className="text-success font-semibold">{formatEur(discountedUnitNet)}</span>
                         </>
                       ) : (
                         formatEur(unitNet)
                       )}
                     </span>
-                    <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 font-semibold text-ink dark:text-paper">
-                      Tot: {formatEur(lineTotalNet)}
+                    <span className="whitespace-nowrap rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-1.5 py-1 font-semibold tabular-nums text-ink dark:text-paper">
+                      Tot {formatEur(lineTotalNet)}
                     </span>
                     <button
                       type="button"
                       onClick={() => toggleExpandedLine(line.rowId)}
-                      className="h-8 rounded-md border border-line dark:border-line-dark px-3 text-xs font-semibold text-ink dark:text-paper disabled:opacity-40"
+                      className="h-7 shrink-0 whitespace-nowrap rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-2.5 text-[11px] font-semibold text-ink transition-colors hover:border-brand-magenta hover:text-brand-magenta disabled:opacity-40 dark:text-paper"
                       disabled={isReadOnly}
                     >
                       {expandedLineIds[line.rowId] ? "Chiudi" : "Modifica"}
@@ -978,11 +1038,11 @@ export function QuoteQuickCreateModal({
                     <button
                       type="button"
                       onClick={() => removeLine(index)}
-                      className="h-7 w-7 rounded-full border border-line dark:border-line-dark text-muted hover:text-ink dark:hover:text-paper"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-line dark:border-line-dark bg-paper dark:bg-ink-soft text-muted transition-colors hover:border-brand-magenta hover:text-brand-magenta disabled:opacity-40"
                       title="Rimuovi"
                       disabled={isReadOnly}
                     >
-                      ×
+                      <Icon name="x" className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
@@ -992,8 +1052,8 @@ export function QuoteQuickCreateModal({
                 {expandedLineIds[line.rowId] && (
                   <div className="mt-3 flex flex-col gap-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Nome voce</span>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel icon={<Icon name="pencil" className="h-3 w-3" />}>Nome voce</FieldLabel>
                         <input
                           value={line.name ?? ""}
                           onChange={(event) => updateLineField(index, "name", event.target.value)}
@@ -1001,9 +1061,9 @@ export function QuoteQuickCreateModal({
                           placeholder="Nome voce"
                           disabled={isReadOnly}
                         />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Descrizione</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Descrizione</FieldLabel>
                         <textarea
                           value={line.desc ?? ""}
                           onChange={(event) => updateLineField(index, "desc", event.target.value)}
@@ -1012,11 +1072,11 @@ export function QuoteQuickCreateModal({
                           placeholder="Descrizione"
                           disabled={isReadOnly}
                         />
-                      </label>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Categoria</span>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel icon={<Icon name="star" className="h-3 w-3" />}>Categoria</FieldLabel>
                         <input
                           value={line.category ?? ""}
                           onChange={(event) => updateLineField(index, "category", event.target.value)}
@@ -1024,9 +1084,14 @@ export function QuoteQuickCreateModal({
                           placeholder="Categoria"
                           disabled={isReadOnly}
                         />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Periodo</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel
+                          icon={<Icon name="clock" className="h-3 w-3" />}
+                          help={{ title: "Periodo di fatturazione", shortText: "oneoff / monthly / yearly.", longText: "Definisce la ricorrenza della voce:\n• oneoff — una tantum, addebito singolo\n• monthly — ricorrenza mensile\n• yearly — ricorrenza annuale\nLe voci monthly/yearly confluiscono nel totale ricorrente." }}
+                        >
+                          Periodo
+                        </FieldLabel>
                         <select
                           value={line.period ?? "oneoff"}
                           onChange={(event) => updateLineField(index, "period", event.target.value as QuoteLineItem["period"])}
@@ -1037,9 +1102,14 @@ export function QuoteQuickCreateModal({
                           <option value="monthly">monthly</option>
                           <option value="yearly">yearly</option>
                         </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">UDM</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel
+                          icon={<Icon name="list" className="h-3 w-3" />}
+                          help={{ title: "Unità di misura", shortText: "Come viene misurata la voce.", longText: "Unità di misura mostrata nel documento (es. \"Mese\", \"Anno\", \"Una tantum\"). È descrittiva e non incide sui calcoli." }}
+                        >
+                          UDM
+                        </FieldLabel>
                         <input
                           value={line.udm ?? ""}
                           onChange={(event) => updateLineField(index, "udm", event.target.value)}
@@ -1047,11 +1117,11 @@ export function QuoteQuickCreateModal({
                           placeholder="UDM"
                           disabled={isReadOnly}
                         />
-                      </label>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Quantita</span>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel>Quantità</FieldLabel>
                         <input
                           type="number"
                           min={0}
@@ -1061,9 +1131,9 @@ export function QuoteQuickCreateModal({
                           className="rounded-md border border-line dark:border-line-dark px-2 py-1.5 text-sm text-right bg-paper dark:bg-[#1c1c20]"
                           disabled={isReadOnly}
                         />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Prezzo netto</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel>Prezzo netto</FieldLabel>
                         <input
                           type="number"
                           min={0}
@@ -1073,9 +1143,9 @@ export function QuoteQuickCreateModal({
                           className="rounded-md border border-line dark:border-line-dark px-2 py-1.5 text-sm text-right bg-paper dark:bg-[#1c1c20]"
                           disabled={isReadOnly}
                         />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">Sconto %</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel>Sconto %</FieldLabel>
                         <input
                           type="number"
                           min={0}
@@ -1086,9 +1156,13 @@ export function QuoteQuickCreateModal({
                           className="rounded-md border border-line dark:border-line-dark px-2 py-1.5 text-sm text-right bg-paper dark:bg-[#1c1c20]"
                           disabled={isReadOnly}
                         />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark font-semibold">IVA</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel
+                          help={{ title: "IVA", shortText: "Aliquota come frazione.", longText: "Aliquota IVA espressa come frazione: 0.22 = 22%, 0.10 = 10%, 0 = esente." }}
+                        >
+                          IVA
+                        </FieldLabel>
                         <input
                           type="number"
                           min={0}
@@ -1099,14 +1173,14 @@ export function QuoteQuickCreateModal({
                           className="rounded-md border border-line dark:border-line-dark px-2 py-1.5 text-sm text-right bg-paper dark:bg-[#1c1c20]"
                           disabled={isReadOnly}
                         />
-                      </label>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
             ))}
           </div>
-        </div>
+        </SectionCard>
 
         {isReadOnly && (
           <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -1114,20 +1188,21 @@ export function QuoteQuickCreateModal({
           </div>
         )}
 
-        <div className="rounded-md border border-line dark:border-line-dark p-3">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark mb-2">Totali</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-y-1 text-sm">
-            <div className="text-muted dark:text-muted-dark">Mensile: <span className="text-ink dark:text-paper font-semibold">{formatEur(totals.monthly)}</span></div>
-            <div className="text-muted dark:text-muted-dark">Una tantum: <span className="text-ink dark:text-paper font-semibold">{formatEur(totals.one_time)}</span></div>
-            <div className="text-muted dark:text-muted-dark">Subtotale: <span className="text-ink dark:text-paper font-semibold">{formatEur(totals.subtotal)}</span></div>
-            <div className="text-muted dark:text-muted-dark">Sconto: <span className="text-danger font-semibold">-{formatEur(totals.global_discount)}</span></div>
-            <div className="text-muted dark:text-muted-dark">IVA: <span className="text-ink dark:text-paper font-semibold">{formatEur(totals.vat_amount)}</span></div>
-            <div className="text-muted dark:text-muted-dark">Totale: <span className="text-ink dark:text-paper font-semibold">{formatEur(totals.total)}</span></div>
+        <section className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
+          <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted dark:text-muted-dark">
+            <Icon name="credit-card" className="h-4 w-4" /> Totali
           </div>
-        </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+            <TotalCell label="Mensile" value={formatEur(totals.monthly)} />
+            <TotalCell label="Una tantum" value={formatEur(totals.one_time)} />
+            <TotalCell label="Subtotale" value={formatEur(totals.subtotal)} />
+            <TotalCell label="Sconto" value={`−${formatEur(totals.global_discount)}`} tone="discount" />
+            <TotalCell label="IVA" value={formatEur(totals.vat_amount)} />
+            <TotalCell label="Totale" value={formatEur(totals.total)} tone="final" />
+          </div>
+        </section>
           </>
         )}
-      </div>
       </div>
     </Modal>
   );

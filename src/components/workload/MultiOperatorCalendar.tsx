@@ -17,6 +17,7 @@ import {
   type WorkItemOverlapConflict,
   type WorkItemSuggestedSlot,
   type WorkItemSwapPreviewResponse,
+  type WorkItemSwapEffectivePosition,
 } from "../../api/workItems";
 import { updateMeApi } from "../../api/users";
 import { Icon } from "../ui/Icon";
@@ -70,7 +71,7 @@ export function MultiOperatorCalendar({
   const toast = useToast();
   const { refreshSession } = useAuth();
   const [swapConfirm, setSwapConfirm] = useState<
-    { operatorId: number; sourceId: number; targetIds: number[]; preview: WorkItemSwapPreviewResponse } | null
+    { operatorId: number; sourceId: number; targetIds: number[]; positions?: WorkItemSwapEffectivePosition[]; preview: WorkItemSwapPreviewResponse } | null
   >(null);
   const [swapConfirmSubmitting, setSwapConfirmSubmitting] = useState(false);
   const [dataByOperator, setDataByOperator] = useState<Record<number, WorkloadUserCalendarDayResponse | null>>({});
@@ -206,10 +207,10 @@ export function MultiOperatorCalendar({
     }
   }, [openOverlapModal, reloadOperators, selectedDate, setSaving, toast]);
 
-  const performSwap = useCallback(async (operatorId: number, sourceId: number, targetIds: number[], confirm: boolean) => {
+  const performSwap = useCallback(async (operatorId: number, sourceId: number, targetIds: number[], confirm: boolean, positions?: WorkItemSwapEffectivePosition[]) => {
     setSaving(sourceId, true);
     try {
-      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds, confirm });
+      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds, confirm, effective_positions: positions });
       if (res?.can_swap) {
         await reloadOperators([operatorId]);
         toast.success("Posizioni scambiate");
@@ -218,7 +219,7 @@ export function MultiOperatorCalendar({
       }
     } catch (err) {
       if (isSwapConfirmationRequiredError(err)) {
-        setSwapConfirm({ operatorId, sourceId, targetIds, preview: err.preview });
+        setSwapConfirm({ operatorId, sourceId, targetIds, positions, preview: err.preview });
         return;
       }
       if (isWorkItemOverlapApiError(err)) toast.error(err.backendMessage);
@@ -229,28 +230,28 @@ export function MultiOperatorCalendar({
     }
   }, [reloadOperators, setSaving, toast]);
 
-  const swap = useCallback((operatorId: number, sourceId: number, targetIds: number[]) => {
-    void performSwap(operatorId, sourceId, targetIds, false);
+  const swap = useCallback((operatorId: number, sourceId: number, targetIds: number[], positions?: WorkItemSwapEffectivePosition[]) => {
+    void performSwap(operatorId, sourceId, targetIds, false, positions);
   }, [performSwap]);
 
   const confirmSwap = useCallback(async (dontShowAgain: boolean) => {
     if (!swapConfirm) return;
-    const { operatorId, sourceId, targetIds } = swapConfirm;
+    const { operatorId, sourceId, targetIds, positions } = swapConfirm;
     setSwapConfirmSubmitting(true);
     try {
       if (dontShowAgain) {
         try { await updateMeApi({ swap_confirmation_disabled: true }); await refreshSession(); } catch { /* la preferenza non blocca lo swap */ }
       }
       setSwapConfirm(null);
-      await performSwap(operatorId, sourceId, targetIds, true);
+      await performSwap(operatorId, sourceId, targetIds, true, positions);
     } finally {
       setSwapConfirmSubmitting(false);
     }
   }, [swapConfirm, performSwap, refreshSession]);
 
-  const previewSwap = useCallback(async (sourceId: number, targetIds: number[]): Promise<boolean> => {
+  const previewSwap = useCallback(async (sourceId: number, targetIds: number[], positions?: WorkItemSwapEffectivePosition[]): Promise<boolean> => {
     try {
-      const res = await swapWorkItemsPreviewApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds });
+      const res = await swapWorkItemsPreviewApi({ source_work_item_ids: [sourceId], target_work_item_ids: targetIds, effective_positions: positions });
       return res?.can_swap ?? false;
     } catch {
       return false;
@@ -361,7 +362,7 @@ export function MultiOperatorCalendar({
               onMove={(taskId, startTime) => { void moveTo(taskId, op.id, startTime); }}
               onReassign={(taskId, fromOperatorId, startTime) => { void moveTo(taskId, op.id, startTime, [fromOperatorId]); }}
               previewSwap={previewSwap}
-              onSwap={(sourceId, targetIds) => { void swap(op.id, sourceId, targetIds); }}
+              onSwap={(sourceId, targetIds, positions) => { void swap(op.id, sourceId, targetIds, positions); }}
               onResize={(taskId, endTime) => { void resize(op.id, taskId, endTime); }}
               onToggleComplete={(item) => { void toggleComplete(op.id, item); }}
               onCompleteOverCapacity={(taskId) => { void completeOverCapacity(op.id, taskId); }}

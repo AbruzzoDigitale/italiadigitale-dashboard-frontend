@@ -3,18 +3,26 @@ import { listPedConfigurationsApi, type PedConfiguration } from "../../api/pedCo
 import type { User } from "../../api/users";
 import type { WorkArea } from "../../api/workAreas";
 import type { WorkTag } from "../../api/workTags";
-import type { LeftBehindReason, UrgencyLevel, WorkItemStatus, WorkItemTaskType } from "../../api/workItems";
 import { useToast } from "../../context/ToastContext";
+import type { WorkItemBillingSourceInput } from "../../api/contracts";
 import { type ContractAiPreviewDraft, type ContractTaskGenerationMode, useContractAiWorkItemsPreview } from "../../hooks/useContractAiWorkItemsPreview";
 import { useContractAiWorkItemsSession } from "../../hooks/useContractAiWorkItemsSession";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
 import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
+import { EstimatedHoursField } from "../ui/EstimatedHoursField";
 import { Modal } from "../ui/Modal";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Spinner } from "../ui/Spinner";
+
+export interface ContractQuoteLinePrecompile {
+  name: string;
+  desc?: string | null;
+  /** Snapshot della voce sorgente, congelato sulla task per la fatturazione per-voce. */
+  billing_source?: WorkItemBillingSourceInput | null;
+}
 
 interface ContractAiWorkItemsSliderModalProps {
   open: boolean;
@@ -25,6 +33,8 @@ interface ContractAiWorkItemsSliderModalProps {
   workTags: WorkTag[];
   onClose: () => void;
   onCreated?: () => void;
+  precompileLine?: ContractQuoteLinePrecompile | null;
+  onPrecompileConsumed?: () => void;
   modalPosition?: "center" | "left" | "right";
   modalShowOverlay?: boolean;
   modalMobileFullscreen?: boolean;
@@ -47,31 +57,6 @@ type BulkSaveErrorItem = {
   error: string;
 };
 
-const STATUS_OPTIONS: { value: WorkItemStatus; label: string }[] = [
-  { value: "planned", label: "Da fare" },
-  { value: "in_progress", label: "In corso" },
-  { value: "review", label: "Revisione" },
-  { value: "completed", label: "Completato" },
-];
-
-const TASK_TYPE_OPTIONS: { value: WorkItemTaskType; label: string }[] = [
-  { value: "standard", label: "Standard" },
-  { value: "quick", label: "Quick" },
-];
-
-const URGENCY_OPTIONS: { value: UrgencyLevel; label: string }[] = [
-  { value: "low", label: "Bassa" },
-  { value: "normal", label: "Normale" },
-  { value: "high", label: "Alta" },
-  { value: "critical", label: "Critica" },
-];
-
-const LEFT_BEHIND_REASON_OPTIONS: { value: LeftBehindReason; label: string }[] = [
-  { value: "operator_responsibility", label: "Responsabilità operatore" },
-  { value: "client_protection", label: "Protezione cliente" },
-  { value: "justified_delay", label: "Ritardo giustificato" },
-  { value: "other", label: "Altro" },
-];
 
 const RECURRENCE_TYPE_OPTIONS = [
   { value: "", label: "Seleziona frequenza" },
@@ -235,6 +220,8 @@ export function ContractAiWorkItemsSliderModal({
   workTags,
   onClose,
   onCreated,
+  precompileLine = null,
+  onPrecompileConsumed,
   modalPosition = "right",
   modalShowOverlay = false,
   modalMobileFullscreen = false,
@@ -276,9 +263,11 @@ export function ContractAiWorkItemsSliderModal({
   const [pedConfigs, setPedConfigs] = useState<PedConfiguration[]>([]);
   const [pedConfigsLoading, setPedConfigsLoading] = useState(false);
   const [bulkErrors, setBulkErrors] = useState<BulkSaveErrorItem[]>([]);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateCount, setDuplicateCount] = useState(1);
 
   const assigneeOptions = useMemo(
-    () => users.map((user) => ({ id: user.id, label: user.full_name ?? user.username })),
+    () => users.map((user) => ({ id: user.id, label: user.full_name ?? user.username, avatarUrl: user.avatar_url })),
     [users]
   );
   const workAreaOptions = useMemo(
@@ -320,6 +309,8 @@ export function ContractAiWorkItemsSliderModal({
     setTaskPreset(null);
     setTaskCount(null);
     setWizardStep("preset");
+    setDuplicateOpen(false);
+    setDuplicateCount(1);
     clearSession();
     reset();
   }, [clearSession, open, reset]);
@@ -441,143 +432,71 @@ export function ContractAiWorkItemsSliderModal({
     });
   };
 
-  const addChecklist = () => {
-    if (!currentDraft) return;
-    const nextIndex = (currentDraft.checklists?.length ?? 0) + 1;
-    handleDraftPatch({
-      checklists: [
-        ...(currentDraft.checklists ?? []),
-        {
-          title: `Checklist ${nextIndex}`,
-          items: [],
-        },
-      ],
-    });
-  };
-
-  const updateChecklist = (checklistIndex: number, patch: Partial<{ title: string }>) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => (
-        index === checklistIndex ? { ...checklist, ...patch } : checklist
-      )),
-    });
-  };
-
-  const removeChecklist = (checklistIndex: number) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).filter((_, index) => index !== checklistIndex),
-    });
-  };
-
-  const addChecklistItem = (checklistIndex: number) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => {
-        if (index !== checklistIndex) return checklist;
-        return {
-          ...checklist,
-          items: [
-            ...(checklist.items ?? []),
-            {
-              title: "Nuovo elemento",
-              description: null,
-              is_completed: false,
-              due_at: null,
-              assignee_ids: null,
-              time_slots: [],
-            },
-          ],
-        };
-      }),
-    });
-  };
-
-  const updateChecklistItem = (
-    checklistIndex: number,
-    itemIndex: number,
-    patch: Partial<{ title: string; description: string | null; is_completed: boolean; due_at: string | null; assignee_ids: number[] | null }>
-  ) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => {
-        if (index !== checklistIndex) return checklist;
-        return {
-          ...checklist,
-          items: (checklist.items ?? []).map((item, i) => (i === itemIndex ? { ...item, ...patch } : item)),
-        };
-      }),
-    });
-  };
-
-  const removeChecklistItem = (checklistIndex: number, itemIndex: number) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => {
-        if (index !== checklistIndex) return checklist;
-        return {
-          ...checklist,
-          items: (checklist.items ?? []).filter((_, i) => i !== itemIndex),
-        };
-      }),
-    });
-  };
-
-  const addChecklistItemTimeSlot = (checklistIndex: number, itemIndex: number) => {
-    if (!currentDraft) return;
-    const starts_at = window.prompt("Inizio slot (YYYY-MM-DDTHH:mm)", "");
-    if (!starts_at) return;
-    const ends_at = window.prompt("Fine slot (YYYY-MM-DDTHH:mm)", "");
-    if (!ends_at) return;
-    if (new Date(ends_at) <= new Date(starts_at)) {
-      toast.error("La fine slot deve essere successiva all'inizio");
-      return;
+  const handleDuplicateCurrent = () => {
+    if (!session || !currentDraft) return;
+    const count = Math.max(1, Math.min(50, Math.floor(duplicateCount) || 1));
+    const copies: ContractAiPreviewDraft[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const clone = JSON.parse(JSON.stringify(currentDraft)) as ContractAiPreviewDraft;
+      clone.draft_id = `${createManualDraftId()}_${i}`;
+      copies.push(clone);
     }
-    const description = window.prompt("Descrizione slot (opzionale)", "") || null;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => {
-        if (index !== checklistIndex) return checklist;
-        return {
-          ...checklist,
-          items: (checklist.items ?? []).map((item, i) => {
-            if (i !== itemIndex) return item;
-            return {
-              ...item,
-              time_slots: [
-                ...(item.time_slots ?? []),
-                {
-                  starts_at,
-                  ends_at,
-                  description,
-                  is_completed: false,
-                },
-              ],
-            };
-          }),
-        };
-      }),
+    const insertAt = currentIndex + 1;
+    const nextDrafts = [
+      ...session.drafts.slice(0, insertAt),
+      ...copies,
+      ...session.drafts.slice(insertAt),
+    ];
+    startSession({
+      ...session,
+      drafts: nextDrafts,
+      currentIndex: insertAt,
+      savedDraftIds: new Set(session.savedDraftIds),
     });
+    setDuplicateOpen(false);
+    setDuplicateCount(1);
+    toast.success(count === 1 ? "Task duplicata" : `Task duplicata in ${count} copie`);
   };
 
-  const removeChecklistItemTimeSlot = (checklistIndex: number, itemIndex: number, slotIndex: number) => {
-    if (!currentDraft) return;
-    handleDraftPatch({
-      checklists: (currentDraft.checklists ?? []).map((checklist, index) => {
-        if (index !== checklistIndex) return checklist;
-        return {
-          ...checklist,
-          items: (checklist.items ?? []).map((item, i) => {
-            if (i !== itemIndex) return item;
-            return {
-              ...item,
-              time_slots: (item.time_slots ?? []).filter((_, j) => j !== slotIndex),
-            };
-          }),
-        };
-      }),
-    });
-  };
+  // Precompila una task a partire da una voce del preventivo cliccata nel pannello contratto.
+  useEffect(() => {
+    if (!open || !precompileLine || contractId == null) return;
+    const draft: ContractAiPreviewDraft = {
+      ...buildEmptyEditableDraft(),
+      title: precompileLine.name.trim() || "Nuova task",
+      description: precompileLine.desc?.trim() ? precompileLine.desc.trim() : null,
+      billing_source: precompileLine.billing_source ?? null,
+      rationale: "Precompilata da voce del preventivo.",
+    };
+    setGenerateRequested(true);
+    setBulkErrors([]);
+    if (session) {
+      startSession({
+        ...session,
+        drafts: [...session.drafts, draft],
+        currentIndex: session.drafts.length,
+        savedDraftIds: new Set(session.savedDraftIds),
+      });
+    } else {
+      startSession({
+        contractId,
+        companyId: companyId ?? 0,
+        clientId: null,
+        generationMode: "manual",
+        generationJobId: `manual-precompile-${Date.now()}`,
+        generationSourceType: "contract",
+        operationCode: "manual",
+        llmProfile: null,
+        drafts: [draft],
+        currentIndex: 0,
+        savedDraftIds: new Set<string>(),
+      });
+    }
+    toast.success("Task precompilata dalla voce del preventivo");
+    onPrecompileConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precompileLine]);
+
 
   const title = generateRequested && totalDrafts > 0
     ? `Editor task (${currentIndex + 1} di ${totalDrafts})`
@@ -642,23 +561,84 @@ export function ContractAiWorkItemsSliderModal({
               <Button variant="secondary" size="sm" onClick={handleAddDraft} disabled={!session || isSavingOne || isSavingBulk}>
                 Aggiungi
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => { setDuplicateCount(1); setDuplicateOpen(true); }}
+                disabled={!currentDraft || isSavingOne || isSavingBulk}
+              >
+                Duplica
+              </Button>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="danger-ghost" size="sm" onClick={handleDeleteCurrent} disabled={!currentDraft || isSavingOne || isSavingBulk}>
                 Scarta
               </Button>
-              <Button variant="secondary" size="sm" onClick={handleSaveCurrent} loading={isSavingOne} disabled={!currentDraft || isSavingBulk}>
-                Salva questa
-              </Button>
+              {totalDrafts > 1 && (
+                <Button variant="secondary" size="sm" onClick={handleSaveCurrent} loading={isSavingOne} disabled={!currentDraft || isSavingBulk}>
+                  Salva questa
+                </Button>
+              )}
               <Button variant="primary" size="sm" onClick={handleBulkSave} loading={isSavingBulk} disabled={!currentDraft || isSavingOne}>
-                Salva tutte
+                {totalDrafts > 1 ? "Salva tutte" : "Salva task"}
               </Button>
             </div>
           </div>
         </div>
       )}
     >
-      <div className={`flex flex-col ${contentHeightClass}`}>
+      <div className={`relative flex flex-col ${contentHeightClass}`}>
+        {duplicateOpen && (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm"
+            onClick={() => setDuplicateOpen(false)}
+          >
+            <div
+              className="w-full max-w-xs rounded-lg border border-line bg-paper p-4 shadow-xl dark:border-line-dark dark:bg-ink-soft"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h4 className="text-sm font-semibold text-ink dark:text-paper">Quante copie vuoi creare?</h4>
+              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                Duplica la task «{currentDraft?.title?.trim() || "senza titolo"}».
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDuplicateCount((c) => Math.max(1, c - 1))}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-cream text-lg font-bold leading-none text-muted transition-colors hover:text-ink hover:border-ink/40 dark:border-line-dark dark:bg-[#222228] dark:text-muted-dark dark:hover:text-paper"
+                  aria-label="Diminuisci copie"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  autoFocus
+                  value={duplicateCount}
+                  onChange={(event) => {
+                    const parsed = Math.floor(Number(event.target.value));
+                    setDuplicateCount(Number.isFinite(parsed) && parsed > 0 ? Math.min(50, parsed) : 1);
+                  }}
+                  onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); handleDuplicateCurrent(); } }}
+                  className="w-full min-w-0 rounded-md border border-line bg-paper px-3 py-2 text-center text-sm font-semibold text-ink [appearance:textfield] focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus:border-paper [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setDuplicateCount((c) => Math.min(50, c + 1))}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-cream text-lg font-bold leading-none text-muted transition-colors hover:text-ink hover:border-ink/40 dark:border-line-dark dark:bg-[#222228] dark:text-muted-dark dark:hover:text-paper"
+                  aria-label="Aumenta copie"
+                >
+                  +
+                </button>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setDuplicateOpen(false)}>Annulla</Button>
+                <Button variant="primary" size="sm" onClick={handleDuplicateCurrent}>Duplica</Button>
+              </div>
+            </div>
+          </div>
+        )}
         {!generateRequested && (
           <div className="flex h-full flex-col justify-between gap-4">
             <div className="flex flex-1 flex-col justify-center gap-6">
@@ -791,15 +771,10 @@ export function ContractAiWorkItemsSliderModal({
                       placeholder="Descrizione task"
                     />
                   </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <SearchableSelect value={currentDraft.status} onChange={(value) => handleDraftPatch({ status: (value || "planned") as WorkItemStatus })} options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} placeholder="Stato" />
-                    <SearchableSelect value={currentDraft.task_type} onChange={(value) => handleDraftPatch({ task_type: (value || "standard") as WorkItemTaskType })} options={TASK_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} placeholder="Tipo task" />
-                    <SearchableSelect value={currentDraft.urgency_level ?? ""} onChange={(value) => handleDraftPatch({ urgency_level: (value || null) as UrgencyLevel | null })} options={[{ value: "", label: "Nessuna urgenza" }, ...URGENCY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))]} placeholder="Urgenza" />
-                    <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                      <Checkbox checked={currentDraft.is_priority} onChange={(checked) => handleDraftPatch({ is_priority: checked })} />
-                      Priorità alta
-                    </label>
-                  </div>
+                  <label className="inline-flex w-fit items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
+                    <Checkbox checked={currentDraft.is_priority} onChange={(checked) => handleDraftPatch({ is_priority: checked })} />
+                    Priorità alta
+                  </label>
                 </fieldset>
 
                 <fieldset className="flex flex-col gap-3">
@@ -808,7 +783,7 @@ export function ContractAiWorkItemsSliderModal({
                     <Input label="Data lavoro" type="date" value={currentDraft.work_date ?? ""} onChange={(event) => handleDraftPatch({ work_date: event.target.value || null })} />
                     <Input label="Ora inizio" type="time" value={currentDraft.start_time ?? ""} onChange={(event) => handleDraftPatch({ start_time: event.target.value || null })} />
                     <Input label="Scadenza" type="date" value={currentDraft.deadline_date ?? ""} onChange={(event) => handleDraftPatch({ deadline_date: event.target.value || null })} />
-                    <Input label="Ore stimate" type="number" min={0} step="0.5" value={currentDraft.estimated_hours ?? ""} onChange={(event) => handleDraftPatch({ estimated_hours: toNumberOrNull(event.target.value) })} />
+                    <EstimatedHoursField value={currentDraft.estimated_hours ?? null} onChange={(v) => handleDraftPatch({ estimated_hours: v })} />
                   </div>
                 </fieldset>
 
@@ -866,144 +841,6 @@ export function ContractAiWorkItemsSliderModal({
                   )}
                 </fieldset>
 
-                <fieldset className="flex flex-col gap-3">
-                  <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">Carico operativo</legend>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                      <Checkbox checked={currentDraft.affects_daily_load ?? false} onChange={(checked) => handleDraftPatch({ affects_daily_load: checked })} />
-                      Impatta il carico giornaliero
-                    </label>
-                    <Input label="Fattore peso" type="number" min={0} max={3} step="0.1" value={currentDraft.load_weight_factor ?? ""} onChange={(event) => handleDraftPatch({ load_weight_factor: toNumberOrNull(event.target.value) })} />
-                    <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                      <Checkbox checked={currentDraft.is_left_behind} onChange={(checked) => handleDraftPatch({ is_left_behind: checked })} />
-                      Lasciata indietro
-                    </label>
-                    <SearchableSelect value={currentDraft.left_behind_reason ?? ""} onChange={(value) => handleDraftPatch({ left_behind_reason: (value || null) as LeftBehindReason | null })} options={[{ value: "", label: "Nessun motivo" }, ...LEFT_BEHIND_REASON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))]} placeholder="Motivo ritardo" disabled={!currentDraft.is_left_behind} />
-                  </div>
-                  {currentDraft.is_left_behind && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Nota ritardo</label>
-                      <textarea value={currentDraft.left_behind_note ?? ""} onChange={(event) => handleDraftPatch({ left_behind_note: event.target.value || null })} rows={3} className="min-h-[96px] w-full rounded-md border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper" placeholder="Dettaglia il motivo del ritardo" />
-                    </div>
-                  )}
-                </fieldset>
-
-                <fieldset className="flex flex-col gap-3">
-                  <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">Tracking</legend>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <Input label="Avanzamento %" type="number" min={0} max={100} value={currentDraft.progress_percent} onChange={(event) => handleDraftPatch({ progress_percent: Number(event.target.value || 0) })} />
-                    <Input label="Ore effettive" type="number" min={0} step="0.5" value={currentDraft.actual_hours_spent ?? ""} onChange={(event) => handleDraftPatch({ actual_hours_spent: toNumberOrNull(event.target.value) })} />
-                    <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                      <Checkbox checked={currentDraft.is_completed} onChange={(checked) => handleDraftPatch({ is_completed: checked })} />
-                      Completata
-                    </label>
-                  </div>
-                </fieldset>
-
-                <fieldset className="flex flex-col gap-3">
-                  <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">Checklist</legend>
-                  <div className="flex justify-end">
-                    <Button variant="secondary" onClick={addChecklist}>Aggiungi checklist</Button>
-                  </div>
-                  {(currentDraft.checklists ?? []).length === 0 ? (
-                    <p className="text-sm text-muted dark:text-muted-dark">Nessuna checklist. Aggiungi una checklist per tracciare elementi stile Trello.</p>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {(currentDraft.checklists ?? []).map((checklist, checklistIndex) => (
-                        <div key={`checklist-${checklistIndex}`} className="rounded-md border border-line p-3 dark:border-line-dark">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                            <div className="flex-1">
-                              <Input
-                                label={`Checklist ${checklistIndex + 1}`}
-                                value={checklist.title}
-                                onChange={(event) => updateChecklist(checklistIndex, { title: event.target.value })}
-                                placeholder="Titolo checklist"
-                              />
-                            </div>
-                            <div className="flex gap-2">
-                              <Button variant="secondary" size="sm" onClick={() => addChecklistItem(checklistIndex)}>Aggiungi elemento</Button>
-                              <Button variant="danger-ghost" size="sm" onClick={() => removeChecklist(checklistIndex)}>Rimuovi</Button>
-                            </div>
-                          </div>
-
-                          {(checklist.items ?? []).length === 0 ? (
-                            <p className="mt-3 text-sm text-muted dark:text-muted-dark">Nessun elemento in questa checklist.</p>
-                          ) : (
-                            <div className="mt-3 flex flex-col gap-3">
-                              {(checklist.items ?? []).map((item, itemIndex) => (
-                                <div key={`checklist-${checklistIndex}-item-${itemIndex}`} className="rounded-md border border-line p-3 dark:border-line-dark">
-                                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                    <Input
-                                      label="Titolo elemento *"
-                                      value={item.title}
-                                      onChange={(event) => updateChecklistItem(checklistIndex, itemIndex, { title: event.target.value })}
-                                      placeholder="Titolo elemento"
-                                    />
-                                    <Input
-                                      label="Scadenza (data e ora)"
-                                      type="datetime-local"
-                                      value={item.due_at ?? ""}
-                                      onChange={(event) => updateChecklistItem(checklistIndex, itemIndex, { due_at: event.target.value || null })}
-                                    />
-                                    <div className="md:col-span-2">
-                                      <MultiSelect
-                                        label="Assegnatari elemento"
-                                        value={item.assignee_ids ?? []}
-                                        onChange={(value) => updateChecklistItem(checklistIndex, itemIndex, { assignee_ids: value.length ? value : null })}
-                                        options={assigneeOptions}
-                                        placeholder="Se vuoto, usa assegnatari task"
-                                      />
-                                    </div>
-                                    <div className="md:col-span-2">
-                                      <Input
-                                        label="Descrizione elemento"
-                                        value={item.description ?? ""}
-                                        onChange={(event) => updateChecklistItem(checklistIndex, itemIndex, { description: event.target.value || null })}
-                                      />
-                                    </div>
-                                    <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                                      <Checkbox
-                                        checked={item.is_completed}
-                                        onChange={(checked) => updateChecklistItem(checklistIndex, itemIndex, { is_completed: checked })}
-                                      />
-                                      Elemento completato
-                                    </label>
-                                  </div>
-
-                                  <div className="mt-3 rounded-md border border-dashed border-line p-2 dark:border-line-dark">
-                                    <div className="mb-2 flex items-center justify-between">
-                                      <span className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Slot lavoro elemento</span>
-                                      <Button variant="secondary" size="sm" onClick={() => addChecklistItemTimeSlot(checklistIndex, itemIndex)}>Aggiungi slot</Button>
-                                    </div>
-                                    {(item.time_slots ?? []).length === 0 ? (
-                                      <p className="text-xs text-muted dark:text-muted-dark">Nessuno slot. Aggiungilo per tracciare il lavoro svolto su questo elemento.</p>
-                                    ) : (
-                                      <div className="flex flex-col gap-2">
-                                        {(item.time_slots ?? []).map((slot, slotIndex) => (
-                                          <div key={`checklist-${checklistIndex}-item-${itemIndex}-slot-${slotIndex}`} className="flex flex-col gap-2 rounded border border-line px-2 py-1.5 text-xs dark:border-line-dark sm:flex-row sm:items-center sm:justify-between">
-                                            <div>
-                                              <div>{slot.starts_at} → {slot.ends_at}</div>
-                                              {slot.description && <div className="text-muted dark:text-muted-dark">{slot.description}</div>}
-                                            </div>
-                                            <Button variant="danger-ghost" size="sm" onClick={() => removeChecklistItemTimeSlot(checklistIndex, itemIndex, slotIndex)}>Rimuovi</Button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="mt-3 flex justify-end">
-                                    <Button variant="danger-ghost" size="sm" onClick={() => removeChecklistItem(checklistIndex, itemIndex)}>Rimuovi elemento</Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </fieldset>
 
                 <div className="rounded-md border border-info/30 bg-info/5 px-3 py-2 dark:bg-info/10">
                   <div className="text-[11px] font-semibold uppercase tracking-wider text-info">

@@ -91,8 +91,12 @@ const STAGE_TIMELINE: { stage: ContractCommercialStage; field: TimelineKey; labe
   { stage: "completato", field: "completed_at", label: "Completato il" },
 ];
 
+/** In creazione mostriamo direttamente solo le date che contano di più; le altre vanno
+    in una sezione espandibile per non appesantire il form. */
+const PRIMARY_TIMELINE_STAGES = new Set<ContractCommercialStage>(["accettato", "firmato", "in_produzione"]);
+
 const STEPS = [
-  { id: 1, title: "Cliente & tipo" },
+  { id: 1, title: "Cliente" },
   { id: 2, title: "Stato & timeline" },
   { id: 3, title: "Periodo & preventivi" },
   { id: 4, title: "Note & classificazione" },
@@ -247,6 +251,14 @@ export function SituationWizardModal({
     if (isPerso) return [];
     return STAGE_TIMELINE.filter((milestone) => CONTRACT_STAGE_ORDER.indexOf(milestone.stage) <= stageIndex);
   }, [isPerso, stageIndex]);
+  const primaryMilestones = useMemo(
+    () => relevantMilestones.filter((m) => PRIMARY_TIMELINE_STAGES.has(m.stage)),
+    [relevantMilestones]
+  );
+  const secondaryMilestones = useMemo(
+    () => relevantMilestones.filter((m) => !PRIMARY_TIMELINE_STAGES.has(m.stage)),
+    [relevantMilestones]
+  );
 
   const handleClientChange = (value: string) => {
     const next = clients.find((client) => String(client.id) === value);
@@ -385,6 +397,9 @@ export function SituationWizardModal({
       const created = await createContractApi({
         company_id: companyId,
         client_id: Number(form.client_id),
+        // Creato dalla pagina Situazione clienti → contratto e preventivi collegati
+        // NON devono comparire nella pipeline commerciale.
+        created_from: "situation",
         title: form.title.trim(),
         contract_type: form.contract_type,
         engagement_type: form.engagement_type || null,
@@ -534,60 +549,6 @@ export function SituationWizardModal({
                 placeholder="Situazione cliente - La Perla Del Mare"
               />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                  Tipo contratto
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    { value: "commercial", label: "Commerciale", hint: "Trattativa / vendita" },
-                    { value: "execution", label: "Execution", hint: "Erogazione servizio" },
-                  ] as const).map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateForm("contract_type", option.value)}
-                      className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                        form.contract_type === option.value
-                          ? "border-ink bg-ink/5 dark:border-paper dark:bg-paper/10"
-                          : "border-line dark:border-line-dark hover:bg-cream dark:hover:bg-[#1c1c20]"
-                      }`}
-                    >
-                      <div className="font-semibold text-ink dark:text-paper">{option.label}</div>
-                      <div className="text-[11px] text-muted dark:text-muted-dark">{option.hint}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                  Tipo ingaggio
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { value: "", label: "Non specificato" },
-                    { value: "one_time", label: "Una tantum" },
-                    { value: "ongoing", label: "Continuativo" },
-                  ] as const).map((option) => (
-                    <button
-                      key={option.value || "none"}
-                      type="button"
-                      onClick={() => updateForm("engagement_type", option.value)}
-                      className={`rounded-md border px-2 py-2 text-center text-xs font-semibold transition-colors ${
-                        form.engagement_type === option.value
-                          ? "border-ink bg-ink/5 text-ink dark:border-paper dark:bg-paper/10 dark:text-paper"
-                          : "border-line text-muted dark:border-line-dark dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -636,7 +597,7 @@ export function SituationWizardModal({
               {isPerso ? (
                 <Input
                   label="Perso il"
-                  type="datetime-local"
+                  type="date"
                   value={form.lost_at}
                   onChange={(event) => updateForm("lost_at", event.target.value)}
                 />
@@ -645,16 +606,42 @@ export function SituationWizardModal({
                   In bozza non ci sono ancora milestone da datare. Le date compariranno man mano che avanzi lo stato.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {relevantMilestones.map((milestone) => (
-                    <Input
-                      key={milestone.field}
-                      label={milestone.label}
-                      type="datetime-local"
-                      value={form[milestone.field]}
-                      onChange={(event) => updateForm(milestone.field, event.target.value)}
-                    />
-                  ))}
+                <div className="space-y-3">
+                  <p className="text-[11px] text-muted dark:text-muted-dark">
+                    Le date sono facoltative: in alcuni casi fa fede solo il preventivo.
+                  </p>
+                  {primaryMilestones.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {primaryMilestones.map((milestone) => (
+                        <Input
+                          key={milestone.field}
+                          label={milestone.label}
+                          type="date"
+                          value={form[milestone.field]}
+                          onChange={(event) => updateForm(milestone.field, event.target.value)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {secondaryMilestones.length > 0 && (
+                    <details className="group rounded-md border border-line dark:border-line-dark">
+                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                        <Icon name="chevron-right" className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                        Altre date (facoltative)
+                      </summary>
+                      <div className="grid grid-cols-1 gap-3 px-3 pb-3 md:grid-cols-3">
+                        {secondaryMilestones.map((milestone) => (
+                          <Input
+                            key={milestone.field}
+                            label={milestone.label}
+                            type="date"
+                            value={form[milestone.field]}
+                            onChange={(event) => updateForm(milestone.field, event.target.value)}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
             </div>
@@ -664,19 +651,36 @@ export function SituationWizardModal({
         {/* Step 3 — Periodo & preventivi */}
         {step === 3 && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input
-                label="Inizio periodo"
-                type="date"
-                value={form.start_date}
-                onChange={(event) => updateForm("start_date", event.target.value)}
-              />
-              <Input
-                label="Fine periodo"
-                type="date"
-                value={form.end_date}
-                onChange={(event) => updateForm("end_date", event.target.value)}
-              />
+            <div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                Periodo del servizio (facoltativo)
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input
+                  label="Inizio periodo"
+                  type="date"
+                  value={form.start_date}
+                  onChange={(event) => updateForm("start_date", event.target.value)}
+                  help={{
+                    title: "Inizio periodo",
+                    shortText: "Data di inizio del servizio/contratto per questo cliente.",
+                    longText:
+                      "Non è un filtro sui preventivi: indica da quando parte l'erogazione. Lascia vuoto se non rilevante.",
+                  }}
+                />
+                <Input
+                  label="Fine periodo"
+                  type="date"
+                  value={form.end_date}
+                  onChange={(event) => updateForm("end_date", event.target.value)}
+                  help={{
+                    title: "Fine periodo",
+                    shortText: "Data di fine prevista del servizio/contratto.",
+                    longText:
+                      "Non è un filtro sui preventivi. Lascia vuoto se il servizio è continuativo o a tempo indeterminato.",
+                  }}
+                />
+              </div>
             </div>
 
             <div>
@@ -855,14 +859,6 @@ export function SituationWizardModal({
             <div className="rounded-md border border-line dark:border-line-dark divide-y divide-line dark:divide-line-dark">
               <SummaryRow label="Cliente" value={selectedClient?.commercial_name ?? selectedClient?.name ?? "-"} />
               <SummaryRow label="Titolo" value={form.title.trim() || "-"} />
-              <SummaryRow
-                label="Tipo"
-                value={`${form.contract_type === "commercial" ? "Commerciale" : "Execution"}${
-                  form.engagement_type
-                    ? ` · ${form.engagement_type === "one_time" ? "Una tantum" : "Continuativo"}`
-                    : ""
-                }`}
-              />
               <SummaryRow label="Stato" value={CONTRACT_STAGE_LABELS[form.commercial_stage]} />
               {form.execution_stage.trim() && (
                 <SummaryRow label="Situazione operativa" value={form.execution_stage.trim()} />

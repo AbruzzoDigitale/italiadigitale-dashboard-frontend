@@ -171,6 +171,12 @@ export interface WorkloadTimelineItem {
   schedule_state?: WorkItemScheduleState | null;
   work_areas?: WorkloadTimelineArea[];
   task?: WorkItem | null;
+  /** Traccia sbiadita sul giorno d'assegnazione originale di una task spostata a oggi. */
+  is_ghost?: boolean;
+  /** Task in revisione: grafica dedicata (peso per-utente già in schedule_state). */
+  is_review?: boolean;
+  /** Giorno collegato: sull'item reale = giorno d'origine ("↪ dal …"); sul ghost = dov'è ora. */
+  origin_date?: string | null;
 }
 
 export interface WorkloadCalendarOverCapacityTask {

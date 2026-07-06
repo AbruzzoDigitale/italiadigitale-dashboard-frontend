@@ -11,6 +11,7 @@ import {
   swapWorkItemsApi,
   updateWorkItemApi,
   type WorkItemSwapPreviewResponse,
+  type WorkItemSwapEffectivePosition,
   type MoveWorkItemPayload,
   type WorkItem,
   type WorkItemOverlapConflict,
@@ -219,7 +220,12 @@ function formatRangeLabel(fromIso: string, toIso: string): string {
 }
 
 function formatHours(value: number) {
-  return `${value.toFixed(1)}h`;
+  const totalMinutes = Math.round((value || 0) * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
 }
 
 function taskEffectiveHours(task: Pick<WorkloadTaskSummary, "affects_daily_load" | "effective_load_hours" | "estimated_hours">): number {
@@ -359,6 +365,8 @@ export function WorkloadPage() {
 
   const [rangeMode, setRangeMode] = useState<RangeMode>(() => parseRangeParam(searchParams.get("range"), "week"));
   const [calendarDensity, setCalendarDensity] = useState<WorkloadCalendarDensity>("comfortable");
+  // Legenda collassabile: di default chiusa per dare più spazio al calendario.
+  const [legendOpen, setLegendOpen] = useState(false);
   // Tray "Da pianificare" condivisa da tutte le view: layout (sidebar/dock) + stato pannello dock + tab.
   const [trayLayout, setTrayLayout] = useState<WorkloadTrayLayout>("sidebar");
   const [trayDockOpen, setTrayDockOpen] = useState(false);
@@ -478,8 +486,57 @@ export function WorkloadPage() {
 
   const visibleDays = useMemo(() => getVisibleDays(rangeMode, anchorDate, weekOffset), [anchorDate, rangeMode, weekOffset]);
   const calendarOperators = useMemo(() => extractCalendarOperators(heatmap), [heatmap]);
+
+  // ── Scadute (overdue) per la sidebar: admin/PM vedono tutti gli operatori, l'operatore
+  //    solo le proprie. Caricate a livello pagina (non gated al modal), raggruppate per operatore.
+  const { data: sidebarOverdueData } = useOverdueTasks(
+    {
+      company_id: selectedCompanyId ?? undefined,
+      user_id: isOperatorView && user?.id != null ? user.id : undefined,
+      days: 60,
+    },
+    { enabled: !!selectedCompanyId }
+  );
+
+  // Lookup nome/avatar operatore (per gli operatori presenti solo tra le scadute).
+  const operatorMeta = useMemo(() => {
+    const meta = new Map<number, { name: string; avatarUrl: string | null }>();
+    calendarOperators.forEach((op) => meta.set(op.user_id, { name: op.full_name || op.username, avatarUrl: op.avatar_url }));
+    (toPlanData?.operators ?? []).forEach((op) => {
+      if (!meta.has(op.user_id)) meta.set(op.user_id, { name: op.full_name || op.username, avatarUrl: op.avatar_url });
+    });
+    return meta;
+  }, [calendarOperators, toPlanData]);
+
+  // Scadute raggruppate per operatore (una task con più assegnatari compare per ciascuno).
+  const overdueByUser = useMemo(() => {
+    const map = new Map<number, WorkloadTrayItem[]>();
+    const onlySelf = isOperatorView && user?.id != null ? user.id : null;
+    (sidebarOverdueData?.tasks ?? []).forEach((t) => {
+      const item: WorkloadTrayItem = {
+        id: t.work_item_id,
+        client: t.client_name || "Senza cliente",
+        type: t.title,
+        durationMinutes: Math.max(15, Math.round((t.effective_load_hours || 0.5) * 60)),
+        areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+        isOverdue: true,
+        daysOverdue: t.days_overdue,
+        nonDeferrable: t.delay_code === "non_deferrable_overdue",
+      };
+      const assignees = t.assignee_ids?.length ? t.assignee_ids : [];
+      assignees.forEach((uid) => {
+        if (onlySelf != null && uid !== onlySelf) return;
+        const arr = map.get(uid) ?? [];
+        arr.push(item);
+        map.set(uid, arr);
+      });
+    });
+    return map;
+  }, [sidebarOverdueData, isOperatorView, user?.id]);
+
   // Tray "Da pianificare" a livello azienda, raggruppata per operatore (admin/PM vedono tutti;
-  // l'operatore vede solo se stesso). I bucket: "reassign" (oltre capacità) e "unscheduled" (senza orario).
+  // l'operatore vede solo se stesso). I bucket: "reassign" (oltre capacità), "unscheduled" (senza
+  // orario) e "overdue" (oltre la scadenza).
   const trayGroups = useMemo<WorkloadTrayGroup[]>(() => {
     const toItem = (t: {
       work_item_id: number;
@@ -496,14 +553,32 @@ export function WorkloadPage() {
       areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
       overflowHours: t.overflow_hours,
     });
-    return (toPlanData?.operators ?? []).map((op) => ({
-      userId: op.user_id,
-      name: op.full_name || op.username,
-      avatarUrl: op.avatar_url,
-      reassign: op.reassign.map(toItem),
-      unscheduled: op.unscheduled.map(toItem),
-    }));
-  }, [toPlanData]);
+    const byUser = new Map<number, WorkloadTrayGroup>();
+    (toPlanData?.operators ?? []).forEach((op) => {
+      byUser.set(op.user_id, {
+        userId: op.user_id,
+        name: op.full_name || op.username,
+        avatarUrl: op.avatar_url,
+        reassign: op.reassign.map(toItem),
+        unscheduled: op.unscheduled.map(toItem),
+        overdue: overdueByUser.get(op.user_id) ?? [],
+      });
+    });
+    // Operatori presenti SOLO tra le scadute (nessuna task da pianificare).
+    overdueByUser.forEach((items, uid) => {
+      if (byUser.has(uid)) return;
+      const meta = operatorMeta.get(uid);
+      byUser.set(uid, {
+        userId: uid,
+        name: meta?.name ?? `Operatore #${uid}`,
+        avatarUrl: meta?.avatarUrl ?? null,
+        reassign: [],
+        unscheduled: [],
+        overdue: items,
+      });
+    });
+    return [...byUser.values()];
+  }, [toPlanData, overdueByUser, operatorMeta]);
   // Scheda "Da assegnare": task senza alcun operatore (dalla heatmap), lista piatta.
   const trayUnassignedItems = useMemo<WorkloadTrayItem[]>(
     () =>
@@ -516,11 +591,20 @@ export function WorkloadPage() {
       })),
     [heatmap],
   );
-  // "Solo le mie": filtra ai soli gruppi dell'utente loggato.
-  const displayTrayGroups = useMemo(
-    () => (trayOnlyMine && user?.id != null ? trayGroups.filter((g) => g.userId === user.id) : trayGroups),
-    [trayGroups, trayOnlyMine, user?.id],
-  );
+  // Filtri della tray: se sono selezionati uno o più operatori in calendario, la tray
+  // (Scadute / Senza orario / Da riprogrammare) mostra solo i loro gruppi. Il toggle
+  // "Solo le mie" restringe ulteriormente ai soli gruppi dell'utente loggato.
+  const displayTrayGroups = useMemo(() => {
+    let groups = trayGroups;
+    if (calendarOperatorIds.length > 0) {
+      const selected = new Set(calendarOperatorIds);
+      groups = groups.filter((g) => selected.has(g.userId));
+    }
+    if (trayOnlyMine && user?.id != null) {
+      groups = groups.filter((g) => g.userId === user.id);
+    }
+    return groups;
+  }, [trayGroups, calendarOperatorIds, trayOnlyMine, user?.id]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
@@ -1187,15 +1271,15 @@ export function WorkloadPage() {
   // Swap di due task dello stesso operatore (drop di una task su un'altra).
   // Avviso di conferma scambio (mostrato finché l'utente non lo disattiva).
   const [swapConfirm, setSwapConfirm] = useState<
-    { sourceId: number; targetId: number; preview: WorkItemSwapPreviewResponse } | null
+    { sourceId: number; targetId: number; positions?: WorkItemSwapEffectivePosition[]; preview: WorkItemSwapPreviewResponse } | null
   >(null);
   const [swapConfirmSubmitting, setSwapConfirmSubmitting] = useState(false);
 
-  const performSwap = useCallback(async (sourceId: number, targetId: number, confirm: boolean) => {
+  const performSwap = useCallback(async (sourceId: number, targetId: number, confirm: boolean, positions?: WorkItemSwapEffectivePosition[]) => {
     try {
       moveInFlightRef.current = true;
       setMovingTaskId(sourceId);
-      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: [targetId], confirm });
+      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: [targetId], confirm, effective_positions: positions });
       if (res?.can_swap) {
         await loadMain({ silent: true });
         await reloadCalendar();
@@ -1207,7 +1291,7 @@ export function WorkloadPage() {
     } catch (err) {
       // 409 confirmation_required → apri il warning SENZA riconciliare (mantiene l'anteprima).
       if (isSwapConfirmationRequiredError(err)) {
-        setSwapConfirm({ sourceId, targetId, preview: err.preview });
+        setSwapConfirm({ sourceId, targetId, positions, preview: err.preview });
         return;
       }
       await reloadCalendar();
@@ -1219,14 +1303,14 @@ export function WorkloadPage() {
     }
   }, [loadMain, reloadCalendar, handleOverlapApiError, toast]);
 
-  const swapCalendarTasks = useCallback(async (sourceId: number, targetId: number) => {
+  const swapCalendarTasks = useCallback(async (sourceId: number, targetId: number, positions?: WorkItemSwapEffectivePosition[]) => {
     if (moveInFlightRef.current || sourceId === targetId) return;
-    await performSwap(sourceId, targetId, false);
+    await performSwap(sourceId, targetId, false, positions);
   }, [performSwap]);
 
   const confirmSwap = useCallback(async (dontShowAgain: boolean) => {
     if (!swapConfirm) return;
-    const { sourceId, targetId } = swapConfirm;
+    const { sourceId, targetId, positions } = swapConfirm;
     setSwapConfirmSubmitting(true);
     try {
       if (dontShowAgain) {
@@ -1234,7 +1318,7 @@ export function WorkloadPage() {
         try { await updateMeApi({ swap_confirmation_disabled: true }); await refreshSession(); } catch { /* la preferenza non blocca lo swap */ }
       }
       setSwapConfirm(null);
-      await performSwap(sourceId, targetId, true);
+      await performSwap(sourceId, targetId, true, positions);
     } finally {
       setSwapConfirmSubmitting(false);
     }
@@ -2313,7 +2397,7 @@ export function WorkloadPage() {
           onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
           onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
           onMove={(taskId, day, startTime) => { void moveCalendarTaskToDaySlot(taskId, day, startTime); }}
-          onSwap={(sourceId, targetId) => { void swapCalendarTasks(sourceId, targetId); }}
+          onSwap={(sourceId, targetId, positions) => { void swapCalendarTasks(sourceId, targetId, positions); }}
           onCreateByDrag={({ day, startTime, estimatedHours }) => {
             setEditingItem(null);
             setQuickAdd({ day, userId: calendarData.user_id, startTime, estimatedHours });
@@ -2367,37 +2451,52 @@ export function WorkloadPage() {
   };
 
   const renderWorkloadLegend = () => (
-    <div className="shrink-0 px-[22px] py-2 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
+    <div className="shrink-0 px-[22px] py-1.5 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
       <div className="flex flex-wrap items-center gap-3 text-[11px]">
-        {legendAreas.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setLegendOpen((open) => !open)}
+          aria-expanded={legendOpen}
+          className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-wider text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+        >
+          <Icon name="chevron-down" className={`h-3.5 w-3.5 transition-transform ${legendOpen ? "rotate-180" : ""}`} />
+          Legenda
+        </button>
+
+        {legendOpen && (
           <>
-            <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Aree</span>
-            {legendAreas.map((area) => (
-              <span key={area.id} className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-                <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: area.color }} />
-                {area.name}
-              </span>
-            ))}
+            {legendAreas.length > 0 && (
+              <>
+                <span className="mx-1 h-3 w-px bg-line dark:bg-line-dark" />
+                <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Aree</span>
+                {legendAreas.map((area) => (
+                  <span key={area.id} className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: area.color }} />
+                    {area.name}
+                  </span>
+                ))}
+              </>
+            )}
             <span className="mx-1 h-3 w-px bg-line dark:bg-line-dark" />
+            <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Carico</span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-success/30 border border-success/40" />
+              Basso/OK (&lt; 80%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-warning/30 border border-warning/40" />
+              Attenzione (80-99%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-danger/30 border border-danger/40" />
+              Overload (&gt;= 100%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-line dark:bg-line-dark border border-line dark:border-line-dark" />
+              Vuoto
+            </span>
           </>
         )}
-        <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Legenda carico</span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-success/30 border border-success/40" />
-          Basso/OK (&lt; 80%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-warning/30 border border-warning/40" />
-          Attenzione (80-99%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-danger/30 border border-danger/40" />
-          Overload (&gt;= 100%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-line dark:bg-line-dark border border-line dark:border-line-dark" />
-          Vuoto
-        </span>
       </div>
     </div>
   );

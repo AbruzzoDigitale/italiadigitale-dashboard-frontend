@@ -24,7 +24,7 @@ type SearchableSelectProps = {
   menuLayer?: "local" | "portal";
 };
 
-const SELECT_MENU_Z_INDEX = 3100;
+const SELECT_MENU_Z_INDEX = 13000;
 
 function getInitials(label: string): string {
   return label
