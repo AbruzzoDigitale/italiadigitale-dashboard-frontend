@@ -1,5 +1,6 @@
 import type { CSSProperties, DragEvent } from "react";
 import { Icon } from "../ui/Icon";
+import { reworkSeverityClass } from "../../utils/rework";
 
 /**
  * Card task in stile "accordion workload" (classi `wl-acc-task*` da workload-page.css).
@@ -24,6 +25,8 @@ export interface AccLaneTaskCardProps {
   overdue?: boolean;
   /** Giorni di ritardo (schedule_state.overdue_days), opzionale per il testo del badge. */
   overdueDays?: number;
+  /** Numero di rimandi da revisione: 1 → card gialla, 2+ → card rossa. */
+  reworkCount?: number;
   unassigned?: boolean;
   onClick?: () => void;
   draggable?: boolean;
@@ -44,6 +47,7 @@ export function AccLaneTaskCard({
   leftBehind = false,
   overdue = false,
   overdueDays,
+  reworkCount,
   unassigned = false,
   onClick,
   draggable,
@@ -56,7 +60,8 @@ export function AccLaneTaskCard({
     // in modo affidabile quando la card è cliccabile o solo statica.
     cursor: onClick ? "pointer" : draggable ? "grab" : "default",
   } as CSSProperties;
-  const className = `wl-acc-task${unassigned ? " wl-acc-task--unassigned" : ""}`;
+  const reworkClass = reworkSeverityClass(reworkCount);
+  const className = `wl-acc-task${unassigned ? " wl-acc-task--unassigned" : ""}${reworkClass ? ` ${reworkClass}` : ""}`;
 
   const body = (
     <>

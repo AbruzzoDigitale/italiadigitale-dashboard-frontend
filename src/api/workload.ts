@@ -514,6 +514,8 @@ export interface WorkloadDailyTaskDetail extends WorkloadTaskSummary {
   progress_percent: number;
   is_priority: boolean;
   actual_hours_spent: number;
+  /** Numero di rimandi da revisione (1 → giallo, 2+ → rosso nelle card). */
+  rework_count?: number;
 }
 
 export interface WorkloadDailyKPI {
@@ -774,15 +776,17 @@ export interface WorkloadToPlanOperator {
   roles: WorkloadRole[];
   reassign: WorkloadToPlanReassignTask[];
   unscheduled: WorkloadToPlanUnscheduledTask[];
+  review: WorkloadToPlanUnscheduledTask[];
   reassign_count: number;
   unscheduled_count: number;
+  review_count: number;
 }
 
 export interface WorkloadToPlanResponse {
   from_date: string;
   to_date: string;
   operators: WorkloadToPlanOperator[];
-  totals: { reassign: number; unscheduled: number };
+  totals: { reassign: number; unscheduled: number; review?: number };
 }
 
 export interface GetWorkloadToPlanParams {

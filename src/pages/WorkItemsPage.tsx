@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useWorkItems } from "../hooks/useWorkItems";
 import { useToast } from "../context/ToastContext";
+import { useUndo } from "../context/UndoContext";
 import {
   bulkDeleteWorkItemsApi,
   bulkRestoreWorkItemsApi,
@@ -46,6 +47,7 @@ import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { ReviewTab } from "../components/review/ReviewTab";
 import { WorkItemCard } from "../components/work-items/WorkItemCard";
 import { ContractDetailModal } from "../components/contracts/ContractDetailModal";
 import { ContractAiWorkItemsSliderModal, type ContractQuoteLinePrecompile } from "../components/work-items/ContractAiWorkItemsSliderModal";
@@ -382,6 +384,7 @@ export function WorkItemsPage() {
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
+  const { registerUndo } = useUndo();
   const contractFilterId = useMemo(() => {
     const raw = searchParams.get("contract_id");
     if (!raw) return null;
@@ -548,6 +551,8 @@ export function WorkItemsPage() {
   const [pendingStatusChange, setPendingStatusChange] = useState<{ items: WorkItem[]; newStatus: WorkItemStatus } | null>(null);
   const [statusChangeComment, setStatusChangeComment] = useState("");
   const [statusChangeSaving, setStatusChangeSaving] = useState(false);
+  // Rimando da revisione (drag di una singola task): mostra SOLO la scheda Revisione.
+  const [reviewItem, setReviewItem] = useState<WorkItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -726,6 +731,9 @@ export function WorkItemsPage() {
     setModalOpen(false);
     setEditingItem(null);
     setInstantiateTemplateItem(null);
+    // Le azioni della scheda Revisione (consegna al cliente, peso, scadenza) salvano
+    // fuori dal "Salva" del modale: rinfresca la board alla chiusura per rifletterle.
+    void refetch(true);
   };
 
   const toggleItemSelection = (itemId: number, checked: boolean) => {
@@ -753,7 +761,7 @@ export function WorkItemsPage() {
       }
       setBulkDeleteOpen(false);
       setSelectedItemIds((current) => current.filter((id) => !result.deleted.includes(id)));
-      await refetch();
+      await refetch(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nell'eliminazione bulk");
     } finally {
@@ -764,12 +772,19 @@ export function WorkItemsPage() {
   // ── Delete item
   const handleDelete = async () => {
     if (!deletingItem) return;
+    const { id, title } = deletingItem;
     setDeleting(true);
     try {
-      await deleteWorkItemApi(deletingItem.id);
-      toast.success("Lavorazione eliminata");
+      await deleteWorkItemApi(id);
       setDeletingItem(null);
-      await refetch();
+      await refetch(true);
+      registerUndo({
+        label: `Lavorazione "${title}" eliminata`,
+        undo: async () => {
+          await restoreWorkItemApi(id);
+          await refetch(true);
+        },
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nell'eliminazione");
     } finally {
@@ -816,7 +831,7 @@ export function WorkItemsPage() {
       setArchivedItems((current) => current.filter((i) => i.id !== item.id));
       setSelectedArchivedIds((current) => current.filter((id) => id !== item.id));
       toast.success("Task ripristinata");
-      await refetch();
+      await refetch(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile ripristinare la task");
     } finally {
@@ -841,7 +856,7 @@ export function WorkItemsPage() {
       }
       setArchivedItems((current) => current.filter((i) => !restored.includes(i.id)));
       setSelectedArchivedIds([]);
-      await refetch();
+      await refetch(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile ripristinare le task");
     } finally {
@@ -864,7 +879,7 @@ export function WorkItemsPage() {
     try {
       const result = await generateWorkItemRecurrencesApi(item.id, { generation_end_date: generationEndDate });
       toast.success(`Ricorrenze rigenerate: ${result.generated_count}`);
-      await refetch();
+      await refetch(true);
     } catch (err) {
       if (isWorkItemError(err, 422)) {
         toast.error(err instanceof Error ? err.message.replace(/^\[422\]\s*/, "") : "Dati non validi");
@@ -885,6 +900,15 @@ export function WorkItemsPage() {
         status_comment: comment.trim() || undefined,
       });
       setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? updated : w)));
+      const colLabel = KANBAN_COLUMNS.find((c) => c.id === newStatus)?.label ?? newStatus;
+      registerUndo({
+        label: `"${item.title}" spostata in ${colLabel}`,
+        undo: async () => {
+          const reverted = await updateWorkItemApi(item.id, { status: previousStatus });
+          setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? reverted : w)));
+          void refetch(true);
+        },
+      });
       return true;
     } catch {
       setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? { ...w, status: previousStatus } : w)));
@@ -916,9 +940,16 @@ export function WorkItemsPage() {
       .map((id) => displayedWorkItems.find((w) => w.id === id))
       .filter((w): w is WorkItem => !!w && w.status !== newStatus);
     if (items.length === 0) return;
-    // Se almeno una è un "rimando indietro" (da revisione/completato), chiedi un commento
-    // per l'intero gruppo; altrimenti applica subito.
-    if (items.some((it) => isReviewSendBack(it.status, newStatus))) {
+    // Rimando indietro da revisione: per UNA task apri direttamente la scheda
+    // Revisione (la task è ancora in "review" → il modale si apre su quella tab),
+    // dove "Rimanda a correggere" applica la logica corretta (contatori + thread).
+    // Per più task insieme resta il modale rapido con il motivo condiviso.
+    const sendBacks = items.filter((it) => isReviewSendBack(it.status, newStatus));
+    if (sendBacks.length > 0) {
+      if (items.length === 1) {
+        setReviewItem(items[0]);
+        return;
+      }
       setStatusChangeComment("");
       setPendingStatusChange({ items, newStatus });
     } else {
@@ -1898,7 +1929,7 @@ export function WorkItemsPage() {
                   precompileLine={precompileLine}
                   onPrecompileConsumed={() => setPrecompileLine(null)}
                   onCreated={() => {
-                    void refetch();
+                    void refetch(true);
                   }}
                 />
               </div>
@@ -1965,7 +1996,7 @@ export function WorkItemsPage() {
             precompileLine={precompileLine}
             onPrecompileConsumed={() => setPrecompileLine(null)}
             onCreated={() => {
-              void refetch();
+              void refetch(true);
             }}
           />
         </>
@@ -1980,11 +2011,55 @@ export function WorkItemsPage() {
           companyId={formCompanyId}
           isAdmin={isAdmin}
           canManageReviewer={canManageWorkItems}
-          onSaved={() => {
+          onSaved={(savedItem) => {
+            const prev = editingItem; // snapshot pre-modifica (null in creazione)
             setModalOpen(false);
             setEditingItem(null);
             setInstantiateTemplateItem(null);
-            void refetch();
+            void refetch(true);
+            if (prev) {
+              // MODIFICA → undo = rimetti i valori precedenti (best-effort sui campi principali).
+              registerUndo({
+                label: `Modifiche a "${prev.title}"`,
+                undo: async () => {
+                  await updateWorkItemApi(prev.id, {
+                    title: prev.title,
+                    description: prev.description ?? null,
+                    work_date: prev.work_date ?? null,
+                    start_time: prev.start_time ?? null,
+                    deadline_date: prev.deadline_date ?? null,
+                    due_time_label: prev.due_time_label ?? null,
+                    estimated_hours: prev.estimated_hours ?? null,
+                    load_weight_factor: prev.load_weight_factor,
+                    affects_daily_load: prev.affects_daily_load,
+                    status: prev.status,
+                    progress_percent: prev.progress_percent,
+                    urgency_level: prev.urgency_level ?? null,
+                    is_priority: prev.is_priority,
+                    is_deadline_locked: prev.is_deadline_locked,
+                    is_fractionable: prev.is_fractionable,
+                    is_left_behind: prev.is_left_behind,
+                    left_behind_reason: prev.left_behind_reason ?? null,
+                    left_behind_note: prev.left_behind_note ?? null,
+                    client_id: prev.client_id ?? null,
+                    is_PED: prev.is_PED,
+                    assignee_ids: prev.assignee_ids ?? [],
+                    work_area_ids: prev.work_area_ids ?? [],
+                    tag_ids: prev.tag_ids ?? [],
+                  });
+                  await refetch(true);
+                },
+              });
+            } else if (savedItem) {
+              // CREAZIONE → undo = elimina la lavorazione creata.
+              registerUndo({
+                label: `Lavorazione "${savedItem.title}" creata`,
+                undo: async () => {
+                  await deleteWorkItemApi(savedItem.id);
+                  await refetch(true);
+                },
+              });
+            }
           }}
         />
       )}
@@ -2099,12 +2174,39 @@ export function WorkItemsPage() {
         </div>
       </Modal>
 
+      {/* Rimando da revisione (drag di una singola task): solo la scheda Revisione. */}
+      <Modal
+        open={!!reviewItem}
+        onClose={() => { setReviewItem(null); void refetch(true); }}
+        title={reviewItem ? `Revisione · ${reviewItem.title}` : "Revisione"}
+        size="xl"
+      >
+        {reviewItem ? (
+          <ReviewTab
+            workItemId={reviewItem.id}
+            canManage={canManageWorkItems}
+            onChanged={() => void refetch(true)}
+            onSentBack={() => { setReviewItem(null); void refetch(true); }}
+          />
+        ) : null}
+      </Modal>
+
       <QuickTaskModal
         open={quickTaskModalOpen}
         onClose={() => setQuickTaskModalOpen(false)}
         companyId={companyId}
-        onCreated={() => {
-          refetch();
+        onCreated={(response) => {
+          void refetch(true);
+          const created = response.item;
+          if (created) {
+            registerUndo({
+              label: `Task rapida "${created.title}" creata`,
+              undo: async () => {
+                await deleteWorkItemApi(created.id);
+                await refetch(true);
+              },
+            });
+          }
         }}
       />
 

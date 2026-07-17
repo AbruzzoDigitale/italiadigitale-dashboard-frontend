@@ -2,6 +2,7 @@ import React from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
+import { UndoProvider } from "./context/UndoContext";
 import { AuthProvider } from "./context/AuthContext";
 import { BrandProvider } from "./context/BrandContext";
 import { useAuth } from "./hooks/useAuth";
@@ -28,6 +29,7 @@ import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentati
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkloadPage } from "./pages/WorkloadPage";
+import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
 import { FatturazionePage } from "./pages/FatturazionePage";
@@ -107,6 +109,7 @@ function AppRoutes() {
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
+        <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
         <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
@@ -121,11 +124,13 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <AuthProvider>
-          <BrandProvider>
-            <AppRoutes />
-          </BrandProvider>
-        </AuthProvider>
+        <UndoProvider>
+          <AuthProvider>
+            <BrandProvider>
+              <AppRoutes />
+            </BrandProvider>
+          </AuthProvider>
+        </UndoProvider>
       </ToastProvider>
     </ThemeProvider>
   );

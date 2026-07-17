@@ -105,7 +105,7 @@ function PackageCard({ pkg, index, total, cardStyle, reco, selected, onSelect }:
   return (
     <article
       className={`social-pack${reco ? " is-reco" : ""}${selected ? " is-selected" : ""}`}
-      style={cardStyle === "rail" ? ({ "--rail": railFill } as CSSProperties) : undefined}
+      style={{ ["--i"]: index, ...(cardStyle === "rail" ? { "--rail": railFill } : {}) } as CSSProperties}
       onClick={() => onSelect(pkg.id)}
     >
       {cardStyle === "tech" && (<><span className="social-pack__corner tl" /><span className="social-pack__corner br" /></>)}
@@ -256,10 +256,13 @@ export function SocialPackagesPresentationPage() {
   const configRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const [presentationMode, setPresentationMode] = useState(false);
+  // In presentazione la barra sconto/preventivo parte abbassata: si tira su con la freccetta.
+  const [quotebarOpen, setQuotebarOpen] = useState(false);
 
   const togglePresentation = () => {
     const next = !presentationMode;
     setPresentationMode(next);
+    if (next) setQuotebarOpen(false); // entra in presentazione con la barra abbassata
     if (next) document.documentElement.requestFullscreen?.().catch(() => {});
     else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   };
@@ -403,7 +406,7 @@ export function SocialPackagesPresentationPage() {
   }
 
   return (
-    <div ref={pageRef} className={`social-presentation-page${presentationMode ? " is-presentation" : ""}`}>
+    <div ref={pageRef} className={`social-presentation-page${presentationMode ? " is-presentation" : ""}${presentationMode && quotebarOpen ? " qbar-open" : ""}`}>
 
       {presentationMode && (
         <button type="button" className="social-present-exit" onClick={togglePresentation}>
@@ -413,8 +416,10 @@ export function SocialPackagesPresentationPage() {
 
       {/* ── Hero scuro ── */}
       <div className="social-hero-section">
-        <div className="social-hero__title">Pacchetti Social Media</div>
-        <div className="social-hero__sub">
+        {/* key legata a presentationMode: al passaggio gli elementi si rimontano e
+            l'animazione di ingresso (CSS) riparte da capo. */}
+        <div key={`t-${presentationMode}`} className="social-hero__title">Pacchetti Social Media</div>
+        <div key={`s-${presentationMode}`} className="social-hero__sub">
           <strong>Durata minima: 6 mesi</strong> · IVA esclusa
         </div>
 
@@ -425,7 +430,7 @@ export function SocialPackagesPresentationPage() {
         ) : orderedPackages.length === 0 ? (
           <div className="social-presentation-empty">Nessun pacchetto attivo disponibile per questa azienda.</div>
         ) : (
-          <section className={`social-hero__deck social-deck--${cardStyle}`}>
+          <section key={`d-${presentationMode}`} className={`social-hero__deck social-deck--${cardStyle}`}>
             {orderedPackages.map((item, index) => (
               <PackageCard
                 key={item.id}
@@ -622,7 +627,24 @@ export function SocialPackagesPresentationPage() {
 
       {/* ── Barra preventivo sticky in basso ── */}
       {!loading && orderedPackages.length > 0 && (
-        <div className="social-quotebar">
+        <div
+          className={`social-quotebar${presentationMode ? " is-present-bar" : ""}${
+            presentationMode && !quotebarOpen ? " is-collapsed" : ""
+          }`}
+        >
+          {presentationMode && (
+            <button
+              type="button"
+              className="social-quotebar__handle"
+              onClick={() => setQuotebarOpen((o) => !o)}
+              aria-label={quotebarOpen ? "Nascondi barra preventivo" : "Mostra barra preventivo"}
+              title={quotebarOpen ? "Nascondi" : "Mostra prezzo e sconto"}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 15l6-6 6 6" />
+              </svg>
+            </button>
+          )}
           <div className="social-quotebar__info">
             {selectedPack ? (
               <>

@@ -10,10 +10,16 @@ import { Icon, type IconName } from "../components/ui/Icon";
 
 export type ToastVariant = "success" | "error" | "info" | "warning";
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: string;
   message: string;
   variant: ToastVariant;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
@@ -21,6 +27,8 @@ interface ToastContextValue {
   error: (message: string) => void;
   info: (message: string) => void;
   warning: (message: string) => void;
+  /** Toast con un pulsante d'azione (es. "Annulla"). Dura più a lungo. */
+  action: (message: string, actionLabel: string, onAction: () => void) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -51,9 +59,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const push = useCallback(
-    (message: string, variant: ToastVariant, duration = 3500) => {
+    (message: string, variant: ToastVariant, duration = 3500, action?: ToastAction) => {
       const id = `toast-${++counterRef.current}`;
-      setToasts((prev) => [...prev, { id, message, variant }]);
+      setToasts((prev) => [...prev, { id, message, variant, action }]);
       setTimeout(() => dismiss(id), duration);
     },
     [dismiss]
@@ -65,6 +73,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     error: (m) => push(m, "error"),
     info: (m) => push(m, "info"),
     warning: (m) => push(m, "warning"),
+    action: (m, label, onAction) => push(m, "info", 7000, { label, onClick: onAction }),
   }), [push]);
 
   return (
@@ -78,15 +87,26 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg border text-sm font-semibold shadow-2 animate-fadeIn max-w-xs ${COLORS[t.variant]}`}
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg border text-sm font-semibold shadow-2 animate-fadeIn max-w-sm ${COLORS[t.variant]}`}
           >
             <span className="leading-none">
               <Icon name={ICONS[t.variant]} className="w-4 h-4" />
             </span>
             <span className="flex-1 text-ink dark:text-paper font-body">{t.message}</span>
+            {t.action && (
+              <button
+                onClick={() => {
+                  t.action!.onClick();
+                  dismiss(t.id);
+                }}
+                className="ml-1 shrink-0 rounded-md border border-current/30 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-ink hover:bg-ink/5 dark:text-paper dark:hover:bg-paper/10 transition-colors"
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
               onClick={() => dismiss(t.id)}
-              className="ml-2 opacity-50 hover:opacity-100 transition-opacity text-ink dark:text-paper"
+              className="ml-1 opacity-50 hover:opacity-100 transition-opacity text-ink dark:text-paper"
               aria-label="Chiudi notifica"
             >
               <Icon name="x" className="w-4 h-4" />

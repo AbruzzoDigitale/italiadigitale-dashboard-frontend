@@ -7,6 +7,7 @@ import {
   createQuoteApi,
   createQuoteFromConfiguratorApi,
   formatEur,
+  getAllowedTransitions,
   getQuoteHistoryLabel,
   getQuoteLinkedContractsApi,
   getQuoteApi,
@@ -22,6 +23,7 @@ import {
   createRequestFromConfiguratorApi,
   getRequestApi,
   updateRequestApi,
+  updateRequestStatusApi,
 } from "../api/requests";
 import { getSocialPackageApi, listSocialPackagesApi, type SocialPackageBase, type SocialPackageDetail } from "../api/socialPackages";
 import { CONTRACT_STAGE_LABELS, createContractApi } from "../api/contracts";
@@ -365,7 +367,20 @@ function getTimelineTitle(event: QuoteEventResponse): string {
   return getQuoteHistoryLabel(event);
 }
 
-export function QuoteEditorPage() {
+export function QuoteEditorPage({
+  embedded = false,
+  forceNew = false,
+  forceRequest = false,
+  onClose,
+  onSaved,
+}: {
+  /** Reso dentro un modal: niente navigazioni di rotta, chiude via onClose. */
+  embedded?: boolean;
+  forceNew?: boolean;
+  forceRequest?: boolean;
+  onClose?: () => void;
+  onSaved?: () => void;
+} = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -375,7 +390,7 @@ export function QuoteEditorPage() {
   const isOperator = !isAdmin;
   const canSeePricing = isAdmin;
   const { selectedCompanyId } = useSelectedCompanyId(activeCompanyId ?? user?.company_id ?? null);
-  const isRequestMode = location.pathname.startsWith("/requests");
+  const isRequestMode = embedded ? forceRequest : location.pathname.startsWith("/requests");
   const useOperatorRequestTerminology = isOperator && !isRequestMode;
   const hideTagAndDiscount = isOperator;
   const editorLabel = isRequestMode || useOperatorRequestTerminology ? "Richiesta" : "Preventivo";
@@ -391,8 +406,8 @@ export function QuoteEditorPage() {
   const previewPayload = navState?.previewPayload;
   const previewSource = navState?.previewSource ?? (previewPayload ? "configurator" : undefined);
   const quoteIdFromQuery = Number(searchParams.get("quote_id"));
-  const quoteId = navState?.quoteId ?? (Number.isFinite(quoteIdFromQuery) ? quoteIdFromQuery : null);
-  const isNewDraftMode = searchParams.get("new") === "1";
+  const quoteId = embedded ? null : (navState?.quoteId ?? (Number.isFinite(quoteIdFromQuery) ? quoteIdFromQuery : null));
+  const isNewDraftMode = embedded ? forceNew : searchParams.get("new") === "1";
   const quotesSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete("quote_id");
@@ -843,7 +858,7 @@ export function QuoteEditorPage() {
     }
   };
 
-  const save = async () => {
+  const save = async (opts?: { submit?: boolean }) => {
     if (isReadOnly) {
       toast.error((isRequestMode || useOperatorRequestTerminology) ? "Richiesta in sola lettura per questo stato o permesso" : "Preventivo in sola lettura per questo stato o permesso");
       return;
@@ -907,6 +922,7 @@ export function QuoteEditorPage() {
             configurator: null,
           };
 
+      let createdId: number | null = null;
       if (quoteId && !isCompanyChanged) {
             if (isRequestMode) {
               await updateRequestApi(quoteId, effectivePayload);
@@ -915,28 +931,45 @@ export function QuoteEditorPage() {
             }
       } else if (quoteId && isCompanyChanged) {
             if (isRequestMode) {
-              await createRequestApi(effectivePayload);
+              createdId = (await createRequestApi(effectivePayload)).id;
             } else {
               await createQuoteApi(effectivePayload);
             }
       } else if (previewSource === "configurator") {
             if (isRequestMode) {
-              await createRequestFromConfiguratorApi(effectivePayload);
+              createdId = (await createRequestFromConfiguratorApi(effectivePayload)).id;
             } else {
               await createQuoteFromConfiguratorApi(effectivePayload);
             }
       } else {
             if (isRequestMode) {
-              await createRequestApi(effectivePayload);
+              createdId = (await createRequestApi(effectivePayload)).id;
             } else {
               await createQuoteApi(effectivePayload);
             }
       }
 
-      if (quoteId && isCompanyChanged) {
+      // "Invia richiesta": creata la bozza, la si porta subito allo stato di invio
+      // (così esce dalle bozze private e diventa visibile a PM/admin).
+      if (opts?.submit && createdId != null) {
+        const target = getAllowedTransitions("bozza", isAdmin)[0];
+        if (target) {
+          try {
+            await updateRequestStatusApi(createdId, target);
+            toast.success("Richiesta inviata");
+          } catch {
+            toast.error("Richiesta creata, ma l'invio non è riuscito: resta in bozza.");
+          }
+        }
+      } else if (quoteId && isCompanyChanged) {
             toast.success(isRequestMode ? "Richiesta salvata nella nuova company" : "Preventivo salvato nella nuova company");
       } else {
             toast.success(quoteId ? (isRequestMode ? "Richiesta aggiornata" : "Preventivo aggiornato") : (isRequestMode ? "Richiesta salvata" : "Preventivo salvato"));
+      }
+      if (embedded) {
+        onSaved?.();
+        onClose?.();
+        return;
       }
       const redirectParams = new URLSearchParams(quotesSearch);
       if (currentCompanyId != null) {
@@ -1002,17 +1035,21 @@ export function QuoteEditorPage() {
   };
 
   return (
-    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
-      <div className="section-eyebrow">
-        <Icon name="list" className="w-3.5 h-3.5" />
-        {`Editor ${editorLabel}`}
-      </div>
-      <h1 className="section-title">{`Modifica ${editorLabel}`}</h1>
-      <p className="section-lead">{hideTagAndDiscount ? "Rivedi righe e cliente prima del salvataggio definitivo della richiesta." : "Rivedi righe, sconti e cliente prima del salvataggio definitivo."}</p>
+    <div className={embedded ? "w-full" : "px-6 py-8 pb-20 mx-auto w-full animate-fadeIn"}>
+      {!embedded && (
+        <>
+          <div className="section-eyebrow">
+            <Icon name="list" className="w-3.5 h-3.5" />
+            {`Editor ${editorLabel}`}
+          </div>
+          <h1 className="section-title">{`Modifica ${editorLabel}`}</h1>
+          <p className="section-lead">{hideTagAndDiscount ? "Rivedi righe e cliente prima del salvataggio definitivo della richiesta." : "Rivedi righe, sconti e cliente prima del salvataggio definitivo."}</p>
+        </>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 mt-8">
+      <div className={embedded ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 mt-8"}>
         <div className="rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] overflow-hidden">
-          <div className="p-5 border-b border-line dark:border-[#2a2a2e] grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={"p-5 border-b border-line dark:border-[#2a2a2e] grid grid-cols-1 gap-4" + (embedded ? "" : " md:grid-cols-2")}>
             <Input label="Data" type="date" value={date ?? ""} onChange={(e) => setDate(e.target.value)} disabled={isReadOnly} />
             <Input label="Titolo" value={title ?? ""} onChange={(e) => setTitle(e.target.value)} placeholder={(isRequestMode || useOperatorRequestTerminology) ? "Es. Richiesta Campagna Estate 2026" : "Es. Preventivo Campagna Estate 2026"} disabled={isReadOnly} />
             {!hideTagAndDiscount && (
@@ -1360,7 +1397,18 @@ export function QuoteEditorPage() {
           )}
 
           <div className="mt-5 flex flex-col gap-2">
-            <Button variant="primary" onClick={save} loading={saving} disabled={isReadOnly}>{primaryActionLabel}</Button>
+            {embedded ? (
+              <>
+                <Button variant="primary" onClick={() => void save({ submit: true })} loading={saving} disabled={isReadOnly}>
+                  Invia richiesta
+                </Button>
+                <Button variant="secondary" onClick={() => void save({ submit: false })} loading={saving} disabled={isReadOnly}>
+                  Salva bozza
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" onClick={() => void save()} loading={saving} disabled={isReadOnly}>{primaryActionLabel}</Button>
+            )}
             {!isRequestMode && isAdmin && (
               <Button
                 variant="secondary"
@@ -1568,18 +1616,20 @@ export function QuoteEditorPage() {
                 </>
               );
             })()}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                const redirectParams = new URLSearchParams(quotesSearch);
-                if (currentCompanyId != null) {
-                  redirectParams.set("company_id", String(currentCompanyId));
-                }
-                navigate({ pathname: "/quotes", search: `?${redirectParams.toString()}` });
-              }}
-            >
-              Annulla
-            </Button>
+            {!embedded && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const redirectParams = new URLSearchParams(quotesSearch);
+                  if (currentCompanyId != null) {
+                    redirectParams.set("company_id", String(currentCompanyId));
+                  }
+                  navigate({ pathname: "/quotes", search: `?${redirectParams.toString()}` });
+                }}
+              >
+                Annulla
+              </Button>
+            )}
           </div>
 
           {!isRequestMode && isAdmin && (

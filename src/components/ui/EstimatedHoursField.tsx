@@ -9,26 +9,9 @@ function toMinutes(value: number | string | null | undefined): number {
   return Math.max(0, Math.round(n * 60));
 }
 
-/** Minuti → "Xh Ym" (sempre con entrambe le unità, es. "0h 0m", "2h 30m"). */
-function formatHM(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h}h ${m}m`;
-}
-
-/** Parser tollerante: "2h 30m", "2h", "30m", "2:30", "2.5" (ore), "150m". Ritorna minuti o null. */
-function parseHuman(raw: string): number | null {
-  const s = raw.trim().toLowerCase().replace(",", ".");
-  if (!s) return null;
-  const hm = s.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$/);
-  if (hm && (hm[1] || hm[2])) {
-    return Math.round(parseFloat(hm[1] || "0") * 60) + parseInt(hm[2] || "0", 10);
-  }
-  const colon = s.match(/^(\d+):([0-5]?\d)$/);
-  if (colon) return parseInt(colon[1], 10) * 60 + parseInt(colon[2], 10);
-  const num = parseFloat(s);
-  if (!Number.isNaN(num)) return Math.round(num * 60);
-  return null;
+function toInt(raw: string): number {
+  const n = parseInt(raw || "0", 10);
+  return Number.isNaN(n) ? 0 : Math.max(0, n);
 }
 
 interface EstimatedHoursFieldProps {
@@ -41,43 +24,49 @@ interface EstimatedHoursFieldProps {
 }
 
 /**
- * Campo "Ore stimate" umano: stepper −/+ a passo 15 minuti, con valore mostrato come
- * "Xh Ym" (anche digitabile, es. "2h 30m" / "2.5" / "2:30"). Mantiene il dato in ore
- * decimali per compatibilità API. Componente condiviso: usalo ovunque serva una durata.
+ * Campo "Ore stimate": un unico campo unito con stepper −/+ (passo 15 min), come prima,
+ * ma con ore e minuti come segmenti numerici distinti e le unità "h" e "m" come adornment
+ * FISSI non editabili (non si possono cancellare). Minuti limitati a 0–59. Mantiene il dato
+ * in ore decimali per compatibilità API.
  */
 export function EstimatedHoursField({ value, onChange, label = "Ore stimate", help }: EstimatedHoursFieldProps) {
-  const minutes = toMinutes(value);
-  const isEmpty = value == null || value === "";
-  const [text, setText] = useState(isEmpty ? "" : formatHM(minutes));
+  const total = toMinutes(value);
+  const [hours, setHours] = useState(String(Math.floor(total / 60)));
+  const [mins, setMins] = useState(String(total % 60));
 
+  // Risincronizza dai valori esterni (es. reset del form) SOLO se divergono da quelli
+  // digitati: evita di sovrascrivere l'input mentre l'utente scrive.
   useEffect(() => {
-    setText(value == null || value === "" ? "" : formatHM(toMinutes(value)));
+    const t = toMinutes(value);
+    const localT = toInt(hours) * 60 + Math.min(59, toInt(mins));
+    if (t === localT) return;
+    setHours(String(Math.floor(t / 60)));
+    setMins(String(t % 60));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  const emitMinutes = (min: number) => {
-    const m = Math.max(0, min);
-    onChange(m === 0 ? null : Number((m / 60).toFixed(4)));
+  const currentTotal = toInt(hours) * 60 + Math.min(59, toInt(mins));
+
+  const emit = (hStr: string, mStr: string) => {
+    const t = toInt(hStr) * 60 + Math.min(59, toInt(mStr));
+    onChange(t === 0 ? null : Number((t / 60).toFixed(4)));
   };
 
   const nudge = (deltaMin: number) => {
-    const base = Math.round(minutes / STEP_MIN) * STEP_MIN;
-    emitMinutes(Math.max(0, base + deltaMin));
-  };
-
-  const commit = () => {
-    const parsed = parseHuman(text);
-    if (parsed == null) {
-      onChange(null);
-      setText("");
-    } else {
-      const m = Math.max(0, parsed);
-      emitMinutes(m);
-      setText(formatHM(m));
-    }
+    const base = Math.round(currentTotal / STEP_MIN) * STEP_MIN;
+    const next = Math.max(0, base + deltaMin);
+    const h = String(Math.floor(next / 60));
+    const m = String(next % 60);
+    setHours(h);
+    setMins(m);
+    emit(h, m);
   };
 
   const btn =
     "w-11 shrink-0 grid place-items-center text-lg font-bold leading-none text-ink transition-colors hover:bg-brand-magenta hover:text-white disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-ink dark:text-paper";
+  const seg =
+    "w-8 min-w-0 bg-transparent py-2.5 text-center text-sm font-semibold text-ink outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-paper";
+  const unit = "select-none text-sm font-semibold text-muted dark:text-muted-dark";
 
   return (
     <div className="flex flex-col gap-1">
@@ -85,23 +74,35 @@ export function EstimatedHoursField({ value, onChange, label = "Ore stimate", he
         <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">{label}</label>
         {help && <FieldHelpPopover {...help} />}
       </span>
-      <div className="flex w-full items-stretch overflow-hidden rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#1c1c20]">
-        <button type="button" aria-label="Riduci" className={btn} onClick={() => nudge(-STEP_MIN)} disabled={minutes <= 0}>
+      <div className="flex w-fit max-w-full items-stretch overflow-hidden rounded-md border border-line bg-paper transition-colors focus-within:border-ink dark:border-line-dark dark:bg-[#1c1c20] dark:focus-within:border-paper">
+        <button type="button" aria-label="Riduci" className={btn} onClick={() => nudge(-STEP_MIN)} disabled={currentTotal <= 0}>
           −
         </button>
-        <input
-          value={text}
-          placeholder="0h 0m"
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          className="min-w-0 flex-1 border-x border-line bg-transparent px-2 py-2 text-center text-sm font-semibold text-ink outline-none placeholder:font-normal placeholder:text-muted/60 dark:border-line-dark dark:text-paper dark:placeholder:text-muted-dark/60"
-        />
+        <div className="flex min-w-0 items-center justify-center gap-0.5 border-x border-line px-2 dark:border-line-dark">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            aria-label="Ore"
+            value={hours}
+            onChange={(e) => { setHours(e.target.value); emit(e.target.value, mins); }}
+            className={`${seg} text-right`}
+          />
+          <span className={unit}>h</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={59}
+            step={5}
+            aria-label="Minuti"
+            value={mins}
+            onChange={(e) => { setMins(e.target.value); emit(hours, e.target.value); }}
+            className={`${seg} text-left`}
+          />
+          <span className={unit}>m</span>
+        </div>
         <button type="button" aria-label="Aumenta" className={btn} onClick={() => nudge(STEP_MIN)}>
           +
         </button>

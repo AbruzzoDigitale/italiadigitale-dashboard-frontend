@@ -8,6 +8,8 @@ export type SearchableSelectOption = {
   keywords?: string;
   disabled?: boolean;
   avatarUrl?: string | null;
+  /** Testo secondario allineato a destra nella riga (es. importo). */
+  trailing?: string;
 };
 
 type SearchableSelectProps = {
@@ -22,6 +24,8 @@ type SearchableSelectProps = {
   triggerClassName?: string;
   menuPlacement?: "top" | "bottom";
   menuLayer?: "local" | "portal";
+  /** Mostra l'avatar/iniziali per opzione (default true). false = opzioni "a colonne". */
+  showAvatar?: boolean;
 };
 
 const SELECT_MENU_Z_INDEX = 13000;
@@ -47,6 +51,7 @@ export function SearchableSelect({
   triggerClassName = "",
   menuPlacement = "bottom",
   menuLayer = "local",
+  showAvatar = true,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -162,20 +167,27 @@ export function SearchableSelect({
                 aria-selected={isSelected}
               >
                 <span className="flex w-full min-w-0 items-center gap-2">
-                  {option.avatarUrl ? (
-                    <img
-                      src={option.avatarUrl}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
-                      {getInitials(option.label)}
-                    </span>
-                  )}
+                  {showAvatar ? (
+                    option.avatarUrl ? (
+                      <img
+                        src={option.avatarUrl}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
+                        {getInitials(option.label)}
+                      </span>
+                    )
+                  ) : null}
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.trailing ? (
+                    <span className="flex-shrink-0 tabular-nums text-[12px] text-muted dark:text-[#9999a0]">
+                      {option.trailing}
+                    </span>
+                  ) : null}
                 </span>
               </button>
             );

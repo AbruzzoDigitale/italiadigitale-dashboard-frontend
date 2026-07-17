@@ -9,16 +9,15 @@ import {
   duplicateQuoteApi,
   deleteQuoteApi,
   exportQuotesCsvApi,
-  getAllowedTransitions,
   formatEur,
   STATUS_LABELS,
-  STATUS_ACTIONS,
   STATUS_VARIANT,
   type QuoteSortBy,
   type QuoteSortDir,
   type Quote,
   type QuoteStatus,
 } from "../api/quotes";
+import { StatusMenu } from "../components/quotes/StatusMenu";
 import type { BulkDeleteResponse } from "../api/bulk";
 import { getUiPreferencesApi, saveUiPreferenceApi } from "../api/preferences";
 import { useToast } from "../context/ToastContext";
@@ -107,50 +106,6 @@ function loadQCols(): string[] {
     /* ignora */
   }
   return normalizeQCols(QUOTE_PRESETS[0].cols);
-}
-
-// ── Status action dropdown ────────────────────────────────────────────────────
-
-interface StatusMenuProps {
-  quote: Quote;
-  isAdmin: boolean;
-  onTransition: (id: number, status: QuoteStatus) => void;
-  transitioning: boolean;
-}
-
-function StatusMenu({ quote, isAdmin, onTransition, transitioning }: StatusMenuProps) {
-  const [open, setOpen] = useState(false);
-  const allowed = getAllowedTransitions(quote.status, isAdmin);
-  if (allowed.length === 0) return null;
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        disabled={transitioning}
-        className="cl-rowbtn"
-        title="Cambia stato"
-      >
-        <Icon name="chevron-down" className="w-3.5 h-3.5" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
-          <div className="absolute right-0 top-full mt-1 z-20 min-w-[180px] bg-paper dark:bg-[#1c1c20] rounded-lg border border-line dark:border-[#2a2a2e] shadow-lg overflow-hidden">
-            {allowed.map((s) => (
-              <button
-                key={s}
-                onClick={(e) => { e.stopPropagation(); onTransition(quote.id, s); setOpen(false); }}
-                className="w-full px-4 py-2.5 text-left text-[13px] font-body text-ink dark:text-[#f4f4f7] hover:bg-cream dark:hover:bg-[#2a2a2e] transition-colors"
-              >
-                {STATUS_ACTIONS[s]}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 // ── Delete modal ──────────────────────────────────────────────────────────────

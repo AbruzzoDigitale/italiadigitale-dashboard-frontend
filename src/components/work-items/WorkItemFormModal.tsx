@@ -39,6 +39,7 @@ import { Icon } from "../ui/Icon";
 import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
 import { EstimatedHoursField } from "../ui/EstimatedHoursField";
+import { LoadWeightField } from "../ui/LoadWeightField";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
@@ -48,6 +49,7 @@ import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { OverbookingModal } from "./OverbookingModal";
 import { useToast } from "../../context/ToastContext";
 import { useWorkItemDetail } from "../../hooks/useWorkItemDetail";
+import { ReviewTab, type ReviewTabHandle } from "../review/ReviewTab";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -134,10 +136,10 @@ const WORKLOAD_FIELD_HELP = {
       "Determina quanto spazio occupa in calendario e quanto pesa sul carico giornaliero dell'assegnatario.",
   },
   load_weight_factor: {
-    title: "Fattore peso",
-    shortText: "Quanto la task pesa sul carico giornaliero (1 = pieno).",
+    title: "Peso della task",
+    shortText: "Quanto la task pesa sul carico giornaliero (1× = pieno).",
     longText:
-      "Valore tra 0 e 1: ad es. 0,5 conta metà delle ore stimate nel calcolo del carico/capacità. Utile per attività a impegno parziale.",
+      "Moltiplicatore da 0 a 3× applicato alle ore stimate nel calcolo di carico/capacità: 0,5× conta metà delle ore, 2× il doppio. L'anteprima mostra le ore effettive occupate.",
   },
   affects_daily_load: {
     title: "Impatta il carico giornaliero",
@@ -346,7 +348,7 @@ function fmtHours(n: number): string {
   return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
 }
 
-function workItemEventLabel(eventType: string): string {
+function workItemEventLabel(eventType: string, fieldName?: string | null): string {
   switch (eventType) {
     case "work_item_created":
       return "Task creata";
@@ -357,7 +359,18 @@ function workItemEventLabel(eventType: string): string {
     case "recurrence_generated":
       return "Ricorrenze generate";
     case "field_updated":
+      if (fieldName === "load_weight_factor") return "Peso aggiornato";
+      if (fieldName === "deadline_date") return "Scadenza riprogrammata";
+      if (fieldName === "estimated_hours") return "Tempo stimato aggiornato";
       return "Campo aggiornato";
+    case "review_comment_added":
+      return "Commento in revisione";
+    case "review_sent_to_client":
+      return "Inviata al cliente";
+    case "review_unsent_to_client":
+      return "Consegna al cliente annullata";
+    case "review_send_back":
+      return "Rimandata a correggere";
     case "work_item_date_moved":
       return "Spostata di giorno";
     case "work_item_carried_forward":
@@ -478,7 +491,8 @@ export interface WorkItemFormModalProps {
     suggestedSlots: WorkItemSuggestedSlot[],
     onPickSlot: (slot: WorkItemSuggestedSlot) => void
   ) => void;
-  onSaved: () => void;
+  /** savedItem valorizzato solo in CREAZIONE (serve per l'undo "elimina il creato"). */
+  onSaved: (savedItem?: WorkItem) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -500,6 +514,8 @@ export function WorkItemFormModal({
 }: WorkItemFormModalProps) {
   const toast = useToast();
   const hydratedFormKeyRef = useRef<string | null>(null);
+  // Traccia per quale task è già stata applicata l'apertura automatica sulla scheda Revisione.
+  const reviewTabAppliedForRef = useRef<number | null>(null);
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(editingItem?.id ?? null);
 
   useEffect(() => {
@@ -508,7 +524,7 @@ export function WorkItemFormModal({
 
   const isInstantiateMode = editingItem == null && instantiateTemplate != null;
 
-  const { workItem: detailedEditingItem, isLoading: isDetailLoading, error: detailError } = useWorkItemDetail(
+  const { workItem: detailedEditingItem, isLoading: isDetailLoading, error: detailError, refetch: refetchDetail } = useWorkItemDetail(
     activeWorkItemId,
     open && activeWorkItemId != null
   );
@@ -533,11 +549,24 @@ export function WorkItemFormModal({
   // ── Scheda attiva nel layout di creazione singola
   const [createTab, setCreateTab] = useState<"dettagli" | "tag" | "template">("dettagli");
   // ── Scheda attiva nel layout di modifica (mostra tutto, diviso in schede)
-  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist" | "timeline">("dettagli");
+  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline">("dettagli");
   // ── Commento opzionale per il cambio stato (salvato come nota nella timeline)
   const [statusComment, setStatusComment] = useState("");
   // ── Revisore selezionato (PM/Admin). Inizializzato dal dettaglio task.
   const [reviewerUserId, setReviewerUserId] = useState<number | null>(null);
+  // ── Scheda Revisione: le azioni ("Rimanda indietro e correggi" / "Salva e concludi")
+  //    vivono nel footer del modale e pilotano la ReviewTab via ref imperativo.
+  const reviewRef = useRef<ReviewTabHandle>(null);
+  const [reviewAction, setReviewAction] = useState<null | "sendback" | "conclude">(null);
+  const runReviewAction = async (action: "sendback" | "conclude") => {
+    setReviewAction(action);
+    try {
+      if (action === "sendback") await reviewRef.current?.sendBack();
+      else await reviewRef.current?.saveConclude();
+    } finally {
+      setReviewAction(null);
+    }
+  };
 
   // ── Options
   const [users, setUsers] = useState<User[]>([]);
@@ -586,11 +615,21 @@ export function WorkItemFormModal({
   useEffect(() => {
     if (!open) {
       hydratedFormKeyRef.current = null;
+      reviewTabAppliedForRef.current = null;
     } else {
       setCreateTab("dettagli");
       setEditTab("dettagli");
     }
   }, [open]);
+
+  // Se la task è in revisione, apri direttamente sulla scheda Revisione (una sola
+  // volta per task, quando il dettaglio è arrivato: non forza se poi l'utente cambia tab).
+  useEffect(() => {
+    if (!open || !sourceItem) return;
+    if (reviewTabAppliedForRef.current === sourceItem.id) return;
+    reviewTabAppliedForRef.current = sourceItem.id;
+    if (sourceItem.status === "review") setEditTab("revisione");
+  }, [open, sourceItem]);
 
   // ── Load options when modal opens
   useEffect(() => {
@@ -825,29 +864,24 @@ export function WorkItemFormModal({
       }
     }
 
-    if (form.is_ped) {
-      if (form.ped_mode === "existing") {
-        if (!form.ped_configuration_id) {
+    // La configurazione PED è facoltativa: spuntare "PED" marca la task come Piano
+    // Editoriale Digitale, non obbliga a sceglierne/compilarne una. Validiamo i campi
+    // solo se l'utente sta davvero creando una nuova configurazione (ha inserito le
+    // pubblicazioni totali).
+    if (form.is_ped && form.ped_mode === "new" && form.ped_monthly_publications_total.trim()) {
+      const pedNumericFields = [
+        { label: "Pubblicazioni totali/mese", value: form.ped_monthly_publications_total },
+        { label: "Foto/mese", value: form.ped_photo_posts_per_month },
+        { label: "Caroselli/mese", value: form.ped_carousels_per_month },
+        { label: "Reel/mese", value: form.ped_reels_per_month },
+        { label: "Storie/mese", value: form.ped_stories_per_month },
+      ];
+      for (const field of pedNumericFields) {
+        if (!/^\d+$/.test(field.value.trim())) {
           setCreateTab("template");
           setEditTab("checklist");
-          setFormError("Seleziona una configurazione PED esistente");
+          setFormError(`${field.label}: inserisci un intero maggiore o uguale a 0`);
           return;
-        }
-      } else {
-        const pedNumericFields = [
-          { label: "Pubblicazioni totali/mese", value: form.ped_monthly_publications_total },
-          { label: "Foto/mese", value: form.ped_photo_posts_per_month },
-          { label: "Caroselli/mese", value: form.ped_carousels_per_month },
-          { label: "Reel/mese", value: form.ped_reels_per_month },
-          { label: "Storie/mese", value: form.ped_stories_per_month },
-        ];
-        for (const field of pedNumericFields) {
-          if (!/^\d+$/.test(field.value.trim())) {
-            setCreateTab("template");
-            setEditTab("checklist");
-            setFormError(`${field.label}: inserisci un intero maggiore o uguale a 0`);
-            return;
-          }
         }
       }
     }
@@ -937,9 +971,11 @@ export function WorkItemFormModal({
 
       payload.is_PED = form.is_ped;
       if (form.is_ped) {
-        if (form.ped_mode === "existing" && form.ped_configuration_id) {
-          payload.ped_configuration_id = parseInt(form.ped_configuration_id, 10);
-        } else if (form.ped_mode === "new") {
+        if (form.ped_mode === "existing") {
+          // Config esistente facoltativa: se non selezionata, resta un PED senza config.
+          payload.ped_configuration_id = form.ped_configuration_id ? parseInt(form.ped_configuration_id, 10) : null;
+        } else if (form.ped_monthly_publications_total.trim()) {
+          // Config nuova solo se l'utente l'ha compilata.
           payload.ped_configuration_id = null;
           payload.ped_configuration = {
             monthly_publications_total: parseInt(form.ped_monthly_publications_total, 10) || 0,
@@ -949,6 +985,8 @@ export function WorkItemFormModal({
             reels_per_month: parseInt(form.ped_reels_per_month, 10) || 0,
             stories_per_month: parseInt(form.ped_stories_per_month, 10) || 0,
           };
+        } else {
+          payload.ped_configuration_id = null;
         }
       } else {
         payload.ped_configuration_id = null;
@@ -1028,7 +1066,7 @@ export function WorkItemFormModal({
       }
 
       onClose();
-      onSaved();
+      onSaved(createdItem ?? undefined);
     } catch (err) {
       if (isWorkItemOverlapApiError(err)) {
         setFormError(err.backendMessage);
@@ -1696,19 +1734,55 @@ export function WorkItemFormModal({
     </SectionCard>
   );
 
+  // Scorciatoia: se il titolo contiene "PED" (Piano Editoriale Digitale) come parola,
+  // portiamo la sezione PED accanto al titolo per impostarla al volo senza cambiare tab.
+  const titleSuggestsPed = /\bped\b/i.test(form.title);
+
+  // Attivando il PED riportiamo "PED" nel titolo (se non c'è già), così è subito
+  // evidente che la task è un Piano Editoriale Digitale.
+  const handleTogglePed = (value: boolean) => {
+    setForm((prev) => {
+      if (!value) return { ...prev, is_ped: false };
+      const title = /\bped\b/i.test(prev.title)
+        ? prev.title
+        : prev.title.trim()
+          ? `PED ${prev.title.trim()}`
+          : "PED";
+      return { ...prev, is_ped: true, title };
+    });
+  };
+
+  // Marcatore visibile che la task è un PED, mostrato accanto al titolo.
+  const renderPedTitleBadge = () =>
+    form.is_ped ? (
+      <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
+        <Icon name="grid" className="h-3 w-3" />
+        Task PED
+      </span>
+    ) : null;
+
+  const renderPedShortcut = () =>
+    titleSuggestsPed ? (
+      <div className="flex flex-col gap-1.5">
+        <p className="flex items-center gap-1.5 text-xs text-muted dark:text-muted-dark">
+          <Icon name="grid" className="h-3.5 w-3.5 shrink-0" />
+          Il titolo contiene “PED”: impostala come task PED qui sotto.
+        </p>
+        {renderPedSection()}
+      </div>
+    ) : null;
+
   const renderPedSection = () => (
     <SectionCard icon="grid" title="PED">
-      {!sourceItem ? (
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
-          <Checkbox
-            checked={form.is_ped}
-            onChange={(value) => updateForm("is_ped", value)}
-          />
-          È una task PED (Piano Editoriale Digitale)
-        </label>
-      ) : (
-        <p className="text-sm text-ink dark:text-paper">Task PED attiva: puoi modificare la configurazione.</p>
-      )}
+      {/* La checkbox è sempre disponibile, anche in modifica: si può rendere una task
+          un PED (o toglierlo) e configurarlo dopo la creazione. */}
+      <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+        <Checkbox
+          checked={form.is_ped}
+          onChange={(value) => handleTogglePed(value)}
+        />
+        È una task PED (Piano Editoriale Digitale)
+      </label>
 
       {form.is_ped && (
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
@@ -1875,6 +1949,8 @@ export function WorkItemFormModal({
             onChange={(e) => updateForm("title", e.target.value)}
             placeholder="Titolo della lavorazione"
           />
+          {renderPedTitleBadge()}
+          {renderPedShortcut()}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-1">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
@@ -1943,6 +2019,7 @@ export function WorkItemFormModal({
               type="date"
               value={form.work_date}
               onChange={(e) => updateForm("work_date", e.target.value)}
+              onPostpone={(iso) => updateForm("work_date", iso)}
             />
             <Input
               label="Orario di inizio (opz.)"
@@ -1961,6 +2038,7 @@ export function WorkItemFormModal({
               type="date"
               value={form.deadline_date}
               onChange={(e) => updateForm("deadline_date", e.target.value)}
+              onPostpone={(iso) => updateForm("deadline_date", iso)}
               disabled={form.is_deadline_locked}
               hint={form.is_deadline_locked ? "Scadenza bloccata: task non derogabile" : undefined}
               className={form.is_deadline_locked ? "cursor-not-allowed opacity-60" : ""}
@@ -2036,17 +2114,47 @@ export function WorkItemFormModal({
       title={sourceItem ? "Modifica lavorazione" : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")}
       description="Compila i dati della lavorazione. I campi con * sono obbligatori."
       size="xl"
-      dialogClassName="h-[85vh]"
+      dialogClassName="h-[85vh] !max-w-3xl"
       bodyClassName="overflow-x-hidden"
       footer={
-        <>
-          <Button variant="ghost" onClick={closeModal} disabled={saving}>
-            Annulla
-          </Button>
-          <Button variant="primary" onClick={() => handleSave()} loading={saving}>
-            Salva
-          </Button>
-        </>
+        sourceItem && editTab === "revisione" ? (
+          // Sul tab Revisione le azioni sono i due pulsanti gemelli, qui nel footer
+          // accanto a "Chiudi": niente "Salva" generico.
+          <>
+            <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
+              Chiudi
+            </Button>
+            {canManageReviewer && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => void runReviewAction("sendback")}
+                  loading={reviewAction === "sendback"}
+                  disabled={reviewAction != null}
+                >
+                  Rimanda indietro e correggi
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void runReviewAction("conclude")}
+                  loading={reviewAction === "conclude"}
+                  disabled={reviewAction != null}
+                >
+                  Salva e concludi
+                </Button>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={closeModal} disabled={saving}>
+              Annulla
+            </Button>
+            <Button variant="primary" onClick={() => handleSave()} loading={saving}>
+              Salva
+            </Button>
+          </>
+        )
       }
     >
       {optionsLoading || isDetailLoading ? (
@@ -2143,6 +2251,7 @@ export function WorkItemFormModal({
               { id: "dettagli", label: "Dettagli" },
               { id: "assegnazioni", label: "Assegnazioni & Tag" },
               { id: "checklist", label: "Checklist & PED" },
+              { id: "revisione", label: "Revisione" },
               { id: "timeline", label: "Timeline eventi" },
             ] as const).map((tab) => (
               <button
@@ -2159,6 +2268,16 @@ export function WorkItemFormModal({
               </button>
             ))}
           </div>
+
+          {editTab === "revisione" && sourceItem && (
+            <ReviewTab
+              ref={reviewRef}
+              workItemId={sourceItem.id}
+              canManage={canManageReviewer}
+              onChanged={() => void refetchDetail()}
+              renderActionsInline={false}
+            />
+          )}
 
           {editTab === "timeline" && (
             <div className="rounded-md border border-line dark:border-line-dark p-3">
@@ -2206,7 +2325,7 @@ export function WorkItemFormModal({
                       if (!showCommentBlock && event.notes) segments.push(event.notes);
                       return (
                         <div key={`${event.event_type}-${event.created_at}-${index}`} className={`rounded-md border p-2 ${boxClass}`}>
-                          <div className={`text-xs font-semibold ${labelClass}`}>{workItemEventLabel(event.event_type)}</div>
+                          <div className={`text-xs font-semibold ${labelClass}`}>{workItemEventLabel(event.event_type, event.field_name)}</div>
                           <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
                             {new Date(event.created_at).toLocaleString("it-IT")}
                             {event.actor_name ? ` · ${event.actor_name}` : ""}
@@ -2290,6 +2409,8 @@ export function WorkItemFormModal({
               onChange={(e) => updateForm("title", e.target.value)}
               placeholder="Titolo della lavorazione"
             />
+            {renderPedTitleBadge()}
+            {renderPedShortcut()}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
                 Descrizione
@@ -2337,6 +2458,7 @@ export function WorkItemFormModal({
                 type="date"
                 value={form.work_date}
                 onChange={(e) => updateForm("work_date", e.target.value)}
+                onPostpone={(iso) => updateForm("work_date", iso)}
               />
               <Input
                 label="Orario inizio"
@@ -2353,6 +2475,7 @@ export function WorkItemFormModal({
                 type="date"
                 value={form.deadline_date}
                 onChange={(e) => updateForm("deadline_date", e.target.value)}
+                onPostpone={(iso) => updateForm("deadline_date", iso)}
                 disabled={form.is_deadline_locked}
                 hint={form.is_deadline_locked ? "Scadenza bloccata: task non derogabile" : undefined}
                 className={form.is_deadline_locked ? "cursor-not-allowed opacity-60" : ""}
@@ -2373,16 +2496,12 @@ export function WorkItemFormModal({
                 onChange={(v) => updateForm("estimated_hours", v == null ? "" : String(v))}
                 help={WORKLOAD_FIELD_HELP.estimated_hours}
               />
-                <Input
-                  label="Fattore peso"
-                  help={WORKLOAD_FIELD_HELP.load_weight_factor}
-                  type="number"
-                  min="0"
-                  max="3"
-                  step="0.1"
+                <LoadWeightField
                   value={form.load_weight_factor}
-                  onChange={(e) => updateForm("load_weight_factor", e.target.value)}
-                  placeholder="1.0"
+                  onChange={(w) => updateForm("load_weight_factor", String(w))}
+                  estimatedHours={form.estimated_hours}
+                  affectsDailyLoad={form.affects_daily_load}
+                  help={WORKLOAD_FIELD_HELP.load_weight_factor}
                 />
             </div>
               <div className="flex flex-wrap items-center gap-4">

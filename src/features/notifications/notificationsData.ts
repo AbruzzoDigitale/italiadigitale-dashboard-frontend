@@ -24,6 +24,7 @@ export interface NotifItem {
   ref?: string | null;
   time: string;
   unread: boolean;
+  archived?: boolean;
   note?: string | null;
   entity_type?: string | null;
   entity_id?: number | null;

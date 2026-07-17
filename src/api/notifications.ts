@@ -7,9 +7,10 @@ export interface NotificationListResponse {
   unread_counts: Record<NotifTabKey, number>;
 }
 
-/** Lista notifiche dell'utente loggato + conteggi non lette per scheda. */
-export async function getMyNotificationsApi(limit = 100): Promise<NotificationListResponse> {
-  const res = await authFetch(`${API_BASE}/api/v1/notifications?limit=${limit}`);
+/** Lista notifiche dell'utente loggato + conteggi non lette per scheda.
+ * `archived=true` restituisce SOLO le archiviate (scheda Archivio). */
+export async function getMyNotificationsApi(limit = 100, archived = false): Promise<NotificationListResponse> {
+  const res = await authFetch(`${API_BASE}/api/v1/notifications?limit=${limit}&archived=${archived}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le notifiche")}`);
@@ -17,11 +18,35 @@ export async function getMyNotificationsApi(limit = 100): Promise<NotificationLi
   return res.json();
 }
 
+export async function archiveNotificationApi(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/v1/notifications/${id}/archive`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile archiviare")}`);
+  }
+}
+
+export async function unarchiveNotificationApi(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/v1/notifications/${id}/unarchive`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile ripristinare")}`);
+  }
+}
+
 export async function markNotificationReadApi(id: number): Promise<void> {
   const res = await authFetch(`${API_BASE}/api/v1/notifications/${id}/read`, { method: "POST" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile segnare come letta")}`);
+  }
+}
+
+export async function markNotificationUnreadApi(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/v1/notifications/${id}/unread`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile segnare come da leggere")}`);
   }
 }
 

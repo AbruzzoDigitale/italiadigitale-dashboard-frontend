@@ -408,6 +408,7 @@ export function DailyTasksPage() {
                       leftBehind={Boolean(task.is_left_behind)}
                       overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
                       overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                      reworkCount={task.rework_count}
                       onClick={() => void openTask(task.work_item_id)}
                     />
                   );
@@ -522,6 +523,7 @@ export function DailyTasksPage() {
                       leftBehind={Boolean(task.is_left_behind)}
                       overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
                       overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                      reworkCount={task.rework_count}
                       onClick={() => void openTask(task.work_item_id)}
                     />
                   );

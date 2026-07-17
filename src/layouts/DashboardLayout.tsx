@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
@@ -8,6 +8,7 @@ import { useToast } from "../context/ToastContext";
 import { Avatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
+import { ThemeToggleIcon } from "../components/ui/ThemeToggleIcon";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
@@ -16,9 +17,11 @@ import { syncFicClientsApi } from "../api/fic";
 import { syncCompanyItalianHolidaysApi } from "../api/companies";
 import { useFicQuotesSync } from "../hooks/useFicQuotesSync";
 import { useNotifications } from "../features/notifications/useNotifications";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { canAccessRoute } from "../utils/access";
+import { getSidebarPreferencesApi, updateSidebarPreferencesApi } from "../api/sidebarPreferences";
 
 interface NavItem {
   label: string;
@@ -46,14 +49,14 @@ const allNavItems: NavItem[] = [
   {
     label: "Workload",
     to: "/workload",
-    icon: <Icon name="activity" />,
+    icon: <Icon name="calendar" />,
     routeKey: "workload",
     group: "operations",
   },
   {
     label: "Attività del giorno",
     to: "/daily-tasks",
-    icon: <Icon name="check-circle" />,
+    icon: <Icon name="clock" />,
     routeKey: "daily-tasks",
     group: "operations",
   },
@@ -65,9 +68,16 @@ const allNavItems: NavItem[] = [
     group: "operations",
   },
   {
+    label: "Controllo PED",
+    to: "/controllo-ped",
+    icon: <Icon name="check-circle" />,
+    routeKey: "controllo-ped",
+    group: "operations",
+  },
+  {
     label: "Clienti",
     to: "/clients",
-    icon: <Icon name="user-circle" />,
+    icon: <Icon name="users" />,
     routeKey: "clients",
     group: "commercial",
   },
@@ -81,21 +91,21 @@ const allNavItems: NavItem[] = [
   {
     label: "Richieste",
     to: "/requests",
-    icon: <Icon name="activity" />,
+    icon: <Icon name="mail" />,
     routeKey: "requests",
     group: "commercial",
   },
   {
     label: "Preventivi",
     to: "/quotes",
-    icon: <Icon name="activity" />,
+    icon: <Icon name="document-text" />,
     routeKey: "quotes",
     group: "commercial",
   },
   {
     label: "Pipeline commerciale",
     to: "/contracts-pipeline",
-    icon: <Icon name="document-text" />,
+    icon: <Icon name="target" />,
     routeKey: "contracts",
     group: "commercial",
   },
@@ -109,14 +119,14 @@ const allNavItems: NavItem[] = [
   {
     label: "Catalogo",
     to: "/catalog",
-    icon: <Icon name="settings" />,
+    icon: <Icon name="grid" />,
     routeKey: "catalog",
     group: "catalog",
   },
   {
     label: "Configuratore",
     to: "/configuratore",
-    icon: <Icon name="activity" />,
+    icon: <Icon name="tools" />,
     routeKey: "configurator",
     group: "catalog",
   },
@@ -144,7 +154,7 @@ const allNavItems: NavItem[] = [
   {
     label: "Utenti",
     to: "/users",
-    icon: <Icon name="users" />,
+    icon: <Icon name="shield-check" />,
     routeKey: "admin",
     group: "admin",
   },
@@ -166,20 +176,93 @@ const NAV_GROUP_LABELS: Record<NavItem["group"], string> = {
   admin: "Amministrazione",
 };
 
+const DEFAULT_GROUP_ORDER: Array<NavItem["group"]> = [
+  "overview", "operations", "commercial", "catalog", "account", "admin",
+];
+
 export function DashboardLayout() {
   const { user, logout, myCompanies, activeCompanyId, switchActiveCompany, permissions } = useAuth();
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
+
+  // Sincronizza lo stato con l'uscita fullscreen via Esc/gesti del browser.
+  useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      // Flourish motion graphic sul contenuto entrando/uscendo da schermo intero.
+      mainRef.current?.animate?.(
+        [
+          { transform: "scale(0.985)", opacity: 0.5 },
+          { transform: "scale(1)", opacity: 1 },
+        ],
+        { duration: 380, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
+      );
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    try {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen?.();
+      } else {
+        void document.documentElement.requestFullscreen?.();
+      }
+    } catch {
+      // Alcuni browser possono bloccare la richiesta: ignoriamo silenziosamente.
+    }
+  };
   const { brand } = useBrand();
+  // Simbolo del brand reattivo al tema: scuro → logo per sfondi scuri, chiaro → logo per
+  // sfondi chiari, con fallback all'altra variante quando una non è caricata.
+  const brandSymbol = (theme === "dark" ? brand?.logo_dark : brand?.logo_light)
+    ?? brand?.logo_dark ?? brand?.logo_light ?? null;
   const { selectedCompanyId, setSelectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const navigate = useNavigate();
   const toast = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // Personalizzazione sidebar per (utente × azienda): preferiti + ordine per gruppo.
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [itemOrder, setItemOrder] = useState<Record<string, string[]>>({});
+  const [groupOrder, setGroupOrder] = useState<string[]>([]);
+  // DnD: voce trascinata + indicatore di rilascio (prima/dopo una voce dello stesso gruppo).
+  const [itemDrag, setItemDrag] = useState<{ path: string; group: string } | null>(null);
+  const [itemDrop, setItemDrop] = useState<{ group: string; path: string; before: boolean } | null>(null);
+  // DnD: categoria trascinata + indicatore di rilascio (prima/dopo una categoria).
+  const [groupDrag, setGroupDrag] = useState<string | null>(null);
+  const [groupDrop, setGroupDrop] = useState<{ group: string; before: boolean } | null>(null);
+  // Full focus: mette il gestionale a schermo intero (Fullscreen API).
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Sidebar compatta (solo desktop): larghezza ridotta + sole icone.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  // "compact" vale solo su desktop: su mobile la sidebar resta un drawer completo.
+  const compact = collapsed && isDesktop;
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("sidebar_collapsed", next ? "1" : "0");
+      return next;
+    });
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
   const notifications = useNotifications();
+  // Contatore incrementato a ogni notifica in arrivo (via stream SSE): usato come
+  // `key` per rilanciare l'animazione della campanella. Parte da 0 = nessuna animazione
+  // al primo mount.
+  const [notifPing, setNotifPing] = useState(0);
+  useEffect(() => subscribeRealtime(() => setNotifPing((n) => n + 1)), []);
   const [syncing, setSyncing] = useState(false);
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
   const [ficQuotesModalOpen, setFicQuotesModalOpen] = useState(false);
@@ -192,6 +275,7 @@ export function DashboardLayout() {
   const invalidCompanyToastRef = useRef<number | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const syncMenuRef = useRef<HTMLDivElement | null>(null);
+  const mainRef = useRef<HTMLDivElement | null>(null);
   const isAdmin = !!user?.is_admin;
 
   const companyOptions = useMemo(
@@ -233,13 +317,207 @@ export function DashboardLayout() {
 
     return groups;
   }, [navItems]);
+
+  // ── Personalizzazione sidebar (preferiti + ordine), per utente × azienda ──────
+  useEffect(() => {
+    if (currentCompanyId == null) {
+      setFavorites([]);
+      setItemOrder({});
+      setGroupOrder([]);
+      return;
+    }
+    let cancelled = false;
+    getSidebarPreferencesApi(currentCompanyId)
+      .then((prefs) => {
+        if (cancelled) return;
+        setFavorites(Array.isArray(prefs.favorites) ? prefs.favorites : []);
+        setItemOrder(prefs.item_order && typeof prefs.item_order === "object" ? prefs.item_order : {});
+        setGroupOrder(Array.isArray(prefs.group_order) ? prefs.group_order : []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFavorites([]);
+          setItemOrder({});
+          setGroupOrder([]);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [currentCompanyId]);
+
+  const persistSidebarPrefs = useCallback(
+    (favs: string[], order: Record<string, string[]>, groups: string[]) => {
+      if (currentCompanyId == null) return;
+      void updateSidebarPreferencesApi({
+        company_id: currentCompanyId,
+        favorites: favs,
+        item_order: order,
+        group_order: groups,
+      }).catch(() => {});
+    },
+    [currentCompanyId],
+  );
+
+  const toggleFavorite = useCallback(
+    (path: string) => {
+      setFavorites((prev) => {
+        const next = prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path];
+        persistSidebarPrefs(next, itemOrder, groupOrder);
+        return next;
+      });
+    },
+    [itemOrder, groupOrder, persistSidebarPrefs],
+  );
+
+  // Ordine effettivo degli item di un gruppo: item_order + fallback all'ordine di default.
+  const orderedGroupItems = useCallback(
+    (groupKey: NavItem["group"]): NavItem[] => {
+      const items = groupedNavItems[groupKey];
+      const order = itemOrder[groupKey] ?? [];
+      const byPath = new Map(items.map((i) => [i.to, i] as const));
+      const out: NavItem[] = [];
+      order.forEach((p) => {
+        const it = byPath.get(p);
+        if (it) { out.push(it); byPath.delete(p); }
+      });
+      items.forEach((i) => { if (byPath.has(i.to)) out.push(i); });
+      return out;
+    },
+    [groupedNavItems, itemOrder],
+  );
+
+  // Ordine delle categorie (group_order) con fallback all'ordine di default.
+  const orderedGroups = useMemo(() => {
+    const present = DEFAULT_GROUP_ORDER.filter((g) => (groupedNavItems[g]?.length ?? 0) > 0);
+    const inOrder = groupOrder.filter((g): g is NavItem["group"] => (present as string[]).includes(g));
+    const rest = present.filter((g) => !inOrder.includes(g));
+    return [...inOrder, ...rest] as Array<NavItem["group"]>;
+  }, [groupOrder, groupedNavItems]);
+
+  // Preferiti raggruppati per categoria; ORDINE (categorie e voci) allineato alla nav
+  // principale: le categorie seguono group_order, le voci l'item_order del loro gruppo.
+  const favoritesByGroup = useMemo(() => {
+    const map = new Map<NavItem["group"], NavItem[]>();
+    orderedGroups.forEach((groupKey) => {
+      const favs = orderedGroupItems(groupKey).filter((i) => favorites.includes(i.to));
+      if (favs.length > 0) map.set(groupKey, favs);
+    });
+    return map;
+  }, [orderedGroups, orderedGroupItems, favorites]);
+
+  const hasFavorites = favorites.length > 0;
+
+  // Sorgente per la sidebar compatta: sempre TUTTE le voci (preferite e non),
+  // divise per gruppo.
+  const compactGroups = useMemo<Array<[NavItem["group"], NavItem[]]>>(() => {
+    return orderedGroups
+      .map((g) => [g, orderedGroupItems(g)] as [NavItem["group"], NavItem[]])
+      .filter(([, items]) => items.length > 0);
+  }, [orderedGroups, orderedGroupItems]);
+
+  const handleItemReorder = useCallback(
+    (group: string, dragPath: string, targetPath: string, before: boolean) => {
+      if (dragPath === targetPath) return;
+      const current = orderedGroupItems(group as NavItem["group"]).map((i) => i.to);
+      const next = current.filter((p) => p !== dragPath);
+      const ti = next.indexOf(targetPath);
+      if (ti === -1) next.push(dragPath);
+      else next.splice(before ? ti : ti + 1, 0, dragPath);
+      const nextOrder = { ...itemOrder, [group]: next };
+      setItemOrder(nextOrder);
+      persistSidebarPrefs(favorites, nextOrder, groupOrder);
+    },
+    [favorites, itemOrder, groupOrder, orderedGroupItems, persistSidebarPrefs],
+  );
+
+  const handleGroupReorder = useCallback(
+    (dragGroup: string, targetGroup: string, before: boolean) => {
+      if (dragGroup === targetGroup) return;
+      const next = orderedGroups.filter((g) => g !== dragGroup) as Array<NavItem["group"]>;
+      const ti = next.indexOf(targetGroup as NavItem["group"]);
+      if (ti === -1) next.push(dragGroup as NavItem["group"]);
+      else next.splice(before ? ti : ti + 1, 0, dragGroup as NavItem["group"]);
+      setGroupOrder(next);
+      persistSidebarPrefs(favorites, itemOrder, next);
+    },
+    [orderedGroups, favorites, itemOrder, persistSidebarPrefs],
+  );
+
+  // Render di una voce nav con stella (preferiti). Se `reorderable`, l'intera riga è
+  // trascinabile per riordinare le voci dentro la loro categoria, con indicatore di rilascio.
+  const renderNavItem = (item: NavItem, ctx: string, reorderable: boolean) => {
+    const isFav = favorites.includes(item.to);
+    const isDragging = itemDrag?.path === item.to && itemDrag?.group === ctx;
+    const dropHere = reorderable && itemDrag?.group === ctx && itemDrop?.group === ctx && itemDrop?.path === item.to && !isDragging;
+    return (
+      <div key={`${ctx}-${item.to}`} className="relative">
+        {dropHere && itemDrop?.before && (
+          <div className="pointer-events-none absolute -top-[3px] left-2 right-2 z-20 h-[3px] rounded-full bg-brand-yellow shadow-[0_0_6px_rgba(252,212,60,0.7)]" />
+        )}
+        <div
+          draggable={reorderable}
+          onDragStart={reorderable ? (e) => { setItemDrag({ path: item.to, group: ctx }); e.dataTransfer.effectAllowed = "move"; } : undefined}
+          onDragEnd={reorderable ? () => { setItemDrag(null); setItemDrop(null); } : undefined}
+          onDragOver={reorderable ? (e) => {
+            if (!itemDrag || itemDrag.group !== ctx) return;
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            const before = e.clientY < r.top + r.height / 2;
+            if (itemDrop?.path !== item.to || itemDrop?.before !== before) setItemDrop({ group: ctx, path: item.to, before });
+          } : undefined}
+          onDrop={reorderable ? (e) => {
+            if (itemDrag && itemDrag.group === ctx) {
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              const before = e.clientY < r.top + r.height / 2;
+              handleItemReorder(ctx, itemDrag.path, item.to, before);
+            }
+            setItemDrag(null); setItemDrop(null);
+          } : undefined}
+          className={`group relative rounded-md transition-[transform,opacity] duration-150 ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${isDragging ? "scale-[0.97] opacity-40" : ""}`}
+        >
+          <NavLink
+            to={{ pathname: item.to, search: cleanSearch }}
+            end={item.to === "/"}
+            draggable={false}
+            onClick={() => setSidebarOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 pl-3 ${reorderable ? "pr-14" : "pr-8"} py-2.5 rounded-md text-[13px] font-semibold transition-all duration-150 select-none
+              ${isActive ? "bg-white text-[#0a0a0a]" : "text-[rgba(255,255,255,0.65)] hover:bg-[rgba(255,255,255,0.10)] hover:text-white"}`
+            }
+          >
+            <span className="nav-ico">{item.icon}</span>
+            <span className="truncate">{item.label}</span>
+          </NavLink>
+          {reorderable && (
+            <Icon
+              name="menu"
+              className="pointer-events-none absolute right-8 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[rgba(255,255,255,0.5)] opacity-0 transition-opacity group-hover:opacity-70"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => toggleFavorite(item.to)}
+            className={`absolute right-1.5 top-1/2 -translate-y-1/2 grid h-6 w-6 place-items-center rounded transition-opacity
+            ${isFav ? "text-brand-yellow opacity-100" : "text-[rgba(255,255,255,0.5)] opacity-0 hover:text-white group-hover:opacity-100"}`}
+            title={isFav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+            aria-label={isFav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+          >
+            {isFav && <span className="fav-spark" aria-hidden />}
+            <Icon key={isFav ? "on" : "off"} name="star" className={`h-3.5 w-3.5 ${isFav ? "fav-burst" : ""}`} />
+          </button>
+        </div>
+        {dropHere && !itemDrop?.before && (
+          <div className="pointer-events-none absolute -bottom-[3px] left-2 right-2 z-20 h-[3px] rounded-full bg-brand-yellow shadow-[0_0_6px_rgba(252,212,60,0.7)]" />
+        )}
+      </div>
+    );
+  };
   const cleanSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete("quote_id");
     const value = params.toString();
     return value ? `?${value}` : "";
   }, [location.search]);
-  const roleBadgeLabel = user?.role_label || (user?.is_admin ? "Admin" : "Operatore");
   const currentCompanyName = useMemo(() => {
     const company = effectiveCompanyOptions.find((item) => item.id === currentCompanyId);
     if (company) return company.name;
@@ -438,23 +716,24 @@ export function DashboardLayout() {
       {/* ── Sidebar ───────────────────────────────────────── */}
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-50 w-60 flex flex-col
+          fixed lg:static inset-y-0 left-0 z-50 flex flex-col
+          ${compact ? "w-[72px]" : "w-60"}
           text-paper
-          transition-transform duration-300 ease-[cubic-bezier(.2,.7,.2,1)]
+          transition-[width,transform] duration-300 ease-[cubic-bezier(.2,.7,.2,1)]
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
         style={{ background: "#0a0a0a", borderRight: "1px solid rgba(255,255,255,.08)" }}
       >
         {/* Brand */}
         <div
-          className="flex items-center gap-3 px-5 py-5"
+          className={`flex items-center gap-3 py-5 ${compact ? "justify-center px-0" : "px-5"}`}
           style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}
         >
           <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
-            {brand?.logo_dark ? (
+            {brandSymbol ? (
               <img
-                src={brand.logo_dark}
-                alt={brand.app_name ?? "Logo"}
+                src={brandSymbol}
+                alt={brand?.app_name ?? "Logo"}
                 className="w-8 h-8 object-contain"
               />
             ) : (
@@ -464,18 +743,47 @@ export function DashboardLayout() {
               </svg>
             )}
           </div>
-          <div>
-            <p className="font-display font-bold text-[13px] uppercase tracking-wider leading-tight">
-              {brand?.app_name ?? "Italia Digitale"}
-            </p>
-            <p className="font-body text-[10px] text-muted-dark mt-0.5">
-              Admin Dashboard
-            </p>
-          </div>
+          {!compact && (
+            <div>
+              <p className="font-display font-bold text-[13px] uppercase tracking-wider leading-tight">
+                {brand?.app_name ?? "Italia Digitale"}
+              </p>
+              <p className="font-body text-[10px] text-muted-dark mt-0.5">
+                Admin Dashboard
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Nav */}
-        <nav className="no-scrollbar flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
+        <nav
+          className={`no-scrollbar flex-1 overflow-y-auto flex flex-col ${
+            compact ? "items-center px-2 py-4 gap-1" : "px-3 py-4 gap-0.5"
+          }`}
+        >
+          {compact ? (
+            compactGroups.map(([groupKey, items], gi) => (
+              <div key={`c-${groupKey}`} className="flex w-full flex-col items-center gap-1">
+                {gi > 0 && <div className="my-1 h-px w-8 bg-white/10" />}
+                {items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    title={item.label}
+                    onClick={() => setSidebarOpen(false)}
+                    className={({ isActive }) =>
+                      `grid h-10 w-10 place-items-center rounded-md transition-colors ${
+                        isActive ? "bg-white/15 text-white" : "text-[rgba(255,255,255,0.65)] hover:text-white hover:bg-white/10"
+                      }`
+                    }
+                  >
+                    <span className="nav-ico">{item.icon}</span>
+                  </NavLink>
+                ))}
+              </div>
+            ))
+          ) : (
+          <>
           <div className="px-3 pb-3 pt-1">
             <label className="flex flex-col gap-1">
               <SearchableSelect
@@ -491,35 +799,64 @@ export function DashboardLayout() {
               />
             </label>
           </div>
-          {(Object.keys(groupedNavItems) as Array<NavItem["group"]>).map((groupKey) => {
+          {hasFavorites && (
+            <div className="mb-2 rounded-lg bg-[rgba(255,255,255,0.04)] pb-1.5">
+              <p className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-brand-yellow">
+                <Icon name="star" className="h-3 w-3" /> Preferiti
+              </p>
+              {[...favoritesByGroup.entries()].map(([groupKey, favItems]) => (
+                <div key={`fav-${groupKey}`} className="mb-1">
+                  <p className="px-3 pb-0.5 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-[rgba(255,255,255,0.4)]">
+                    {NAV_GROUP_LABELS[groupKey]}
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {favItems.map((item) => renderNavItem(item, `fav:${groupKey}`, false))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {orderedGroups.map((groupKey) => {
             const items = groupedNavItems[groupKey];
             if (items.length === 0) return null;
 
+            const groupDropHere = groupDrag && groupDrag !== groupKey && groupDrop?.group === groupKey;
             return (
-              <div key={groupKey} className="mb-2">
-                <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[rgba(255,255,255,0.45)]">
+              <div
+                key={groupKey}
+                className={`relative mb-2 rounded-md transition-[transform,opacity] duration-150 ${groupDrag === groupKey ? "scale-[0.98] opacity-40" : ""}`}
+                onDragOver={(e) => {
+                  if (!groupDrag || groupDrag === groupKey) return;
+                  e.preventDefault();
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const before = e.clientY < r.top + r.height / 2;
+                  if (groupDrop?.group !== groupKey || groupDrop?.before !== before) setGroupDrop({ group: groupKey, before });
+                }}
+                onDrop={(e) => {
+                  if (groupDrag && groupDrag !== groupKey) {
+                    e.preventDefault();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const before = e.clientY < r.top + r.height / 2;
+                    handleGroupReorder(groupDrag, groupKey, before);
+                  }
+                  setGroupDrag(null); setGroupDrop(null);
+                }}
+              >
+                {groupDropHere && groupDrop?.before && (
+                  <div className="pointer-events-none absolute -top-1 left-2 right-2 z-20 h-[3px] rounded-full bg-brand-cyan shadow-[0_0_6px_rgba(46,195,243,0.7)]" />
+                )}
+                <p
+                  draggable
+                  onDragStart={(e) => { setGroupDrag(groupKey); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => { setGroupDrag(null); setGroupDrop(null); }}
+                  className="group/gh flex cursor-grab select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[rgba(255,255,255,0.45)] active:cursor-grabbing hover:text-[rgba(255,255,255,0.7)]"
+                  title="Trascina per riordinare la categoria"
+                >
                   {NAV_GROUP_LABELS[groupKey]}
+                  <Icon name="menu" className="h-3 w-3 opacity-0 transition-opacity group-hover/gh:opacity-70" />
                 </p>
                 <div className="flex flex-col gap-0.5">
-                  {items.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={{ pathname: item.to, search: cleanSearch }}
-                      end={item.to === "/"}
-                      onClick={() => setSidebarOpen(false)}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-md text-[13px] font-semibold transition-all duration-150 select-none
-                        ${
-                          isActive
-                            ? "bg-white text-[#0a0a0a]"
-                            : "text-[rgba(255,255,255,0.65)] hover:bg-[rgba(255,255,255,0.10)] hover:text-white"
-                        }`
-                      }
-                    >
-                      {item.icon}
-                      {item.label}
-                    </NavLink>
-                  ))}
+                  {orderedGroupItems(groupKey).map((item) => renderNavItem(item, groupKey, true))}
 
                   {groupKey === "operations" && canAccessRoute(permissions, "work-items") && (
                     <button
@@ -537,35 +874,47 @@ export function DashboardLayout() {
                     </button>
                   )}
                 </div>
+                {groupDropHere && !groupDrop?.before && (
+                  <div className="pointer-events-none absolute -bottom-1 left-2 right-2 z-20 h-[3px] rounded-full bg-brand-cyan shadow-[0_0_6px_rgba(46,195,243,0.7)]" />
+                )}
               </div>
             );
           })}
+          </>
+          )}
         </nav>
 
         {/* Footer */}
         <div
-          className="p-4 flex flex-col gap-2"
+          className={`flex flex-col gap-2 ${compact ? "p-2" : "p-4"}`}
           style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}
         >
           <button
-            onClick={toggleTheme}
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] text-[rgba(255,255,255,0.65)] hover:text-white hover:bg-[rgba(255,255,255,0.10)] transition-colors w-full"
+            onClick={toggleCollapsed}
+            title={compact ? "Espandi menu" : "Comprimi menu"}
+            className={`hidden lg:flex items-center gap-3 py-2 rounded-md text-[13px] text-[rgba(255,255,255,0.65)] hover:text-white hover:bg-[rgba(255,255,255,0.10)] transition-colors w-full ${compact ? "justify-center px-0" : "px-3"}`}
           >
-            <Icon name={theme === "dark" ? "sun" : "moon"} />
-            {theme === "dark" ? "Modalità chiara" : "Modalità scura"}
+            <span className="nav-ico">
+              <Icon
+                name="chevron-right"
+                className={`w-[18px] h-[18px] transition-transform duration-300 ${compact ? "" : "rotate-180"}`}
+              />
+            </span>
+            {!compact && "Comprimi menu"}
           </button>
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-[13px] text-[rgba(255,255,255,0.65)] hover:text-danger hover:bg-danger/10 transition-colors w-full"
+            title={compact ? "Esci" : undefined}
+            className={`flex items-center gap-3 py-2 rounded-md text-[13px] text-[rgba(255,255,255,0.65)] hover:text-danger hover:bg-danger/10 transition-colors w-full ${compact ? "justify-center px-0" : "px-3"}`}
           >
-            <Icon name="logout" />
-            Esci
+            <span className="nav-ico"><Icon name="logout" /></span>
+            {!compact && "Esci"}
           </button>
         </div>
       </aside>
 
       {/* ── Main area ─────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div ref={mainRef} className="flex-1 flex flex-col min-w-0">
         {/* Topbar */}
         <header className="flex items-center gap-4 px-8 h-16 bg-paper dark:bg-[#131316] border-b border-line dark:border-[#2a2a2e] flex-shrink-0">
           {/* Mobile menu toggle */}
@@ -589,22 +938,17 @@ export function DashboardLayout() {
               title="Centro notifiche"
               className={`relative inline-flex h-9 w-9 items-center justify-center rounded-pill border bg-paper text-ink transition-colors hover:bg-cream dark:bg-[#1c1c20] dark:text-[#f4f4f7] dark:hover:bg-[#252529] ${notifOpen ? "border-brand-magenta text-brand-magenta dark:border-brand-magenta dark:text-brand-magenta" : "border-line dark:border-[#2a2a2e]"}`}
             >
-              <Icon name="bell" className="w-4 h-4" />
+              {notifPing > 0 && <span key={`halo-${notifPing}`} className="notif-halo" aria-hidden />}
+              <span className="nav-ico"><Icon key={`bell-${notifPing}`} name="bell" className={`w-4 h-4 ${notifPing > 0 ? "notif-ring" : ""}`} /></span>
               {notifications.totalUnread > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 grid min-w-[17px] h-[17px] place-items-center rounded-full border-2 border-paper bg-brand-magenta px-1 text-[10px] font-bold tabular-nums text-white dark:border-[#131316]">
+                <span
+                  key={`badge-${notifPing}`}
+                  className={`absolute -top-1.5 -right-1.5 grid min-w-[17px] h-[17px] place-items-center rounded-full border-2 border-paper bg-brand-magenta px-1 text-[10px] font-bold tabular-nums text-white dark:border-[#131316] ${notifPing > 0 ? "notif-pop" : ""}`}
+                >
                   {notifications.totalUnread > 99 ? "99+" : notifications.totalUnread}
                 </span>
               )}
             </button>
-
-            <span className="hidden md:inline-flex items-center rounded-pill border border-line px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:border-[#2a2a2e] dark:text-[#9999a0]">
-              {roleBadgeLabel}
-            </span>
-
-            <span className="hidden md:inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-success bg-success/10">
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              Online
-            </span>
 
             {isAdmin && (
               <div className="relative hidden sm:block" ref={syncMenuRef}>
@@ -655,11 +999,25 @@ export function DashboardLayout() {
 
             <button
               type="button"
-              onClick={toggleTheme}
+              onClick={toggleFullscreen}
+              aria-pressed={isFullscreen}
+              title={isFullscreen ? "Esci da Full focus" : "Full focus (schermo intero)"}
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-pill border transition-colors ${
+                isFullscreen
+                  ? "border-brand-magenta bg-brand-magenta/10 text-brand-magenta"
+                  : "border-line bg-paper text-ink hover:bg-cream dark:border-[#2a2a2e] dark:bg-[#1c1c20] dark:text-[#f4f4f7] dark:hover:bg-[#252529]"
+              }`}
+            >
+              <span className="nav-ico"><Icon name={isFullscreen ? "minimize" : "maximize"} className="w-4 h-4" /></span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => toggleTheme({ x: e.clientX, y: e.clientY })}
               title={theme === "dark" ? "Attiva tema chiaro" : "Attiva tema scuro"}
               className="inline-flex h-9 w-9 items-center justify-center rounded-pill border border-line bg-paper text-ink transition-colors hover:bg-cream dark:border-[#2a2a2e] dark:bg-[#1c1c20] dark:text-[#f4f4f7] dark:hover:bg-[#252529]"
             >
-              <Icon name={theme === "dark" ? "sun" : "moon"} className="w-4 h-4" />
+              <span className="nav-ico"><ThemeToggleIcon className="w-4 h-4" /></span>
             </button>
 
             {user && (

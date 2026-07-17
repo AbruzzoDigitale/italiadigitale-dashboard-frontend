@@ -5,6 +5,7 @@ import { fmtHours, formatWorkItemDate, isOverdue } from "./WorkItemCard";
 import { type WorkTag } from "../../api/workItems";
 import { type User } from "../../api/users";
 import { type WorkArea } from "../../api/workAreas";
+import { reworkSeverityClass } from "../../utils/rework";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Card lavorazione riutilizzabile, con LO STESSO stile della board Lavorazioni
@@ -31,6 +32,8 @@ export interface WorkItemBoardCardItem {
   is_recurring?: boolean;
   is_template?: boolean;
   reviewer_name?: string | null;
+  rework_count?: number;
+  delivered_to_client_at?: string | null;
 }
 
 export interface WorkItemBoardCardProps {
@@ -78,10 +81,12 @@ export function WorkItemBoardCard({
   const assignees = users.filter((u) => (item.assignee_ids ?? []).includes(u.id));
   const overdue = !item.is_completed && isOverdue(item.deadline_date);
   const isDone = item.is_completed || item.status === "completed";
+  // In revisione e già consegnata al cliente: evidenziazione dedicata sulla lavagna.
+  const sentToClient = item.status === "review" && !!item.delivered_to_client_at;
 
   const primaryArea = areas[0] ?? null;
   const areaColor = normColor(primaryArea?.color) ?? "#8c8d87";
-  const accent = overdue ? "var(--amber)" : areaColor;
+  const accent = sentToClient ? "#2ec3f3" : overdue ? "var(--amber)" : areaColor;
 
   return (
     <div
@@ -98,7 +103,7 @@ export function WorkItemBoardCard({
         }
       }}
       title="Apri dettaglio lavorazione"
-      className={`lv-scope lv-card${selected ? " sel" : ""}${isDone ? " done" : ""}`}
+      className={`lv-scope lv-card${selected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
       style={{ "--area": areaColor, "--accent": accent } as React.CSSProperties}
     >
       {/* Top: checkbox · cliente · flags */}
@@ -123,6 +128,11 @@ export function WorkItemBoardCard({
         </span>
         <div className="lv-flags">
           {item.is_priority && <Icon name="star" className="lv-star h-3.5 w-3.5" />}
+          {sentToClient && (
+            <span className="lv-badge sent" title="In revisione · inviata al cliente">
+              <Icon name="check-circle" className="h-2.5 w-2.5" /> Al cliente
+            </span>
+          )}
           {item.is_template && <span className="lv-badge soft">Modello</span>}
           {item.is_recurring && <span className="lv-badge soft">Ricorrente</span>}
           {item.is_PED && <span className="lv-badge soft">PED</span>}

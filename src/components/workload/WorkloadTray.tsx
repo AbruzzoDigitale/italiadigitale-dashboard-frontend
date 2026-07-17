@@ -1,4 +1,5 @@
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../ui/Icon";
 import { Avatar } from "../ui/Avatar";
@@ -7,9 +8,9 @@ import { formatHours, type WorkloadTrayItem } from "./calendarUtils";
 
 export type { WorkloadTrayItem };
 export type WorkloadTrayLayout = "sidebar" | "dock";
-export type WorkloadTrayTab = "reassign" | "unsched" | "unassigned" | "overdue";
+export type WorkloadTrayTab = "reassign" | "unsched" | "overdue" | "review" | "unassigned";
 
-/** Un operatore con i suoi bucket di task "da pianificare" + scadute. */
+/** Un operatore con i suoi bucket di task "da pianificare" + scadute + in revisione. */
 export interface WorkloadTrayGroup {
   userId: number;
   name: string;
@@ -17,6 +18,7 @@ export interface WorkloadTrayGroup {
   reassign: WorkloadTrayItem[];
   unscheduled: WorkloadTrayItem[];
   overdue: WorkloadTrayItem[];
+  review: WorkloadTrayItem[];
 }
 
 interface WorkloadTrayProps {
@@ -39,6 +41,16 @@ interface WorkloadTrayProps {
   /** Toggle "Solo le mie": se presente, mostra il bottone di filtro. */
   onlyMine?: boolean;
   onOnlyMineChange?: (value: boolean) => void;
+  /** Toggle "Tutti gli operatori" (admin/PM): ignora la selezione operatori del calendario. */
+  allOperators?: boolean;
+  onAllOperatorsChange?: (value: boolean) => void;
+  /**
+   * Se valorizzato, solo queste schede restano inline (nell'ordine dato) e le
+   * altre finiscono in un menu "···". Usato dalla vista operatore per tenere in
+   * primo piano Scadute e In revisione. Se assente, la barra mostra tutte le
+   * schede scrollando orizzontalmente (comportamento admin/PM).
+   */
+  priorityTabs?: WorkloadTrayTab[];
   hint?: string;
 }
 
@@ -62,17 +74,39 @@ export function WorkloadTray({
   draggingId,
   onlyMine = false,
   onOnlyMineChange,
+  allOperators = false,
+  onAllOperatorsChange,
+  priorityTabs,
   hint = "Trascina una scheda sulla timeline per assegnarle un orario.",
 }: WorkloadTrayProps) {
   const reassignTotal = groups.reduce((s, g) => s + g.reassign.length, 0);
   const unschedTotal = groups.reduce((s, g) => s + g.unscheduled.length, 0);
   const overdueTotal = groups.reduce((s, g) => s + g.overdue.length, 0);
+  const reviewTotal = groups.reduce((s, g) => s + g.review.length, 0);
   const unassignedTotal = unassignedItems.length;
-  const total = reassignTotal + unschedTotal + overdueTotal + unassignedTotal;
+  const total = reassignTotal + unschedTotal + overdueTotal + reviewTotal + unassignedTotal;
   const showOpHeader = groups.length > 1;
 
+  // Schede: inline (in primo piano) + eventuale overflow nel menu "···".
+  const allTabs: { key: WorkloadTrayTab; label: string; count: number }[] = [
+    { key: "reassign", label: "Da riprogrammare", count: reassignTotal },
+    { key: "unsched", label: "Senza orario", count: unschedTotal },
+    { key: "overdue", label: "Scadute", count: overdueTotal },
+    { key: "review", label: "In revisione", count: reviewTotal },
+    { key: "unassigned", label: "Da assegnare", count: unassignedTotal },
+  ];
+  const inlineTabs = priorityTabs
+    ? priorityTabs.map((k) => allTabs.find((t) => t.key === k)!).filter(Boolean)
+    : allTabs;
+  const overflowTabs = priorityTabs ? allTabs.filter((t) => !priorityTabs.includes(t.key)) : [];
+  const activeOverflow = overflowTabs.find((t) => t.key === tab) ?? null;
+  const [moreOpen, setMoreOpen] = useState(false);
+
   const itemsOf = (g: WorkloadTrayGroup) =>
-    tab === "reassign" ? g.reassign : tab === "overdue" ? g.overdue : g.unscheduled;
+    tab === "reassign" ? g.reassign
+      : tab === "overdue" ? g.overdue
+        : tab === "review" ? g.review
+          : g.unscheduled;
   const visibleGroups = tab === "unassigned" ? [] : groups.filter((g) => itemsOf(g).length > 0);
 
   const renderCard = (item: WorkloadTrayItem) => (
@@ -102,6 +136,12 @@ export function WorkloadTray({
               : "scaduta"}
           </span>
         )}
+        {item.isReview && (
+          <span className="wlcal-tc-review">
+            <Icon name="eye" className="h-3 w-3 shrink-0" />
+            in revisione
+          </span>
+        )}
         {item.overflowHours != null && item.overflowHours > 0 && (
           <span className="wlcal-tc-over">+{formatHours(item.overflowHours)} oltre limite</span>
         )}
@@ -112,33 +152,84 @@ export function WorkloadTray({
   // Tabs + nota + lista (raggruppata per operatore): condivisi tra sidebar e drawer dock.
   const body = (
     <>
-      {onOnlyMineChange && (
+      {(onOnlyMineChange || onAllOperatorsChange) && (
         <div className="wlcal-tray-filterbar">
-          <button
-            type="button"
-            className={`wlcal-tray-mine ${onlyMine ? "is-on" : ""}`}
-            onClick={() => onOnlyMineChange(!onlyMine)}
-            aria-pressed={onlyMine}
-          >
-            <Icon name="users" className="h-3.5 w-3.5" />
-            Solo le mie
-          </button>
+          {onAllOperatorsChange && (
+            <button
+              type="button"
+              className={`wlcal-tray-mine ${allOperators ? "is-on" : ""}`}
+              onClick={() => onAllOperatorsChange(!allOperators)}
+              aria-pressed={allOperators}
+              title="Mostra le task di tutti gli operatori, ignorando la selezione del calendario"
+            >
+              <Icon name="users" className="h-3.5 w-3.5" />
+              Tutti gli operatori
+            </button>
+          )}
+          {onOnlyMineChange && (
+            <button
+              type="button"
+              className={`wlcal-tray-mine ${onlyMine ? "is-on" : ""}`}
+              onClick={() => onOnlyMineChange(!onlyMine)}
+              aria-pressed={onlyMine}
+            >
+              <Icon name="user-circle" className="h-3.5 w-3.5" />
+              Solo le mie
+            </button>
+          )}
         </div>
       )}
 
-      <div className="wlcal-tray-tabs">
-        <button type="button" className={tab === "reassign" ? "on" : ""} onClick={() => onTab("reassign")}>
-          Da riprogrammare <span className="b">{reassignTotal}</span>
-        </button>
-        <button type="button" className={tab === "unsched" ? "on" : ""} onClick={() => onTab("unsched")}>
-          Senza orario <span className="b">{unschedTotal}</span>
-        </button>
-        <button type="button" className={tab === "overdue" ? "on" : ""} onClick={() => onTab("overdue")}>
-          Scadute <span className="b">{overdueTotal}</span>
-        </button>
-        <button type="button" className={tab === "unassigned" ? "on" : ""} onClick={() => onTab("unassigned")}>
-          Da assegnare <span className="b">{unassignedTotal}</span>
-        </button>
+      <div className={`wlcal-tray-tabs ${priorityTabs ? "wlcal-tray-tabs--priority" : ""}`}>
+        {inlineTabs.map((t) => (
+          <button key={t.key} type="button" className={tab === t.key ? "on" : ""} onClick={() => onTab(t.key)}>
+            {t.label} <span className="b">{t.count}</span>
+          </button>
+        ))}
+
+        {overflowTabs.length > 0 && (
+          <div className="wlcal-tray-more">
+            <button
+              type="button"
+              className={`wlcal-tray-more-btn ${activeOverflow ? "on" : ""}`}
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              title="Altre schede"
+            >
+              {activeOverflow ? (
+                <>{activeOverflow.label} <span className="b">{activeOverflow.count}</span></>
+              ) : (
+                <span className="wlcal-tray-more-dots" aria-hidden>···</span>
+              )}
+            </button>
+            {moreOpen && (
+              <>
+                <button
+                  type="button"
+                  className="wlcal-tray-more-backdrop"
+                  aria-hidden
+                  tabIndex={-1}
+                  onClick={() => setMoreOpen(false)}
+                />
+                <div className="wlcal-tray-more-menu" role="menu">
+                  {overflowTabs.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      role="menuitem"
+                      className={tab === t.key ? "on" : ""}
+                      onClick={() => { onTab(t.key); setMoreOpen(false); }}
+                    >
+                      <span>{t.label}</span>
+                      <span className="b">{t.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {tab === "reassign" && reassignTotal > 0 && (
@@ -156,6 +247,15 @@ export function WorkloadTray({
           <Icon name="alert-triangle" className="h-4 w-4 shrink-0" />
           <span>
             <b>Oltre la scadenza.</b> Queste lavorazioni hanno superato la data di scadenza. Riprogrammale o completale al più presto.
+          </span>
+        </div>
+      )}
+
+      {tab === "review" && reviewTotal > 0 && (
+        <div className="wlcal-tray-note wlcal-tray-note--review">
+          <Icon name="eye" className="h-4 w-4 shrink-0" />
+          <span>
+            <b>In revisione.</b> Lavorazioni consegnate e in attesa di revisione. Aprile per revisionarle o approvarle.
           </span>
         </div>
       )}
@@ -187,6 +287,12 @@ export function WorkloadTray({
                 Nessuna task scaduta.
                 <br />
                 Tutto entro i tempi.
+              </>
+            ) : tab === "review" ? (
+              <>
+                Nessuna task in revisione.
+                <br />
+                Niente in attesa di revisione.
               </>
             ) : (
               <>

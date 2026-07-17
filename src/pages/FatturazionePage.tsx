@@ -7,10 +7,14 @@ import {
   listBillingItemsApi,
   generateBillingItemApi,
   cancelBillingItemApi,
+  billingItemKey,
   type BillingItem,
   type BillingItemsResponse,
   type BillingType,
 } from "../api/billing";
+import { FicReconcilePanel } from "../components/billing/FicReconcilePanel";
+import { FicCreditNotesPanel } from "../components/billing/FicCreditNotesPanel";
+import { FicDuplicateInvoicesPanel } from "../components/billing/FicDuplicateInvoicesPanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fatturazione — dati REALI.
@@ -71,8 +75,8 @@ function InvoiceRow({
 }: {
   it: BillingItem;
   busy: boolean;
-  onGenerate: (id: number) => void;
-  onCancel: (id: number) => void;
+  onGenerate: (it: BillingItem) => void;
+  onCancel: (it: BillingItem) => void;
 }) {
   const done = it.state === "fatturato";
   return (
@@ -80,6 +84,7 @@ function InvoiceRow({
       <div className="fb-row-main">
         <div className="fb-row-title">
           {it.title} <TypeBadge type={it.type} />
+          {it.work_item_id == null && <span className="fb-type plan">Tranche piano</span>}
         </div>
         <div className="fb-row-source">
           <Icon name="document-text" className="h-3 w-3" /> {it.source ?? "—"}
@@ -102,12 +107,12 @@ function InvoiceRow({
             <span className="fb-invoice">
               <Icon name="credit-card" className="h-3.5 w-3.5" /> {it.invoice_number ?? it.fic_id ?? "—"}
             </span>
-            <button className="fb-cancel" disabled={busy} onClick={() => onCancel(it.work_item_id)}>
+            <button className="fb-cancel" disabled={busy} onClick={() => onCancel(it)}>
               Annulla
             </button>
           </div>
         ) : (
-          <button className="fb-generate" disabled={busy} onClick={() => onGenerate(it.work_item_id)}>
+          <button className="fb-generate" disabled={busy} onClick={() => onGenerate(it)}>
             <Icon name="upload" className="h-3.5 w-3.5" /> Genera fattura su FIC
           </button>
         )}
@@ -125,9 +130,9 @@ function ClientGroup({
 }: {
   client: string;
   items: BillingItem[];
-  busyIds: Set<number>;
-  onGenerate: (id: number) => void;
-  onCancel: (id: number) => void;
+  busyIds: Set<string>;
+  onGenerate: (it: BillingItem) => void;
+  onCancel: (it: BillingItem) => void;
 }) {
   const todo = items.filter((i) => i.state === "da_fatturare");
   const todoTot = todo.reduce((s, i) => s + i.amount, 0);
@@ -153,9 +158,9 @@ function ClientGroup({
       <div className="fb-group-body">
         {items.map((it) => (
           <InvoiceRow
-            key={it.work_item_id}
+            key={billingItemKey(it)}
             it={it}
-            busy={busyIds.has(it.work_item_id)}
+            busy={busyIds.has(billingItemKey(it))}
             onGenerate={onGenerate}
             onCancel={onCancel}
           />
@@ -172,7 +177,7 @@ function ForgottenRow({
 }: {
   it: BillingItem;
   busy: boolean;
-  onGenerate: (id: number) => void;
+  onGenerate: (it: BillingItem) => void;
 }) {
   const tone = agingTone(it.aging_days ?? 0);
   return (
@@ -200,7 +205,7 @@ function ForgottenRow({
           <div className="fb-amount">{beuro(it.amount)}</div>
           <span className={"fb-aging-tag tone-" + tone}>Mai emessa</span>
         </div>
-        <button className="fb-generate urgent" disabled={busy} onClick={() => onGenerate(it.work_item_id)}>
+        <button className="fb-generate urgent" disabled={busy} onClick={() => onGenerate(it)}>
           <Icon name="upload" className="h-3.5 w-3.5" /> Emetti ora
         </button>
       </div>
@@ -218,8 +223,8 @@ function ForgottenPanel({
   items: BillingItem[];
   open: boolean;
   onToggle: () => void;
-  busyIds: Set<number>;
-  onGenerate: (id: number) => void;
+  busyIds: Set<string>;
+  onGenerate: (it: BillingItem) => void;
 }) {
   if (items.length === 0) return null;
   const tot = items.reduce((s, i) => s + i.amount, 0);
@@ -249,7 +254,7 @@ function ForgottenPanel({
       {open && (
         <div className="fb-forgot-body">
           {items.map((it) => (
-            <ForgottenRow key={it.work_item_id} it={it} busy={busyIds.has(it.work_item_id)} onGenerate={onGenerate} />
+            <ForgottenRow key={billingItemKey(it)} it={it} busy={busyIds.has(billingItemKey(it))} onGenerate={onGenerate} />
           ))}
         </div>
       )}
@@ -259,12 +264,13 @@ function ForgottenPanel({
 
 export function FatturazionePage() {
   const toast = useToast();
+  const [view, setView] = useState<"fatture" | "riconciliazione" | "note-credito" | "duplica">("fatture");
   const [month, setMonth] = useState<string>(currentMonth());
   const [data, setData] = useState<BillingItemsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(true);
-  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -283,37 +289,39 @@ export function FatturazionePage() {
     void load();
   }, [load]);
 
-  const setBusy = (id: number, on: boolean) =>
+  const setBusy = (key: string, on: boolean) =>
     setBusyIds((prev) => {
       const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
+      if (on) next.add(key);
+      else next.delete(key);
       return next;
     });
 
-  const onGenerate = async (workItemId: number) => {
-    setBusy(workItemId, true);
+  const onGenerate = async (it: BillingItem) => {
+    const key = billingItemKey(it);
+    setBusy(key, true);
     try {
-      await generateBillingItemApi(workItemId);
+      await generateBillingItemApi(it);
       toast.success("Fattura generata");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile generare la fattura");
     } finally {
-      setBusy(workItemId, false);
+      setBusy(key, false);
     }
   };
 
-  const onCancel = async (workItemId: number) => {
-    setBusy(workItemId, true);
+  const onCancel = async (it: BillingItem) => {
+    const key = billingItemKey(it);
+    setBusy(key, true);
     try {
-      await cancelBillingItemApi(workItemId);
+      await cancelBillingItemApi(it);
       toast.info("Fattura annullata");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile annullare la fattura");
     } finally {
-      setBusy(workItemId, false);
+      setBusy(key, false);
     }
   };
 
@@ -351,31 +359,69 @@ export function FatturazionePage() {
               emesse.
             </p>
           </div>
-          <div className="fb-month-pick">
-            <span className="fb-month-l">Mese di riferimento</span>
-            <div className="fb-month-nav">
-              <button
-                className="fb-month-arrow"
-                aria-label="Mese precedente"
-                onClick={() => setMonth((m) => shiftMonth(m, -1))}
-              >
-                <Icon name="chevron-right" className="h-[15px] w-[15px] rotate-180" />
-              </button>
-              <button className="fb-month-btn" onClick={() => setMonth(currentMonth())} title="Torna al mese corrente">
-                <Icon name="calendar" className="h-[15px] w-[15px]" /> {label}
-              </button>
-              <button
-                className="fb-month-arrow"
-                aria-label="Mese successivo"
-                onClick={() => setMonth((m) => shiftMonth(m, 1))}
-              >
-                <Icon name="chevron-right" className="h-[15px] w-[15px]" />
-              </button>
+          {view === "fatture" ? (
+            <div className="fb-month-pick">
+              <span className="fb-month-l">Mese di riferimento</span>
+              <div className="fb-month-nav">
+                <button
+                  className="fb-month-arrow"
+                  aria-label="Mese precedente"
+                  onClick={() => setMonth((m) => shiftMonth(m, -1))}
+                >
+                  <Icon name="chevron-right" className="h-[15px] w-[15px] rotate-180" />
+                </button>
+                <button className="fb-month-btn" onClick={() => setMonth(currentMonth())} title="Torna al mese corrente">
+                  <Icon name="calendar" className="h-[15px] w-[15px]" /> {label}
+                </button>
+                <button
+                  className="fb-month-arrow"
+                  aria-label="Mese successivo"
+                  onClick={() => setMonth((m) => shiftMonth(m, 1))}
+                >
+                  <Icon name="chevron-right" className="h-[15px] w-[15px]" />
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
+        </div>
+
+        {/* tab: fatturazione mensile · riconciliazione FIC (admin) */}
+        <div className="fb-tabs">
+          <button
+            className={"fb-tab" + (view === "fatture" ? " is-active" : "")}
+            onClick={() => setView("fatture")}
+          >
+            <Icon name="credit-card" className="h-[15px] w-[15px]" /> Da fatturare
+          </button>
+          <button
+            className={"fb-tab" + (view === "riconciliazione" ? " is-active" : "")}
+            onClick={() => setView("riconciliazione")}
+          >
+            <Icon name="refresh-cw" className="h-[15px] w-[15px]" /> Riconciliazione FIC
+          </button>
+          <button
+            className={"fb-tab" + (view === "note-credito" ? " is-active" : "")}
+            onClick={() => setView("note-credito")}
+          >
+            <Icon name="document-text" className="h-[15px] w-[15px]" /> Note di credito
+          </button>
+          <button
+            className={"fb-tab" + (view === "duplica" ? " is-active" : "")}
+            onClick={() => setView("duplica")}
+          >
+            <Icon name="copy" className="h-[15px] w-[15px]" /> Duplica fatture
+          </button>
         </div>
       </div>
 
+      {view === "riconciliazione" ? <FicReconcilePanel /> : null}
+
+      {view === "note-credito" ? <FicCreditNotesPanel /> : null}
+
+      {view === "duplica" ? <FicDuplicateInvoicesPanel /> : null}
+
+      {view === "fatture" && (
+        <>
       {/* summary */}
       <div className="fb-summary">
         <div className="fb-sum big">
@@ -460,6 +506,8 @@ export function FatturazionePage() {
               ))}
             </div>
           )}
+        </>
+      )}
         </>
       )}
     </div>

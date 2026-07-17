@@ -29,6 +29,7 @@ import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { RichTextEditor, hasRichTextContent } from "../ui/RichTextEditor";
+import { BillingPlanSection } from "./BillingPlanSection";
 
 interface ContractDetailModalProps {
   open: boolean;
@@ -139,7 +140,7 @@ export function ContractDetailModal({
   const [detailWorkAreaIdsDraft, setDetailWorkAreaIdsDraft] = useState<number[]>([]);
   const [workTagModalOpen, setWorkTagModalOpen] = useState(false);
   const [workAreaModalOpen, setWorkAreaModalOpen] = useState(false);
-  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "timeline">("contract");
+  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "billing" | "timeline">("contract");
   const [activeNotesTab, setActiveNotesTab] = useState<"commercial" | "operational" | "lost">("commercial");
   const [notesSaving, setNotesSaving] = useState(false);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<number[]>([]);
@@ -705,6 +706,13 @@ export function ContractDetailModal({
             </button>
             <button
               type="button"
+              onClick={() => setActiveMainTab("billing")}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeMainTab === "billing" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+            >
+              Fatturazione
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMainTab("tasks")}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeMainTab === "tasks" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
             >
@@ -1153,6 +1161,10 @@ export function ContractDetailModal({
               )}
             </div>
             </div>
+          )}
+
+          {activeMainTab === "billing" && detailData && (
+            <BillingPlanSection contractId={detailData.id} isAdmin={isAdmin} />
           )}
 
           {activeMainTab === "tasks" && (

@@ -569,3 +569,93 @@
 .social-presentation-page input[type="number"]::-webkit-outer-spin-button,
 .social-presentation-page input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .social-presentation-page input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ============================================================
+   Motion graphic (entrata elementi) + barra sconto collassabile
+   + responsive tablet — soprattutto in modalità presentazione
+   ============================================================ */
+@keyframes sp-fade-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sp-fade-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* `backwards`: nasconde durante il delay (stagger) e libera lo stile a fine
+   animazione, così l'hover translateY(-4px) delle card continua a funzionare. */
+.social-hero__title { animation: sp-fade-down .55s var(--ad-ease) backwards; }
+.social-hero__sub   { animation: sp-fade-down .55s var(--ad-ease) .08s backwards; }
+.social-pack {
+  animation: sp-fade-up .55s var(--ad-ease) backwards;
+  animation-delay: calc(var(--i, 0) * .08s + .1s);
+}
+/* Reveal all'ingresso in presentazione: attende ~2s (il tempo di apertura a schermo
+   intero) restando nascosto — grazie a `backwards` — poi entra con lo stagger. */
+.social-presentation-page.is-presentation .social-hero__title { animation: sp-fade-down .6s var(--ad-ease) 2s backwards; }
+.social-presentation-page.is-presentation .social-hero__sub   { animation: sp-fade-down .6s var(--ad-ease) 2.12s backwards; }
+.social-presentation-page.is-presentation .social-pack {
+  animation: sp-fade-up .65s var(--ad-ease) backwards;
+  animation-delay: calc(var(--i, 0) * .1s + 2.2s);
+}
+
+/* ── Barra sconto/preventivo collassabile (solo in presentazione) ── */
+.social-quotebar { transition: transform .45s var(--ad-ease); }
+/* In presentazione la barra è FISSA al viewport: così lo slide-down (translateY)
+   non estende l'area scrollabile del contenitore e NON crea overflow verticale. */
+.social-quotebar.is-present-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9998;
+}
+/* Spazio sotto al contenuto SOLO quando la barra è tirata su (aperta), così non
+   copre l'ultima riga; da abbassata niente vuoto. */
+.social-hero-section { transition: padding-bottom .45s var(--ad-ease); }
+.social-presentation-page.qbar-open .social-hero-section { padding-bottom: 104px; }
+.social-quotebar__handle {
+  position: absolute;
+  left: 50%;
+  top: -26px;
+  transform: translateX(-50%);
+  width: 62px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--ad-bg-2);
+  border: 1px solid var(--ad-line-2);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  color: var(--ad-tx-2);
+  cursor: pointer;
+}
+.social-quotebar__handle:hover { color: var(--ad-tx); }
+.social-quotebar__handle svg { transition: transform .4s var(--ad-ease); }
+/* aperta → freccia in giù (per abbassare) */
+.social-quotebar.is-present-bar:not(.is-collapsed) .social-quotebar__handle svg { transform: rotate(180deg); }
+/* abbassata → scivola giù lasciando visibile solo l'handle */
+.social-quotebar.is-collapsed { transform: translateY(100%); }
+
+/* ── Responsive tablet (landscape/portrait) ── */
+@media (max-width: 1024px) {
+  .social-hero-section { padding: 40px 20px 40px; }
+  .social-hero__deck { grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 760px; }
+  .social-pack { padding: 22px 20px; }
+  .social-pack__price .val { font-size: 40px; }
+  .social-quotebar { padding: 12px 18px; }
+}
+@media (max-width: 680px) {
+  .social-hero__deck { grid-template-columns: 1fr; max-width: 440px; gap: 14px; }
+  .social-pack__desc { min-height: 0; }
+  .social-quotebar__controls { width: 100%; justify-content: space-between; }
+  .social-present-exit { top: 10px; right: 10px; padding: 7px 12px; font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-hero__title, .social-hero__sub, .social-pack,
+  .social-presentation-page.is-presentation .social-hero__title,
+  .social-presentation-page.is-presentation .social-hero__sub,
+  .social-presentation-page.is-presentation .social-pack { animation: none; }
+  .social-quotebar, .social-quotebar__handle svg { transition: none; }
+}

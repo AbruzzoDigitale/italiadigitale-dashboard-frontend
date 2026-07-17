@@ -19,7 +19,7 @@ function parseApiError(body: unknown, fallback: string): string {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type WorkItemStatus = "planned" | "in_progress" | "review" | "completed";
+export type WorkItemStatus = "planned" | "in_progress" | "review" | "completed" | "blocked" | "cancelled";
 export type UrgencyLevel = "low" | "normal" | "high" | "critical";
 
 const STATUS_STAGE: Record<string, number> = {
@@ -198,6 +198,9 @@ export interface WorkItem {
   status: WorkItemStatus;
   progress_percent: number;
   is_completed: boolean;
+  /** Timbrati alla transizione di stato; base della metrica di ciclo. */
+  in_progress_entered_at?: string | null;
+  review_entered_at?: string | null;
   estimated_hours: number | null;
   is_fractionable: boolean;
   is_deadline_locked: boolean;
@@ -214,6 +217,12 @@ export interface WorkItem {
   schedule_state?: WorkItemScheduleState | null;
   reviewer_user_id?: number | null;
   reviewer_name?: string | null;
+  // Scheda Revisione
+  review_stage?: "interna" | "cliente" | null;
+  rework_count?: number;
+  rework_interna?: number;
+  last_review_source?: "interna" | "cliente" | null;
+  delivered_to_client_at?: string | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];

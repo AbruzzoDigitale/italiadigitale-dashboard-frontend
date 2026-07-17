@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import "./modal-theme.css";
 type ModalSize = "sm" | "md" | "lg" | "xl" | "2xl";
 type ModalPosition = "center" | "left" | "right";
 
@@ -262,10 +263,10 @@ export function Modal({
       aria-modal
       aria-labelledby={title ? "modal-title" : undefined}
       ref={dialogRef}
-      className={`relative min-h-0 w-full ${sizeMap[size]} ${mobileDialogClass} flex flex-col overflow-hidden bg-paper dark:bg-ink-soft border border-line dark:border-line-dark shadow-3 animate-fadeIn ${dialogClassName}`}
+      className={`id-modal relative min-h-0 w-full ${sizeMap[size]} ${mobileDialogClass} flex flex-col overflow-hidden bg-paper dark:bg-[#0E0F0E] border border-line dark:border-line-dark shadow-3 animate-fadeIn ${dialogClassName}`}
     >
       {title && (
-        <div className="flex-shrink-0 flex items-center justify-between gap-4 px-6 py-4 border-b border-line dark:border-line-dark">
+        <div className="flex-shrink-0 flex items-center justify-between gap-4 px-6 py-4 border-b border-line dark:border-line-dark dark:bg-[#191A19]">
           <div className="flex items-center gap-3 min-w-0">
             {icon && (
               <span className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-brand-magenta/10 text-brand-magenta">
@@ -310,7 +311,7 @@ export function Modal({
         </div>
       )}
 
-      {subHeader && <div className="flex-shrink-0">{subHeader}</div>}
+      {subHeader && <div className="flex-shrink-0 dark:bg-[#1F211F]">{subHeader}</div>}
 
       <div className={`min-h-0 flex-1 overflow-y-auto px-6 py-5 ${bodyClassName}`}>{children}</div>
 

@@ -20,6 +20,8 @@ export interface WorkloadTrayItem {
   daysOverdue?: number;
   /** Scadenza non derogabile (delay_code = non_deferrable_overdue). */
   nonDeferrable?: boolean;
+  /** Task in revisione. */
+  isReview?: boolean;
 }
 
 // ── Costanti griglia ────────────────────────────────────────────────────────────

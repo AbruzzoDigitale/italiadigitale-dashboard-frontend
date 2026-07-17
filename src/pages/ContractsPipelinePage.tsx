@@ -19,9 +19,12 @@ import {
 import type { BulkDeleteResponse } from "../api/bulk";
 import {
   acceptAndContractDryRunApi,
+  chooseGroupWinnerApi,
   confirmQuoteContractAutomationApi,
   contractAutomationDryRunApi,
+  createQuoteGroupApi,
   deleteQuoteApi,
+  detachFromGroupApi,
   formatEur,
   getQuoteApi,
   updateQuoteStatusApi,
@@ -282,6 +285,30 @@ function buildAutomationPayload(form: ContractAutomationFormState): QuoteContrac
   };
 }
 
+// Raggruppa gli item di una colonna in "cluster": i preventivi accorpati (stesso
+// group_id) finiscono in un unico cluster (renderizzati impilati), gli altri restano
+// singoli. Preserva l'ordine di prima comparsa del gruppo.
+type PipelineCluster = { groupId: number | null; items: CommercialPipelineItem[] };
+function buildPipelineClusters(items: CommercialPipelineItem[]): PipelineCluster[] {
+  const clusters: PipelineCluster[] = [];
+  const indexByGroup = new Map<number, number>();
+  for (const item of items) {
+    const gid = item.entity_type === "quote" ? item.group_id : null;
+    if (gid == null) {
+      clusters.push({ groupId: null, items: [item] });
+      continue;
+    }
+    const existing = indexByGroup.get(gid);
+    if (existing != null) {
+      clusters[existing].items.push(item);
+    } else {
+      indexByGroup.set(gid, clusters.length);
+      clusters.push({ groupId: gid, items: [item] });
+    }
+  }
+  return clusters;
+}
+
 export function ContractsPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions, activeCompanyId, myCompanies } = useAuth();
@@ -303,6 +330,42 @@ export function ContractsPipelinePage() {
 
   const [draggingContractId, setDraggingContractId] = useState<number | null>(null);
   const [dropStage, setDropStage] = useState<ContractCommercialStage | null>(null);
+  // Ghost custom animato durante il drag (stesso sistema di Lavorazioni): nascondiamo
+  // l'immagine di drag nativa del browser (statica) e mostriamo questo, che dondola
+  // e segue il cursore con un leggero trailing.
+  const [dragGhost, setDragGhost] = useState<{ label: string; count: number } | null>(null);
+  const dragGhostElRef = useRef<HTMLDivElement | null>(null);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const attachDragGhost = (el: HTMLDivElement | null) => {
+    dragGhostElRef.current = el;
+    if (el) {
+      const { x, y } = dragStartPosRef.current;
+      el.style.transform = `translate3d(${x + 16}px, ${y + 16}px, 0)`;
+    }
+  };
+
+  /** Nasconde l'immagine di drag nativa e attiva il ghost custom. */
+  const beginDragGhost = (event: React.DragEvent, label: string, count: number) => {
+    const blank = document.createElement("div");
+    blank.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;";
+    document.body.appendChild(blank);
+    event.dataTransfer.setDragImage(blank, 0, 0);
+    setTimeout(() => document.body.removeChild(blank), 0);
+    dragStartPosRef.current = { x: event.clientX, y: event.clientY };
+    setDragGhost({ label, count });
+  };
+
+  // Il ghost segue il cursore durante il drag (trailing "fisico" via CSS transition).
+  useEffect(() => {
+    if (!dragGhost) return;
+    const onDragOver = (e: DragEvent) => {
+      const g = dragGhostElRef.current;
+      if (g) g.style.transform = `translate3d(${e.clientX + 16}px, ${e.clientY + 16}px, 0)`;
+    };
+    document.addEventListener("dragover", onDragOver);
+    return () => document.removeEventListener("dragover", onDragOver);
+  }, [dragGhost]);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   // Popover "Esito" del preventivo in trattativa: renderizzato in portale (fixed)
   // così esce dalla colonna senza causare overflow-x e resta sopra a tutto.
@@ -339,6 +402,10 @@ export function ContractsPipelinePage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [selectedContractIds, setSelectedContractIds] = useState<number[]>([]);
+  // Accorpamento preventivi: selezione multipla + azioni di gruppo.
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState<number[]>([]);
+  const [grouping, setGrouping] = useState(false);
+  const [groupActionId, setGroupActionId] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [bulkDeleteResult, setBulkDeleteResult] = useState<BulkDeleteResponse | null>(null);
@@ -602,6 +669,52 @@ export function ContractsPipelinePage() {
     reload();
   };
 
+  // ── Accorpamento preventivi ──
+  const toggleQuoteSelection = (id: number, checked: boolean) =>
+    setSelectedQuoteIds((cur) => (checked ? Array.from(new Set([...cur, id])) : cur.filter((x) => x !== id)));
+
+  const handleAccorpa = async () => {
+    if (selectedQuoteIds.length < 2) return;
+    setGrouping(true);
+    try {
+      await createQuoteGroupApi(selectedQuoteIds);
+      toast.success(`Accorpati ${selectedQuoteIds.length} preventivi: ora si muovono insieme.`);
+      setSelectedQuoteIds([]);
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore accorpamento");
+    } finally {
+      setGrouping(false);
+    }
+  };
+
+  const handleChooseWinner = async (item: CommercialPipelineItem) => {
+    if (item.group_id == null) return;
+    setGroupActionId(item.id);
+    try {
+      await chooseGroupWinnerApi(item.group_id, item.id);
+      toast.success("Preventivo scelto: gli altri del gruppo sono stati scartati.");
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore");
+    } finally {
+      setGroupActionId(null);
+    }
+  };
+
+  const handleDetachGroup = async (item: CommercialPipelineItem) => {
+    setGroupActionId(item.id);
+    try {
+      await detachFromGroupApi(item.id);
+      toast.success("Preventivo sganciato dal gruppo.");
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore");
+    } finally {
+      setGroupActionId(null);
+    }
+  };
+
   const openDetail = (contractId: number) => {
     setSelectedContractId(contractId);
     setDetailOpen(true);
@@ -734,6 +847,8 @@ export function ContractsPipelinePage() {
     try {
       await updateQuoteStatusApi(item.id, toStatus as Parameters<typeof updateQuoteStatusApi>[1], notes ?? null);
       toast.success(`Preventivo spostato in ${CONTRACT_STAGE_LABELS[toStage]}`);
+      // Se è accorpato, il backend ha mosso anche gli altri: ricarico per allinearli.
+      if (item.group_id != null) reloadPipeline();
     } catch (err) {
       setDisplayedItems((items) =>
         items.map((entry) =>
@@ -1044,6 +1159,18 @@ export function ContractsPipelinePage() {
               Elimina contratti selezionati ({selectedContractIds.length})
             </Button>
           )}
+
+          {isAdmin && selectedQuoteIds.length > 0 && (
+            <Button
+              variant="secondary"
+              onClick={() => void handleAccorpa()}
+              loading={grouping}
+              disabled={selectedQuoteIds.length < 2}
+              leftIcon={<Icon name="grid-compact" className="w-4 h-4" />}
+            >
+              Accorpa preventivi ({selectedQuoteIds.length})
+            </Button>
+          )}
       </div>
 
       {boardError && (
@@ -1085,6 +1212,7 @@ export function ContractsPipelinePage() {
                     if (!isAdmin) return;
                     event.preventDefault();
                     setDraggingContractId(null);
+                    setDragGhost(null);
                     const raw = event.dataTransfer.getData("text/plain");
                     const payload = parsePipelineDropPayload(raw);
                     if (!payload) return;
@@ -1140,8 +1268,8 @@ export function ContractsPipelinePage() {
                       <div className="pipe-col-empty">Nessun elemento</div>
                     )}
 
-                    {items.map((item) => (
-                      (() => {
+                    {buildPipelineClusters(items).map((cluster) => {
+                      const cards = cluster.items.map((item) => {
                         const clientLabel = item.client_id != null
                           ? (clientDisplayNameById.get(item.client_id) ?? `Cliente #${item.client_id}`)
                           : "Cliente non associato";
@@ -1150,20 +1278,22 @@ export function ContractsPipelinePage() {
                       <button
                         key={`${item.entity_type}-${item.id}`}
                         type="button"
-                        draggable={isAdmin}
+                        draggable={isAdmin && cluster.groupId == null}
                         onDragStart={(event) => {
-                          if (!isAdmin) return;
+                          if (!isAdmin || cluster.groupId != null) return;
                           event.dataTransfer.effectAllowed = "move";
                           event.dataTransfer.setData("text/plain", JSON.stringify({
                             entity_type: item.entity_type,
                             id: item.id,
                           }));
+                          beginDragGhost(event, item.title, 1);
                           setDraggingContractId(item.id);
                         }}
                         onDragEnd={() => {
                           if (!isAdmin) return;
                           setDraggingContractId(null);
                           setDropStage(null);
+                          setDragGhost(null);
                         }}
                         onClick={() => {
                           if (item.entity_type === "contract") {
@@ -1181,6 +1311,18 @@ export function ContractsPipelinePage() {
                                   onChange={(checked) => toggleContractSelection(item.id, checked)}
                                 />
                                 Seleziona
+                              </label>
+                            </div>
+                          )}
+
+                          {isAdmin && item.entity_type === "quote" && item.group_id == null && (
+                            <div className="pipe-c-sel" onClick={(event) => event.stopPropagation()}>
+                              <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-muted dark:text-muted-dark">
+                                <Checkbox
+                                  checked={selectedQuoteIds.includes(item.id)}
+                                  onChange={(checked) => toggleQuoteSelection(item.id, checked)}
+                                />
+                                Accorpa
                               </label>
                             </div>
                           )}
@@ -1256,6 +1398,30 @@ export function ContractsPipelinePage() {
 
                         {isAdmin && item.entity_type === "quote" && (
                           <div className="pipe-c-actions" onClick={(event) => event.stopPropagation()}>
+                            {item.group_id != null && (
+                              <>
+                                <button
+                                  type="button"
+                                  title="Scegli questo preventivo (gli altri del gruppo escono dalla trattativa)"
+                                  aria-label="Scegli questo preventivo"
+                                  onClick={(event) => { event.stopPropagation(); void handleChooseWinner(item); }}
+                                  className={CARD_ICON_ACTION_CLASS}
+                                  disabled={groupActionId === item.id}
+                                >
+                                  <Icon name="star" className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Sgancia dal gruppo"
+                                  aria-label="Sgancia dal gruppo"
+                                  onClick={(event) => { event.stopPropagation(); void handleDetachGroup(item); }}
+                                  className={CARD_ICON_ACTION_CLASS}
+                                  disabled={groupActionId === item.id}
+                                >
+                                  <Icon name="x" className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
                             {(() => {
                               const quoteStatus = getQuoteCurrentStatus(item);
                               const { previous, next } = getQuoteArrowTargets(item);
@@ -1360,8 +1526,37 @@ export function ContractsPipelinePage() {
                           </div>
                       </button>
                         );
-                      })()
-                    ))}
+                      });
+                      return cluster.groupId != null ? (
+                        <div
+                          key={`grp-${cluster.groupId}`}
+                          className={`pipe-group${draggingContractId === cluster.items[0].id ? " is-dragging" : ""}`}
+                          draggable={isAdmin}
+                          onDragStart={(event) => {
+                            if (!isAdmin) return;
+                            event.dataTransfer.effectAllowed = "move";
+                            // Trascino il gruppo come unico elemento: uso un membro
+                            // come rappresentante; il backend muove insieme gli altri.
+                            event.dataTransfer.setData("text/plain", JSON.stringify({
+                              entity_type: "quote",
+                              id: cluster.items[0].id,
+                            }));
+                            beginDragGhost(event, cluster.items[0].title, cluster.items.length);
+                            setDraggingContractId(cluster.items[0].id);
+                          }}
+                          onDragEnd={() => {
+                            if (!isAdmin) return;
+                            setDraggingContractId(null);
+                            setDropStage(null);
+                            setDragGhost(null);
+                          }}
+                        >
+                          {cards}
+                        </div>
+                      ) : (
+                        cards
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -1847,6 +2042,23 @@ export function ContractsPipelinePage() {
           setDetailOpen(true);
         }}
       />
+
+      {/* Ghost animato del drag (dondola e insegue il cursore): stesso sistema di Lavorazioni. */}
+      {dragGhost &&
+        createPortal(
+          <div ref={attachDragGhost} className="wl-drag-ghost" aria-hidden>
+            <span className="wl-drag-ghost-stack">
+              {/* La pila sfalsata solo per i gruppi: con un solo elemento sarebbe fuorviante. */}
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-card c3" />}
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-card c2" />}
+              <span className="wl-drag-ghost-card c1">
+                <Icon name="document-text" className="h-3.5 w-3.5" /> {dragGhost.label}
+              </span>
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-badge">{dragGhost.count}</span>}
+            </span>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

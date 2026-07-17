@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  archiveNotificationApi,
   getMyNotificationPreferencesApi,
   getMyNotificationsApi,
   markAllNotificationsReadApi,
   markNotificationReadApi,
+  markNotificationUnreadApi,
+  unarchiveNotificationApi,
   updateMyNotificationPreferencesApi,
 } from "../../api/notifications";
 import { API_BASE } from "../../api/auth";
 import { useBrand } from "../../context/BrandContext";
 import { DEFAULT_NOTIFICATION_PREFERENCES, type NotificationPreferences } from "./notificationPreferences";
 import type { NotifItem, NotifTabKey } from "./notificationsData";
+import { emitRealtime } from "../realtime/realtimeBus";
 
 const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni"];
 
@@ -20,6 +24,7 @@ const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni"];
  */
 export function useNotifications() {
   const [items, setItems] = useState<NotifItem[]>([]);
+  const [archived, setArchived] = useState<NotifItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Suono: file scelto dall'azienda (brand) + on/off della preferenza utente.
@@ -193,6 +198,8 @@ export function useNotifications() {
     es.addEventListener("notification", (ev) => {
       void reload();
       showNotification(ev as MessageEvent);
+      // Segnala a chi mostra dati live (es. thread commenti del task aperto) di ricaricarsi.
+      emitRealtime();
     });
     return () => es.close();
   }, [reload, showNotification]);
@@ -216,6 +223,45 @@ export function useNotifications() {
     }
   }, []);
 
+  const markUnread = useCallback(async (id: number) => {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, unread: true } : i)));
+    try {
+      await markNotificationUnreadApi(id);
+    } catch {
+      // ignora: lo stato ottimistico resta; verrà riallineato al prossimo reload.
+    }
+  }, []);
+
+  // Archivio: caricato a parte (scheda dedicata), non entra nei conteggi.
+  const loadArchived = useCallback(async () => {
+    try {
+      const data = await getMyNotificationsApi(100, true);
+      setArchived(data.items);
+    } catch {
+      /* silenzioso */
+    }
+  }, []);
+
+  const archive = useCallback(async (id: number) => {
+    // esce dalle schede normali (ottimistico); l'archivio si ricarica quando aperto.
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    try {
+      await archiveNotificationApi(id);
+    } catch {
+      /* ignora */
+    }
+  }, []);
+
+  const unarchive = useCallback(async (id: number) => {
+    setArchived((prev) => prev.filter((i) => i.id !== id));
+    try {
+      await unarchiveNotificationApi(id);
+      await reload(); // torna tra le notifiche normali
+    } catch {
+      /* ignora */
+    }
+  }, [reload]);
+
   const markAllRead = useCallback(async (tab: NotifTabKey) => {
     setItems((prev) => prev.map((i) => (i.tab === tab ? { ...i, unread: false } : i)));
     try {
@@ -225,7 +271,21 @@ export function useNotifications() {
     }
   }, []);
 
-  return { items, loading, counts, totalUnread, itemsByTab, markRead, markAllRead, reload };
+  return {
+    items,
+    archived,
+    loading,
+    counts,
+    totalUnread,
+    itemsByTab,
+    markRead,
+    markUnread,
+    markAllRead,
+    archive,
+    unarchive,
+    loadArchived,
+    reload,
+  };
 }
 
 export type UseNotificationsReturn = ReturnType<typeof useNotifications>;

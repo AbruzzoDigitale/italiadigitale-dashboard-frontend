@@ -4,6 +4,7 @@ import { WorkAreaBadge } from "../work-areas/WorkAreaBadge";
 import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/workItems";
 import { type User } from "../../api/users";
 import { type WorkArea } from "../../api/workAreas";
+import { reworkSeverityClass } from "../../utils/rework";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,8 @@ export function WorkItemCard({
   const tags = workTags.filter((t) => tagIds.includes(t.id));
   const overdue = !item.is_completed && isOverdue(item.deadline_date);
   const isDone = item.is_completed || item.status === "completed";
+  // In revisione e già consegnata al cliente: evidenziazione dedicata sulla lavagna.
+  const sentToClient = item.status === "review" && !!item.delivered_to_client_at;
   const scheduleState = item.schedule_state ?? null;
   const isCarriedOver = scheduleState?.delay_code === "carried_over";
   const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
@@ -109,11 +112,13 @@ export function WorkItemCard({
     c ? (c.startsWith("#") ? c : `#${c}`) : null;
   const primaryArea = areas[0] ?? null;
   const areaColor = normColor(primaryArea?.color) ?? "#8c8d87";
-  const accent = isSevereDelay
-    ? "var(--magenta)"
-    : isCarriedOver || overdue
-      ? "var(--amber)"
-      : areaColor;
+  const accent = sentToClient
+    ? "#2ec3f3"
+    : isSevereDelay
+      ? "var(--magenta)"
+      : isCarriedOver || overdue
+        ? "var(--amber)"
+        : areaColor;
 
   return (
     <div
@@ -131,7 +136,7 @@ export function WorkItemCard({
         }
       }}
       title="Apri dettaglio lavorazione"
-      className={`lv-card${isSelected ? " sel" : ""}${isDone ? " done" : ""}`}
+      className={`lv-card${isSelected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
       style={{ "--area": areaColor, "--accent": accent } as React.CSSProperties}
     >
       {/* Top: checkbox · id · flags + azioni hover */}
@@ -156,6 +161,11 @@ export function WorkItemCard({
         </span>
         <div className="lv-flags">
           {item.is_priority && <Icon name="star" className="lv-star h-3.5 w-3.5" />}
+          {sentToClient && (
+            <span className="lv-badge sent" title="In revisione · inviata al cliente">
+              <Icon name="check-circle" className="h-2.5 w-2.5" /> Al cliente
+            </span>
+          )}
           {isSevereDelay && <span className="lv-badge grave">Ritardo grave</span>}
           {isCarriedOver && <span className="lv-badge late">In ritardo</span>}
           {item.is_deadline_locked && (
@@ -241,12 +251,12 @@ export function WorkItemCard({
               {area.name}
             </span>
           ))}
-          {scheduleState?.delay_code && (
-            <span className="lv-peso">
-              Peso {scheduleState.effective_load_weight_factor.toFixed(2)}x
-              {scheduleState.overdue_days > 0 ? ` · ${scheduleState.overdue_days}g ritardo` : ""}
-            </span>
-          )}
+          {scheduleState?.delay_code &&
+            (() => {
+              // Nota: il "Peso Nx" è stato rimosso su richiesta; resta solo il ritardo.
+              const delayTxt = scheduleState.overdue_days > 0 ? `${scheduleState.overdue_days}g ritardo` : "";
+              return delayTxt ? <span className="lv-peso">{delayTxt}</span> : null;
+            })()}
         </div>
       )}
 

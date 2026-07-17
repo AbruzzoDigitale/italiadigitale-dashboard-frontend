@@ -6,7 +6,8 @@ export type BillingState = "da_fatturare" | "fatturato";
 export interface BillingItem {
   /** id della riga persistita se gia' emessa, altrimenti null (voce derivata) */
   id: number | null;
-  work_item_id: number;
+  /** null per le voci "standalone" (tranche di un piano di fatturazione, senza lavorazione) */
+  work_item_id: number | null;
   contract_id: number | null;
   client_id: number | null;
   client_name: string;
@@ -87,15 +88,29 @@ export async function listClientBillingApi(clientId: number): Promise<BillingCli
   return res.json();
 }
 
-/** Genera/emette la fattura per la lavorazione (persiste stato 'fatturato'). */
+/** Riferimento a una voce fatturabile: per lavorazione (work_item_id) o standalone (id). */
+export type BillingItemRef = Pick<BillingItem, "work_item_id" | "id">;
+
+function billingRefBody(ref: BillingItemRef): { work_item_id?: number; billing_item_id?: number } {
+  if (ref.work_item_id != null) return { work_item_id: ref.work_item_id };
+  if (ref.id != null) return { billing_item_id: ref.id };
+  throw new Error("Voce di fatturazione non identificabile");
+}
+
+/** Chiave stabile per una voce (lavorazione o standalone), es. per set busy/selezione. */
+export function billingItemKey(ref: BillingItemRef): string {
+  return ref.work_item_id != null ? `wi-${ref.work_item_id}` : `bi-${ref.id}`;
+}
+
+/** Genera/emette la fattura per una voce (lavorazione o tranche standalone). */
 export async function generateBillingItemApi(
-  workItemId: number,
+  ref: BillingItemRef,
   pushToFic = false
 ): Promise<BillingItem> {
   const res = await authFetch(`${API_BASE}/api/v1/billing/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ work_item_id: workItemId, push_to_fic: pushToFic }),
+    body: JSON.stringify({ ...billingRefBody(ref), push_to_fic: pushToFic }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -104,12 +119,12 @@ export async function generateBillingItemApi(
   return res.json();
 }
 
-/** Annulla l'emissione: la lavorazione torna 'da fatturare'. */
-export async function cancelBillingItemApi(workItemId: number): Promise<BillingItem> {
+/** Annulla l'emissione: la voce torna 'da fatturare'. */
+export async function cancelBillingItemApi(ref: BillingItemRef): Promise<BillingItem> {
   const res = await authFetch(`${API_BASE}/api/v1/billing/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ work_item_id: workItemId }),
+    body: JSON.stringify(billingRefBody(ref)),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

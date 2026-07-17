@@ -81,6 +81,8 @@ export interface OperatorCalendarColumnProps {
   /** Task in salvataggio/uscita (per disabilitare i controlli). */
   taskUiState?: Record<number, CalendarTaskUiState>;
   onOpenConflicts?: () => void;
+  /** Mostra/nascondi le task in revisione. */
+  showReview?: boolean;
 }
 
 // ── Piccoli helper locali (status badge + label cliente over-capacity) ──────────────
@@ -149,6 +151,7 @@ export function OperatorCalendarColumn({
   reschedulingTaskId,
   taskUiState,
   onOpenConflicts,
+  showReview = true,
 }: OperatorCalendarColumnProps) {
   const operatorId = data.user_id;
 
@@ -289,6 +292,7 @@ export function OperatorCalendarColumn({
   // compaiono nel giorno di recupero, non da assegnazione a scadenza.
   const dayTimeline = data.timeline.filter((item) => {
     if (item.kind !== "task") return true;
+    if (!showReview && (item.is_review === true || item.status === "review")) return false;
     const state = resolveTimelineScheduleState(item);
     const assignDay = (state?.effective_work_date ?? item.task?.work_date ?? "").slice(0, 10);
     return !assignDay || assignDay === data.selected_date;
@@ -303,6 +307,11 @@ export function OperatorCalendarColumn({
   const isToday = data.selected_date === todayIso();
   const showNowLine = isToday && nowMinutes >= dayStartMinutes && nowMinutes <= dayEndMinutes;
   const nowTopPx = ((nowMinutes - dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
+
+  // Task in revisione: "fantasma" non interattivo. Il PM le vede ma non le apre/sposta,
+  // e soprattutto NON occupano lo slot dell'operatore (non bloccano nuovi inserimenti).
+  const isReviewItem = (item: WorkloadTimelineItem) =>
+    item.kind === "task" && (item.is_review === true || item.status === "review");
 
   const timelineBlocks = timedItems.map((item) => {
     const start = hhmmToMinutes(item.start_time) ?? 0;
@@ -346,7 +355,7 @@ export function OperatorCalendarColumn({
   };
 
   const isRangeOccupied = (startMinutes: number, endMinutes: number) =>
-    timelineBlocks.some((block) => startMinutes < block.end && endMinutes > block.start);
+    timelineBlocks.some((block) => !isReviewItem(block.item) && startMinutes < block.end && endMinutes > block.start);
 
   // Gruppo target dello swap (solo intra-colonna): task coperte dalla finestra della task trascinata.
   const computeSwapTargetIds = (targetStart: number, targetEnd: number): number[] => {
@@ -357,7 +366,7 @@ export function OperatorCalendarColumn({
     const windowStart = targetStart;
     const windowEnd = windowStart + sourceDuration;
     return timelineBlocks
-      .filter((b) => b.item.kind === "task" && typeof b.item.work_item_id === "number" && b.item.work_item_id !== draggedTaskId && b.start < windowEnd && b.end > windowStart)
+      .filter((b) => b.item.kind === "task" && !isReviewItem(b.item) && typeof b.item.work_item_id === "number" && b.item.work_item_id !== draggedTaskId && b.start < windowEnd && b.end > windowStart)
       .map((b) => b.item.work_item_id as number);
   };
 
@@ -617,6 +626,11 @@ export function OperatorCalendarColumn({
                 const isDone = isCalendarTaskDone(item);
                 const isExiting = item.kind === "task" && getUiState(item.work_item_id) === "exiting";
                 const isPriority = item.kind === "task" && isTimelineTaskPriority(item);
+                const isReview = isReviewItem(item);
+                // Se questa colonna è quella del REVISORE della task in revisione, la task è
+                // sua (peso REVIEWER_LOAD_FACTOR) e va resa interattiva/modificabile. Sulla
+                // colonna dell'assegnatario resta invece "fantasma" non interattivo.
+                const isReviewerHere = isReview && item.kind === "task" && item.task?.reviewer_user_id === operatorId;
                 const scheduleState = item.kind === "task" ? resolveTimelineScheduleState(item) : null;
                 const isCarriedOver = scheduleState?.delay_code === "carried_over";
                 const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
@@ -632,7 +646,27 @@ export function OperatorCalendarColumn({
                     ? { backgroundColor: "rgba(245, 158, 11, 0.16)", borderColor: "#F59E0B", color: "#78350f" }
                     : undefined;
                 const priorityStyle = isPriority ? { boxShadow: "inset 3px 0 0 #E91E8A", borderLeftColor: "#E91E8A" } : undefined;
-                const itemStyle = item.kind === "task" ? { ...taskStyle, ...delayStyle, ...priorityStyle } : timelineItemStyle(item);
+                // Revisione. Vista revisore: card interattiva con accento cyan tratteggiato.
+                // Vista assegnatario: "fantasma" cyan sbiadito, non interattivo.
+                const reviewStyle = !isReview
+                  ? undefined
+                  : isReviewerHere
+                    ? {
+                      borderColor: "color-mix(in srgb, #2ec3f3 60%, transparent)",
+                      borderStyle: "dashed" as const,
+                    }
+                    : {
+                      backgroundColor: "color-mix(in srgb, #2ec3f3 10%, transparent)",
+                      borderColor: "color-mix(in srgb, #2ec3f3 45%, transparent)",
+                      borderStyle: "dashed" as const,
+                      boxShadow: "none",
+                      opacity: 0.55,
+                      cursor: "default" as const,
+                      // Fantasma non interattivo: lascia passare il pointer così il
+                      // rettangolo di creazione compare anche sopra le task in revisione.
+                      pointerEvents: "none" as const,
+                    };
+                const itemStyle = item.kind === "task" ? { ...taskStyle, ...delayStyle, ...priorityStyle, ...reviewStyle } : timelineItemStyle(item);
                 const readableText = item.kind === "task"
                   ? isSevereDelay
                     ? { primary: "#7f1d1d", secondary: "rgba(127,29,29,0.72)" }
@@ -661,7 +695,7 @@ export function OperatorCalendarColumn({
                   <div
                     key={itemKey}
                     data-calendar-task-block={item.kind === "task" ? "true" : undefined}
-                    className={`group absolute left-2 right-2 overflow-hidden px-2 pr-8 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id && !isSevereDelay ? "cursor-grab active:cursor-grabbing" : ""} ${isDone ? "opacity-70" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${isPriority ? "border-l-[3px] border-l-[#E91E8A]" : ""} ${isResizing ? "ring-2 ring-emerald-500" : ""} ${swapRingClass}`}
+                    className={`group absolute left-2 right-2 overflow-hidden px-2 pr-8 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id && !isSevereDelay && (!isReview || isReviewerHere) ? "cursor-grab active:cursor-grabbing" : ""} ${isDone ? "opacity-70" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${isPriority ? "border-l-[3px] border-l-[#E91E8A]" : ""} ${isResizing ? "ring-2 ring-emerald-500" : ""} ${swapRingClass}`}
                     style={{ top: `${top}px`, height: `${height}px`, zIndex: timelineItemZIndex(item.kind), ...taskColumnStyle, ...itemStyle }}
                     onDragOver={(event) => {
                       if (!isIntraColumnSwap(swapWorkItemId)) return; // self / non-task / cross-colonna → bubble al move della griglia
@@ -684,18 +718,18 @@ export function OperatorCalendarColumn({
                         onSwap(draggedTaskId as number, tids, buildEffectivePositions([draggedTaskId as number, ...tids]));
                       }
                     }}
-                    draggable={item.kind === "task" && !!item.work_item_id && !isSevereDelay && !getUiState(item.work_item_id)}
+                    draggable={item.kind === "task" && !!item.work_item_id && !isSevereDelay && (!isReview || isReviewerHere) && !getUiState(item.work_item_id)}
                     onDragStart={() => {
-                      if (item.kind !== "task" || !item.work_item_id || isSevereDelay) return;
+                      if (item.kind !== "task" || !item.work_item_id || isSevereDelay || (isReview && !isReviewerHere)) return;
                       onTaskDragStart(item.work_item_id, operatorId);
                     }}
                     onDragEnd={() => { clearSwapPreview(); setDropPreviewMinutes(null); setGridDropActive(false); onTaskDragEnd(); }}
                     onClick={(event) => {
                       if (isCalendarTaskActionClick(event)) return;
-                      if (item.kind === "task" && item.work_item_id) onOpenEdit(item.work_item_id);
+                      if (item.kind === "task" && item.work_item_id && (!isReview || isReviewerHere)) onOpenEdit(item.work_item_id);
                     }}
                   >
-                    {item.kind === "task" && item.work_item_id && (
+                    {item.kind === "task" && item.work_item_id && (!isReview || isReviewerHere) && (
                       <button
                         type="button"
                         data-cal-complete-btn="true"
@@ -748,7 +782,7 @@ export function OperatorCalendarColumn({
                         <div className="mt-0.5 text-[10px] opacity-80">{item.start_time} - {item.end_time}</div>
                       </>
                     )}
-                    {resizeWorkItemId != null && !isSevereDelay && !getUiState(resizeWorkItemId) && (
+                    {resizeWorkItemId != null && !isSevereDelay && !isReview && !getUiState(resizeWorkItemId) && (
                       <button
                         type="button"
                         aria-label="Ridimensiona task"

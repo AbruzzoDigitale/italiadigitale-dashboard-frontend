@@ -67,6 +67,8 @@
   transition: color 0.14s ease;
 }
 .nt-tab svg { flex: none; }
+/* tab solo-icona (Archivio): compatta, non occupa spazio flessibile */
+.nt-tab-icon { flex: 0 0 auto; padding: 10px 12px; }
 .nt-tab:hover { color: #1a1a1a; }
 .nt-tab.on { color: #1a1a1a; border-bottom-color: #c41284; }
 .dark .nt-tab { color: #9999a0; }
@@ -111,6 +113,10 @@
 .nt-readall:hover { background: #eceae3; color: #1a1a1a; }
 .dark .nt-readall { color: #c9c9d0; }
 .dark .nt-readall:hover { background: #252529; color: #f4f4f7; }
+.nt-create-req { background: #c41284; color: #fff; padding: 0 12px; }
+.nt-create-req:hover { background: #a80f70; color: #fff; }
+.dark .nt-create-req { background: #c41284; color: #fff; }
+.dark .nt-create-req:hover { background: #d81a95; color: #fff; }
 
 /* scroll list */
 .nt-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 0; }
@@ -196,7 +202,7 @@
 .dark .nt-empty svg { color: #44444c; }
 
 /* footer */
-.nt-foot { padding: 10px 14px; border-top: 1px solid #e8e6e0; background: #ffffff; }
+.nt-foot { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #e8e6e0; background: #ffffff; }
 .dark .nt-foot { border-top-color: #2a2a2e; background: #131316; }
 .nt-foot-btn {
   display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px;
@@ -206,3 +212,71 @@
 .nt-foot-btn:hover { border-color: #c7c2b7; color: #1a1a1a; }
 .dark .nt-foot-btn { border-color: #34343a; background: #1c1c20; color: #c9c9d0; }
 .dark .nt-foot-btn:hover { border-color: #44444c; color: #f4f4f7; }
+.nt-foot-cta { background: #c41284; border-color: #c41284; color: #fff; }
+.nt-foot-cta:hover { background: #a80f70; border-color: #a80f70; color: #fff; }
+.dark .nt-foot-cta { background: #c41284; border-color: #c41284; color: #fff; }
+.dark .nt-foot-cta:hover { background: #d81a95; border-color: #d81a95; color: #fff; }
+
+/* ── Espansione a modal centrale (morphing FLIP via JS) ────────────────────── */
+.nt-head-actions { display: flex; align-items: center; gap: 8px; }
+.nt-panel--modal {
+  top: 7vh;
+  bottom: 7vh;
+  left: calc(50% - min(430px, 46vw));
+  right: auto;
+  width: min(860px, 92vw);
+  max-width: none;
+  max-height: none;
+  height: auto;
+  border-radius: 20px;
+}
+.nt-hint-swipe { opacity: 0.7; font-weight: 400; }
+@media (max-width: 560px) { .nt-hint-swipe { display: none; } }
+
+/* ── Gesture swipe stile iOS/WhatsApp ─────────────────────────────────────── */
+.nt-swipe { position: relative; overflow: hidden; }
+.nt-swipe-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+}
+.nt-swipe-side.left { left: 0; }
+.nt-swipe-side.right { right: 0; }
+.nt-swipe-act {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  cursor: pointer;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.nt-swipe-act.tone-mint { background: #17b26a; }
+.nt-swipe-act.tone-amber { background: #d98b2b; }
+.nt-swipe-act.tone-indigo { background: #5b6ef5; }
+.nt-swipe-act.tone-slate { background: #64748b; }
+.nt-swipe-act svg { opacity: 0.95; }
+
+/* il contenuto scorre sopra le azioni, quindi deve essere opaco */
+.nt-swipe > .nt-item {
+  position: relative;
+  z-index: 1;
+  background: #ffffff;
+  touch-action: pan-y;
+  will-change: transform;
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .nt-swipe > .nt-item { background: #131316; }
+.nt-swipe > .nt-item.unread { background: color-mix(in srgb, #c41284 5%, #ffffff); }
+.dark .nt-swipe > .nt-item.unread { background: color-mix(in srgb, #c41284 12%, #131316); }
+.nt-swipe.open > .nt-item { box-shadow: -6px 0 14px rgba(0, 0, 0, 0.06), 6px 0 14px rgba(0, 0, 0, 0.06); }
+.nt-swipe > .nt-item:hover { background: #f7f5f1; }
+.dark .nt-swipe > .nt-item:hover { background: #1c1c20; }
+.nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 8%, #ffffff); }
+.dark .nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 16%, #131316); }

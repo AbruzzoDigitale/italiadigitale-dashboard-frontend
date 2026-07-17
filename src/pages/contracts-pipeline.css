@@ -197,6 +197,36 @@
 .dark .pipe-c-kind.is-prev { color: #9fc0ff; }
 .pipe-c-kind.is-contract { background: var(--p-surface-3); color: var(--p-tx-2); border: 1px solid var(--p-line-2); }
 
+/* Accorpamento: i preventivi del gruppo sono impilati in un contenitore comune,
+   con una barretta accento a sinistra che li lega visivamente. */
+.pipe-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #7c5cff 8%, transparent);
+  border: 1px solid color-mix(in srgb, #7c5cff 26%, transparent);
+  cursor: grab;
+}
+.pipe-group:active { cursor: grabbing; }
+.pipe-group.is-dragging { opacity: 0.5; }
+/* dentro un gruppo la singola card non si trascina da sola */
+.pipe-group .pipe-card { cursor: pointer; }
+.pipe-group::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: #7c5cff;
+}
+/* card più compatte dentro il gruppo */
+.pipe-group .pipe-card { margin: 0; }
+
 .pipe-c-title {
   font-size: 15px;
   font-weight: 700;
@@ -218,13 +248,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--p-line);
 }
 .pipe-c-upd { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--p-tx-4); font-variant-numeric: tabular-nums; }
-.pipe-c-actions { display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.14s ease; }
+.pipe-c-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px; opacity: 0; transition: opacity 0.14s ease; }
 .pipe-card:hover .pipe-c-actions,
 .pipe-card.is-sel .pipe-c-actions { opacity: 1; }
 .pipe-c-act {

@@ -7,6 +7,7 @@ import {
   listClientBillingApi,
   generateBillingItemApi,
   cancelBillingItemApi,
+  billingItemKey,
   type BillingClientResponse,
   type BillingItem,
 } from "../../api/billing";
@@ -38,8 +39,8 @@ function BillingRow({
 }: {
   it: BillingItem;
   busy: boolean;
-  onGenerate: (id: number) => void;
-  onCancel: (id: number) => void;
+  onGenerate: (it: BillingItem) => void;
+  onCancel: (it: BillingItem) => void;
 }) {
   const done = it.state === "fatturato";
   return (
@@ -93,13 +94,13 @@ function BillingRow({
             <button
               className="rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50 dark:border-line-dark dark:text-muted-dark"
               disabled={busy}
-              onClick={() => onCancel(it.work_item_id)}
+              onClick={() => onCancel(it)}
             >
               Annulla
             </button>
           </div>
         ) : (
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => onGenerate(it.work_item_id)}>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => onGenerate(it)}>
             <Icon name="upload" className="h-3.5 w-3.5" /> Genera
           </Button>
         )}
@@ -113,7 +114,7 @@ export function ClientBillingTab({ clientId }: { clientId: number }) {
   const [data, setData] = useState<BillingClientResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -131,37 +132,39 @@ export function ClientBillingTab({ clientId }: { clientId: number }) {
     void load();
   }, [load]);
 
-  const setBusy = (id: number, on: boolean) =>
+  const setBusy = (key: string, on: boolean) =>
     setBusyIds((prev) => {
       const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
+      if (on) next.add(key);
+      else next.delete(key);
       return next;
     });
 
-  const onGenerate = async (workItemId: number) => {
-    setBusy(workItemId, true);
+  const onGenerate = async (it: BillingItem) => {
+    const key = billingItemKey(it);
+    setBusy(key, true);
     try {
-      await generateBillingItemApi(workItemId);
+      await generateBillingItemApi(it);
       toast.success("Fattura generata");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile generare la fattura");
     } finally {
-      setBusy(workItemId, false);
+      setBusy(key, false);
     }
   };
 
-  const onCancel = async (workItemId: number) => {
-    setBusy(workItemId, true);
+  const onCancel = async (it: BillingItem) => {
+    const key = billingItemKey(it);
+    setBusy(key, true);
     try {
-      await cancelBillingItemApi(workItemId);
+      await cancelBillingItemApi(it);
       toast.info("Fattura annullata");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile annullare la fattura");
     } finally {
-      setBusy(workItemId, false);
+      setBusy(key, false);
     }
   };
 
@@ -230,9 +233,9 @@ export function ClientBillingTab({ clientId }: { clientId: number }) {
               <div className="space-y-2">
                 {toIssue.map((it) => (
                   <BillingRow
-                    key={it.work_item_id}
+                    key={billingItemKey(it)}
                     it={it}
-                    busy={busyIds.has(it.work_item_id)}
+                    busy={busyIds.has(billingItemKey(it))}
                     onGenerate={onGenerate}
                     onCancel={onCancel}
                   />
@@ -250,9 +253,9 @@ export function ClientBillingTab({ clientId }: { clientId: number }) {
               <div className="space-y-2">
                 {issued.map((it) => (
                   <BillingRow
-                    key={it.work_item_id}
+                    key={billingItemKey(it)}
                     it={it}
-                    busy={busyIds.has(it.work_item_id)}
+                    busy={busyIds.has(billingItemKey(it))}
                     onGenerate={onGenerate}
                     onCancel={onCancel}
                   />

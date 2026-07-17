@@ -5,6 +5,7 @@ export type AppRouteKey =
   | "contracts"
   | "clients-situation"
   | "workload"
+  | "controllo-ped"
   | "daily-tasks"
   | "configurator"
   | "preventivo"
@@ -43,6 +44,9 @@ export function canAccessRoute(
       // Admins get the full workload page; every other authenticated user (operatore)
       // gets the restricted calendar-only / self-only view enforced inside WorkloadPage.
       return true;
+    case "controllo-ped":
+      // Matrice PED clienti × mesi: riservata a admin e project manager (NON operatori).
+      return permissions.is_admin || permissions.is_project_manager;
     case "daily-tasks":
       // Come per il workload: ogni utente autenticato (operatore) accede. La pagina mostra
       // di default la vista "Mie task"; il toggle "Team" resta riservato agli admin.

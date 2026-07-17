@@ -370,6 +370,17 @@ export function ContractAiWorkItemsSliderModal({
     updateCurrentDraft({ ...patch, ...normalizeDraftInput(merged) });
   };
 
+  // Attivando il PED riportiamo "PED" nel titolo (se non c'è già), così è evidente
+  // che la task è un Piano Editoriale Digitale.
+  const handleTogglePedDraft = (checked: boolean) => {
+    if (!currentDraft) return;
+    const patch: Partial<ContractAiPreviewDraft> = { is_ped: checked };
+    if (checked && !/\bped\b/i.test(currentDraft.title)) {
+      patch.title = currentDraft.title.trim() ? `PED ${currentDraft.title.trim()}` : "PED";
+    }
+    handleDraftPatch(patch);
+  };
+
   const handleSaveCurrent = async () => {
     if (!currentDraft) return;
     const validationError = validateDraft(currentDraft);
@@ -761,6 +772,18 @@ export function ContractAiWorkItemsSliderModal({
                 <fieldset className="flex flex-col gap-3">
                   <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">Base task</legend>
                   <Input label="Titolo *" value={currentDraft.title} onChange={(event) => handleDraftPatch({ title: event.target.value })} placeholder="Titolo task" />
+                  {currentDraft.is_ped && (
+                    <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
+                      <Icon name="grid" className="h-3 w-3" />
+                      Task PED
+                    </span>
+                  )}
+                  {/\bped\b/i.test(currentDraft.title) && !currentDraft.is_ped && (
+                    <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-dashed border-line px-3 py-2 text-sm dark:border-line-dark">
+                      <Checkbox checked={currentDraft.is_ped} onChange={(checked) => handleTogglePedDraft(checked)} />
+                      Il titolo contiene “PED”: configurala come task PED
+                    </label>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Descrizione</label>
                     <textarea
@@ -780,9 +803,9 @@ export function ContractAiWorkItemsSliderModal({
                 <fieldset className="flex flex-col gap-3">
                   <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">Pianificazione</legend>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Input label="Data lavoro" type="date" value={currentDraft.work_date ?? ""} onChange={(event) => handleDraftPatch({ work_date: event.target.value || null })} />
+                    <Input label="Data lavoro" type="date" value={currentDraft.work_date ?? ""} onChange={(event) => handleDraftPatch({ work_date: event.target.value || null })} onPostpone={(iso) => handleDraftPatch({ work_date: iso })} />
                     <Input label="Ora inizio" type="time" value={currentDraft.start_time ?? ""} onChange={(event) => handleDraftPatch({ start_time: event.target.value || null })} />
-                    <Input label="Scadenza" type="date" value={currentDraft.deadline_date ?? ""} onChange={(event) => handleDraftPatch({ deadline_date: event.target.value || null })} />
+                    <Input label="Scadenza" type="date" value={currentDraft.deadline_date ?? ""} onChange={(event) => handleDraftPatch({ deadline_date: event.target.value || null })} onPostpone={(iso) => handleDraftPatch({ deadline_date: iso })} />
                     <EstimatedHoursField value={currentDraft.estimated_hours ?? null} onChange={(v) => handleDraftPatch({ estimated_hours: v })} />
                   </div>
                 </fieldset>
@@ -797,7 +820,7 @@ export function ContractAiWorkItemsSliderModal({
                 <fieldset className="flex flex-col gap-3">
                   <legend className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted dark:text-muted-dark">PED</legend>
                   <label className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm dark:border-line-dark">
-                    <Checkbox checked={currentDraft.is_ped} onChange={(checked) => handleDraftPatch({ is_ped: checked })} />
+                    <Checkbox checked={currentDraft.is_ped} onChange={(checked) => handleTogglePedDraft(checked)} />
                     Configurazione PED
                   </label>
                   {currentDraft.is_ped && (

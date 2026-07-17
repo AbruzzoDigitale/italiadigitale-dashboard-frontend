@@ -365,6 +365,8 @@ export function WorkloadPage() {
 
   const [rangeMode, setRangeMode] = useState<RangeMode>(() => parseRangeParam(searchParams.get("range"), "week"));
   const [calendarDensity, setCalendarDensity] = useState<WorkloadCalendarDensity>("comfortable");
+  // Mostra/nascondi le task in revisione sul calendario.
+  const [showReviewTasks, setShowReviewTasks] = useState(true);
   // Legenda collassabile: di default chiusa per dare più spazio al calendario.
   const [legendOpen, setLegendOpen] = useState(false);
   // Tray "Da pianificare" condivisa da tutte le view: layout (sidebar/dock) + stato pannello dock + tab.
@@ -372,6 +374,9 @@ export function WorkloadPage() {
   const [trayDockOpen, setTrayDockOpen] = useState(false);
   const [trayTab, setTrayTab] = useState<WorkloadTrayTab>("reassign");
   const [trayOnlyMine, setTrayOnlyMine] = useState(false);
+  // Admin/PM: mostra nella tray le task di TUTTI gli operatori, ignorando la
+  // selezione operatori del calendario (vale per ogni scheda).
+  const [trayAllOperators, setTrayAllOperators] = useState(false);
   // Handle al calendario: la tray (a livello pagina) avvia il drag pointer-based del calendario.
   const calendarRef = useRef<WorkloadCalendarHandle>(null);
   const [anchorDate, setAnchorDate] = useState(() => parseIsoDateParam(searchParams.get("anchor"), getTodayDate()));
@@ -480,6 +485,15 @@ export function WorkloadPage() {
   // Vista ristretta (solo calendario, solo se stessi) per i soli operatori.
   // Admin e Project Manager vedono/gestiscono tutti gli operatori e tutte le viste.
   const isOperatorView = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
+  // Per l'operatore la sidebar tiene in primo piano Scadute e In revisione: all'apertura
+  // apriamo direttamente "Scadute" (una sola volta, senza sovrascrivere scelte successive).
+  const operatorTabDefaulted = useRef(false);
+  useEffect(() => {
+    if (isOperatorView && !operatorTabDefaulted.current) {
+      operatorTabDefaulted.current = true;
+      setTrayTab("overdue");
+    }
+  }, [isOperatorView]);
   // Tutte le view sono a tutta altezza: la pagina non scrolla (header/toolbar fissi),
   // scrolla solo la sezione contenuto sotto. Niente sottotitolo né barra giorni.
   const isFillView = true;
@@ -562,6 +576,7 @@ export function WorkloadPage() {
         reassign: op.reassign.map(toItem),
         unscheduled: op.unscheduled.map(toItem),
         overdue: overdueByUser.get(op.user_id) ?? [],
+        review: op.review.map((t) => ({ ...toItem(t), isReview: true })),
       });
     });
     // Operatori presenti SOLO tra le scadute (nessuna task da pianificare).
@@ -575,6 +590,7 @@ export function WorkloadPage() {
         reassign: [],
         unscheduled: [],
         overdue: items,
+        review: [],
       });
     });
     return [...byUser.values()];
@@ -596,7 +612,8 @@ export function WorkloadPage() {
   // "Solo le mie" restringe ulteriormente ai soli gruppi dell'utente loggato.
   const displayTrayGroups = useMemo(() => {
     let groups = trayGroups;
-    if (calendarOperatorIds.length > 0) {
+    // Con "tutti gli operatori" attivo (admin/PM) si ignora la selezione del calendario.
+    if (!trayAllOperators && calendarOperatorIds.length > 0) {
       const selected = new Set(calendarOperatorIds);
       groups = groups.filter((g) => selected.has(g.userId));
     }
@@ -604,7 +621,7 @@ export function WorkloadPage() {
       groups = groups.filter((g) => g.userId === user.id);
     }
     return groups;
-  }, [trayGroups, calendarOperatorIds, trayOnlyMine, user?.id]);
+  }, [trayGroups, calendarOperatorIds, trayOnlyMine, trayAllOperators, user?.id]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
@@ -2392,6 +2409,7 @@ export function WorkloadPage() {
           bounds={calendarBounds}
           nowMinutes={nowMinutes}
           density={calendarDensity}
+          showReview={showReviewTasks}
           maxCapacityHours={operatorSummary?.max_capacity_hours_day ?? null}
           reloadToken={multiReloadToken}
           onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
@@ -2422,6 +2440,7 @@ export function WorkloadPage() {
         companyId={selectedCompanyId}
         bounds={calendarBounds}
         nowMinutes={nowMinutes}
+        showReview={showReviewTasks}
         onOpenTask={(id) => { void openEditWorkItemModal(id); }}
         onCreateTask={({ day, userId, startTime, estimatedHours }) => {
           setEditingItem(null);
@@ -2658,6 +2677,21 @@ export function WorkloadPage() {
               ))}
             </div>
 
+            {/* Mostra/nascondi task in revisione */}
+            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Task in revisione">
+              <button
+                type="button"
+                onClick={() => setShowReviewTasks((v) => !v)}
+                title={showReviewTasks ? "Nascondi dal calendario le task in revisione" : "Mostra sul calendario le task in revisione"}
+                aria-label={showReviewTasks ? "Nascondi task in revisione" : "Mostra task in revisione"}
+                aria-pressed={showReviewTasks}
+                className={`wl-segmented-btn wl-segmented-btn--view inline-flex items-center gap-1.5 ${showReviewTasks ? "is-active" : ""}`}
+              >
+                <Icon name={showReviewTasks ? "eye" : "eye-off"} className="w-4 h-4" />
+                In revisione
+              </button>
+            </div>
+
             {/* Tray "Da pianificare": Sidebar (colonna) o Dock (pannello a scomparsa) */}
             <div className="wl-segmented wl-segmented--view" role="group" aria-label="Tray Da pianificare">
               {([
@@ -2766,6 +2800,9 @@ export function WorkloadPage() {
           draggingId={draggingTaskId}
           onlyMine={trayOnlyMine}
           onOnlyMineChange={isOperatorView ? undefined : setTrayOnlyMine}
+          allOperators={trayAllOperators}
+          onAllOperatorsChange={isOperatorView ? undefined : setTrayAllOperators}
+          priorityTabs={isOperatorView ? ["overdue", "review"] : ["reassign", "unassigned"]}
           hint={viewMode === "calendar"
             ? "Trascina una scheda su un giorno per assegnarle l'orario."
             : "Trascina una scheda su un operatore/cella per assegnarla."}

@@ -73,6 +73,18 @@ export interface CompanyBrand {
   notif_sound_enabled: boolean | null;
   notification_settings: Record<string, unknown> | null;
   dashboard_kpis: string[] | null;
+  // Contatti / brand (firma email)
+  website: string | null;
+  contact_email: string | null;
+  phone: string | null;
+  address: string | null;
+  address_maps_url: string | null;
+  signature_logo_url: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
+  linkedin_url: string | null;
+  tiktok_url: string | null;
+  youtube_url: string | null;
 }
 
 export interface CreateCompanyPayload {
@@ -108,6 +120,18 @@ export interface UpdateCompanyBrandPayload {
   notif_sound_enabled?: boolean | null;
   notification_settings?: Record<string, unknown> | null;
   dashboard_kpis?: string[] | null;
+  // Contatti / brand (firma email)
+  website?: string | null;
+  contact_email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  address_maps_url?: string | null;
+  signature_logo_url?: string | null;
+  facebook_url?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  tiktok_url?: string | null;
+  youtube_url?: string | null;
 }
 
 export interface CompanySettingResponse {

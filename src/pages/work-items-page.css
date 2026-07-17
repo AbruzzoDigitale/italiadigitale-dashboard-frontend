@@ -198,6 +198,48 @@
 .lv-card.dragging {
   opacity: 0.35;
 }
+/* In revisione + inviata al cliente: card nettamente cyan (come stato a sé). */
+.lv-card.sent-client {
+  border-color: #2ec3f3;
+  background: color-mix(in srgb, #2ec3f3 14%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #2ec3f3 45%, transparent);
+}
+.lv-card.sent-client::before {
+  width: 5px;
+  background: #2ec3f3;
+}
+.dark .lv-card.sent-client {
+  background: color-mix(in srgb, #2ec3f3 20%, var(--surface));
+}
+
+/* Rimandata da revisione: 1 rimando → giallo, 2+ → rosso (gravità crescente).
+   Definite dopo .sent-client così, in caso di più stati, vince la severità del rimando. */
+.lv-card.rework-warn {
+  border-color: #f5b800;
+  background: color-mix(in srgb, #f5b800 12%, var(--surface));
+}
+.lv-card.rework-warn::before { width: 5px; background: #f5b800; }
+.dark .lv-card.rework-warn {
+  background: color-mix(in srgb, #f5b800 16%, var(--surface));
+}
+.lv-card.rework-danger {
+  border-color: #e5484d;
+  background: color-mix(in srgb, #e5484d 12%, var(--surface));
+}
+.lv-card.rework-danger::before { width: 5px; background: #e5484d; }
+.dark .lv-card.rework-danger {
+  background: color-mix(in srgb, #e5484d 18%, var(--surface));
+}
+
+.lv-badge.sent {
+  background: #2ec3f3;
+  color: #05364a;
+  border: 1px solid #2ec3f3;
+}
+.dark .lv-badge.sent {
+  background: #2ec3f3;
+  color: #05242f;
+}
 .lv-card.done .lv-title {
   text-decoration: line-through;
   color: var(--tx-3);

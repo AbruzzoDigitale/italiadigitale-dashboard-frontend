@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { SignatureTemplateAdmin } from "../components/email/SignatureTemplateAdmin";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import {
@@ -71,11 +72,12 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
+type BrandTab = "login" | "brand" | "firma" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
   brand: "Brand",
+  firma: "Firma",
   media: "Media",
   settings: "Settings",
   operations: "Regole",
@@ -755,6 +757,18 @@ export function CompanyBrandPage() {
           bg_color:           b.bg_color           ?? "#0a0a0a",
           theme_color:        b.theme_color        ?? "#2b1342",
           dashboard_kpis:     b.dashboard_kpis     ?? ["active", "accepted", "pipeline", "clients"],
+          // Contatti / firma
+          website:            b.website            ?? "",
+          contact_email:      b.contact_email      ?? "",
+          phone:              b.phone              ?? "",
+          address:            b.address            ?? "",
+          address_maps_url:   b.address_maps_url   ?? "",
+          signature_logo_url: b.signature_logo_url ?? "",
+          facebook_url:       b.facebook_url       ?? "",
+          instagram_url:      b.instagram_url      ?? "",
+          linkedin_url:       b.linkedin_url       ?? "",
+          tiktok_url:         b.tiktok_url         ?? "",
+          youtube_url:        b.youtube_url        ?? "",
         });
       })
       .catch(() => toast.error("Impossibile caricare il brand"))
@@ -1291,6 +1305,88 @@ export function CompanyBrandPage() {
                 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
                 style={{ fontSize: "17px" }}
               >
+                Contatti & Firma
+              </h2>
+              <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+                Dati aziendali usati nella firma email (uguali per tutti gli utenti). I dati personali restano da compilare nella firma.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                <Input
+                  label="Sito web"
+                  value={(form.website as string) ?? ""}
+                  onChange={(e) => set("website", e.target.value)}
+                  placeholder="https://www.abruzzodigitale.com"
+                />
+                <Input
+                  label="Email aziendale"
+                  value={(form.contact_email as string) ?? ""}
+                  onChange={(e) => set("contact_email", e.target.value)}
+                  placeholder="info@abruzzodigitale.com"
+                />
+                <Input
+                  label="Telefono fisso"
+                  value={(form.phone as string) ?? ""}
+                  onChange={(e) => set("phone", e.target.value)}
+                  placeholder="+39 085 956 4770"
+                />
+                <Input
+                  label="Indirizzo"
+                  value={(form.address as string) ?? ""}
+                  onChange={(e) => set("address", e.target.value)}
+                  placeholder="Corso Giuseppe Garibaldi 62, Giulianova"
+                />
+                <Input
+                  label="Link Google Maps"
+                  value={(form.address_maps_url as string) ?? ""}
+                  onChange={(e) => set("address_maps_url", e.target.value)}
+                  placeholder="https://maps.google.com/…"
+                  hint="Opzionale: link cliccabile dell'indirizzo"
+                />
+                <Input
+                  label="Logo firma (URL)"
+                  value={(form.signature_logo_url as string) ?? ""}
+                  onChange={(e) => set("signature_logo_url", e.target.value)}
+                  placeholder="https://…/logo.png"
+                  hint="Opzionale: logo dedicato alla firma email"
+                />
+                <Input
+                  label="Facebook"
+                  value={(form.facebook_url as string) ?? ""}
+                  onChange={(e) => set("facebook_url", e.target.value)}
+                  placeholder="https://www.facebook.com/abruzzodigitale"
+                />
+                <Input
+                  label="Instagram"
+                  value={(form.instagram_url as string) ?? ""}
+                  onChange={(e) => set("instagram_url", e.target.value)}
+                  placeholder="https://www.instagram.com/abruzzodigitale/"
+                />
+                <Input
+                  label="LinkedIn"
+                  value={(form.linkedin_url as string) ?? ""}
+                  onChange={(e) => set("linkedin_url", e.target.value)}
+                  placeholder="https://www.linkedin.com/company/abruzzo-digitale"
+                />
+                <Input
+                  label="TikTok"
+                  value={(form.tiktok_url as string) ?? ""}
+                  onChange={(e) => set("tiktok_url", e.target.value)}
+                  placeholder="https://www.tiktok.com/@abruzzodigitale"
+                />
+                <Input
+                  label="YouTube"
+                  value={(form.youtube_url as string) ?? ""}
+                  onChange={(e) => set("youtube_url", e.target.value)}
+                  placeholder="https://www.youtube.com/@abruzzodigitale"
+                />
+              </div>
+            </div>
+
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <h2
+                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+                style={{ fontSize: "17px" }}
+              >
                 Loghi
               </h2>
               <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
@@ -1319,6 +1415,8 @@ export function CompanyBrandPage() {
             </div>
           </>
         )}
+
+        {activeTab === "firma" && <SignatureTemplateAdmin companyId={companyId} />}
 
         {activeTab === "media" && (
           <>

@@ -51,6 +51,8 @@ interface MultiOperatorCalendarProps {
   onAfterChange?: () => void;
   /** Cambiando questo valore il componente forza un refetch completo. */
   reloadToken?: number;
+  /** Mostra/nascondi le task in revisione. */
+  showReview?: boolean;
 }
 
 function isDoneTask(item: WorkloadTimelineItem): boolean {
@@ -67,6 +69,7 @@ export function MultiOperatorCalendar({
   onCreateTask,
   onAfterChange,
   reloadToken,
+  showReview = true,
 }: MultiOperatorCalendarProps) {
   const toast = useToast();
   const { refreshSession } = useAuth();
@@ -353,6 +356,7 @@ export function MultiOperatorCalendar({
               data={data}
               bounds={bounds}
               nowMinutes={nowMinutes}
+              showReview={showReview}
               draggedTaskId={dragged?.taskId ?? null}
               draggedFromOperatorId={dragged?.fromOperatorId ?? null}
               onTaskDragStart={(taskId, fromOperatorId) => setDragged({ taskId, fromOperatorId })}

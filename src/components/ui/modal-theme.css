@@ -1,0 +1,22 @@
+/* Sfondi delle modali/form — SOLO tema scuro (.dark) e SOLO dentro il dialog (.id-modal).
+ *
+ * Le tre superfici strutturali (sfondo generale #0E0F0E, header #191A19, secondo header
+ * #1F211F) sono impostate direttamente nel componente Modal.tsx. Qui uniformiamo gli
+ * elementi che vivono nel contenuto delle singole modali (input e card/sezioni), che
+ * altrimenti usano hex inline incoerenti (#1c1c20, ink-soft, ...).
+ */
+
+/* Input / textarea / select → #131413 */
+.dark .id-modal input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+.dark .id-modal textarea,
+.dark .id-modal select {
+  background-color: #131413;
+}
+
+/* Sezioni / card di contenuto → #191A19.
+ * Rimappa gli sfondi scuri usati per i pannelli/sezioni; esclude i controlli di form
+ * (gestiti sopra) per non sovrascriverne lo sfondo. */
+.dark .id-modal [class*="bg-[#1c1c20]"]:not(input):not(textarea):not(select),
+.dark .id-modal [class*="bg-ink-soft"]:not(input):not(textarea):not(select) {
+  background-color: #191A19 !important;
+}

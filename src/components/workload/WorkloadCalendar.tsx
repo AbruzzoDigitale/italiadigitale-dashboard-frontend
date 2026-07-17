@@ -49,6 +49,8 @@ export interface WorkloadCalendarProps {
   bounds: WorkloadCalendarBounds;
   nowMinutes: number;
   density: WorkloadCalendarDensity;
+  /** Mostra/nascondi le task in revisione. */
+  showReview?: boolean;
   /** Capacità giornaliera operatore (h) per la barra di carico; fallback 8h. */
   maxCapacityHours?: number | null;
   /** Token: cambiando valore forza un nuovo fetch (dopo mutazioni dal parent). */
@@ -155,6 +157,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
   bounds,
   nowMinutes,
   density,
+  showReview = true,
   maxCapacityHours,
   reloadToken,
   onOpenEdit,
@@ -573,7 +576,9 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
     const data = state?.data ?? null;
     // Il timeline del giorno è già quello giusto (bucketizzato per item.date): il
     // backend piazza ogni task una sola volta nel suo giorno effettivo.
-    const timeline = data?.timeline ?? [];
+    const timeline = (data?.timeline ?? []).filter(
+      (item) => showReview || !(item.kind === "task" && item.is_review === true),
+    );
     const timed = timeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
     const blocks = timed
       .map((item) => {
@@ -753,6 +758,8 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                     const isDone = (item.kind === "task" && (item.status === "completed" || item.status === "done")) || isExiting;
                     const isGhost = item.kind === "task" && item.is_ghost === true;
                     const isReview = item.kind === "task" && item.is_review === true;
+                    // Colonna del REVISORE: la task in revisione è sua → interattiva/modificabile.
+                    const isReviewerHere = isReview && item.kind === "task" && item.task?.reviewer_user_id === userId;
                     const scheduleState = resolveTimelineScheduleState(item);
                     const isOverdue = item.kind === "task" && !!scheduleState && scheduleState.delay_code !== "carried_forward" &&
                       (scheduleState.delay_code != null || scheduleState.is_overdue || scheduleState.is_left_behind);
@@ -785,13 +792,13 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                         key={key}
                         data-wlcal-task="true"
                         data-task-id={item.kind === "task" && item.work_item_id ? item.work_item_id : undefined}
-                        className={`wlcal-ev ${compact ? "is-compact" : ""} ${isDone ? "is-done" : ""} ${isOverdue ? "is-overdue" : ""} ${isGhost ? "is-ghost" : ""} ${isReview ? "is-review" : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${swapTargetId === item.work_item_id ? "is-swap-target" : ""} ${item.work_item_id && swapPendingIds.includes(item.work_item_id) ? "is-swap-pending" : ""} ${drag?.taskId === item.work_item_id ? "is-dragging" : ""}`}
+                        className={`wlcal-ev ${compact ? "is-compact" : ""} ${isDone ? "is-done" : ""} ${isOverdue ? "is-overdue" : ""} ${isGhost ? "is-ghost" : ""} ${isReview ? (isReviewerHere ? "is-review is-review-mine" : "is-review") : ""} ${isExiting ? "wl-cal-task-exit" : ""} ${swapTargetId === item.work_item_id ? "is-swap-target" : ""} ${item.work_item_id && swapPendingIds.includes(item.work_item_id) ? "is-swap-pending" : ""} ${drag?.taskId === item.work_item_id ? "is-dragging" : ""}`}
                         style={blockStyle}
                         title={isGhost
                           ? `${resolveTimelineTaskTitle(item)} · pianificata qui, in lavorazione oggi`
                           : `${resolveTimelineClientLabel(item)} · ${resolveTimelineTaskTitle(item)} · ${item.start_time}–${item.end_time}`}
                         onPointerDown={(event) => {
-                          if (item.kind !== "task" || !item.work_item_id || isDone || isGhost) return;
+                          if (item.kind !== "task" || !item.work_item_id || isDone || isGhost || (isReview && !isReviewerHere)) return;
                           if ((event.target as HTMLElement).closest('[data-wlcal-check="true"]')) return;
                           startDrag(event, {
                             kind: "event",
@@ -806,7 +813,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                         onClick={(event) => {
                           if (justDraggedRef.current) return;
                           if ((event.target as HTMLElement).closest('[data-wlcal-check="true"]')) return;
-                          if (item.kind === "task" && item.work_item_id) onOpenEdit(item.work_item_id);
+                          if (item.kind === "task" && item.work_item_id && (!isReview || isReviewerHere)) onOpenEdit(item.work_item_id);
                         }}
                       >
                         {isOverdue && !isGhost && (
@@ -817,7 +824,7 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                             ⟲
                           </span>
                         )}
-                        {item.kind === "task" && item.work_item_id && !isGhost && (
+                        {item.kind === "task" && item.work_item_id && !isGhost && (!isReview || isReviewerHere) && (
                           <button
                             type="button"
                             data-wlcal-check="true"
@@ -910,15 +917,17 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
         <div
           className="wlcal-drag-ghost"
           style={{
-            left: ghostPos.x,
-            top: ghostPos.y,
+            // Posizione via transform (non left/top): abilita il trailing fluido.
+            transform: `translate3d(${ghostPos.x}px, ${ghostPos.y}px, 0)`,
             ...(drag.areaColor ? ({ ["--area" as string]: drag.areaColor } as React.CSSProperties) : {}),
           }}
         >
-          <div className="wlcal-ev-client">{drag.label}</div>
-          {drag.subtitle && <div className="wlcal-ev-type">{drag.subtitle}</div>}
-          <div className="wlcal-ev-foot">
-            <span className="wlcal-ev-dur"><i />{formatHours(drag.durationMinutes / 60)}</span>
+          <div className="wlcal-drag-ghost__in">
+            <div className="wlcal-ev-client">{drag.label}</div>
+            {drag.subtitle && <div className="wlcal-ev-type">{drag.subtitle}</div>}
+            <div className="wlcal-ev-foot">
+              <span className="wlcal-ev-dur"><i />{formatHours(drag.durationMinutes / 60)}</span>
+            </div>
           </div>
         </div>,
         document.body,
