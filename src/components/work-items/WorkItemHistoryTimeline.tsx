@@ -6,6 +6,7 @@ const HISTORY_FIELD_LABELS: Record<string, string> = {
   work_date: "Data lavorazione",
   start_time: "Orario inizio",
   deadline_date: "Scadenza",
+  is_deadline_locked: "Task non derogabile",
   status: "Stato",
   progress_percent: "Avanzamento",
   is_completed: "Completata",

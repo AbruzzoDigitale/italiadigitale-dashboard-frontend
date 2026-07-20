@@ -385,7 +385,6 @@ export function SocialPackagesPage() {
   const [editorMode, setEditorMode] = useState<"edit" | "create">("edit");
   const [form, setForm] = useState<SocialPackageDraft>({ ...EMPTY_SOCIAL_PACKAGE_DRAFT });
   const [dirty, setDirty] = useState(false);
-  const [packageError, setPackageError] = useState<string | null>(null);
   const sectionsSavingHint = null;
   const catalogSavingHint = null;
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -495,7 +494,6 @@ export function SocialPackagesPage() {
         setSelectedPackage(detail);
         setForm(normalizeDraft(detail));
         setDirty(false);
-        setPackageError(null);
         setPreviewRequest(emptyPreviewRequest(detail, clients));
       })
       .catch((err) => toast.error(err instanceof Error ? err.message : "Errore caricamento dettaglio pacchetto"))
@@ -539,7 +537,6 @@ export function SocialPackagesPage() {
     setSelectedPackage(detail);
     setForm(normalizeDraft(detail));
     setDirty(false);
-    setPackageError(null);
     return detail;
   }, []);
 
@@ -564,7 +561,6 @@ export function SocialPackagesPage() {
       if (dirty && !window.confirm("Hai modifiche non salvate. Vuoi davvero cambiare pacchetto?")) return;
       setEditorMode(nextMode);
       setSelectedPackageId(nextId);
-      setPackageError(null);
       setDirty(false);
       if (nextMode === "create") {
         setSelectedPackage(null);
@@ -586,20 +582,19 @@ export function SocialPackagesPage() {
 
   const handleSavePackage = useCallback(async () => {
     if (!companyId) {
-      setPackageError("Seleziona una azienda.");
+      toast.error("Seleziona una azienda.");
       return;
     }
     if (!form.title.trim()) {
-      setPackageError("Il nome del pacchetto è obbligatorio.");
+      toast.error("Il nome del pacchetto è obbligatorio.");
       return;
     }
     if (!form.slug.trim()) {
-      setPackageError("Lo slug è obbligatorio.");
+      toast.error("Lo slug è obbligatorio.");
       return;
     }
 
     setSaving(true);
-    setPackageError(null);
     try {
       const companyPayload = normalizeCompanyPayload(
         companyId,
@@ -623,7 +618,6 @@ export function SocialPackagesPage() {
         await loadSelectedPackage(selectedPackageId);
       }
     } catch (err) {
-      setPackageError(err instanceof Error ? err.message : "Errore salvataggio pacchetto");
       toast.error(err instanceof Error ? err.message : "Errore salvataggio pacchetto");
     } finally {
       setSaving(false);
@@ -874,7 +868,7 @@ export function SocialPackagesPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1600px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="section-eyebrow">
@@ -889,14 +883,15 @@ export function SocialPackagesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="danger-ghost"
-            onClick={() => setBulkDeleteOpen(true)}
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            disabled={selectedPackageIds.length === 0}
-          >
-            Elimina selezionati ({selectedPackageIds.length})
-          </Button>
+          {selectedPackageIds.length > 0 && (
+            <Button
+              variant="danger-ghost"
+              onClick={() => setBulkDeleteOpen(true)}
+              leftIcon={<Icon name="trash" className="w-4 h-4" />}
+            >
+              Elimina selezionati ({selectedPackageIds.length})
+            </Button>
+          )}
           <Button variant="secondary" onClick={handleCreateNew} leftIcon={<Icon name="plus" className="w-4 h-4" />}>
             Nuovo pacchetto
           </Button>
@@ -1446,7 +1441,6 @@ export function SocialPackagesPage() {
       <SocialPackagePreviewModal open={previewOpen} preview={preview} loading={previewLoading} onClose={() => setPreviewOpen(false)} onConvert={convertPreview} />
       {companiesLoading && <div className="fixed bottom-6 right-6 rounded-full border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] px-4 py-2 shadow-sm text-xs text-muted dark:text-[#9999a0]">Caricamento aziende…</div>}
       {servicesLoading && <div className="fixed bottom-6 left-6 rounded-full border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] px-4 py-2 shadow-sm text-xs text-muted dark:text-[#9999a0]">Caricamento catalogo servizi…</div>}
-      {packageError && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-danger/30 bg-danger/10 px-4 py-2 shadow-sm text-xs text-danger">{packageError}</div>}
     </div>
   );
 }

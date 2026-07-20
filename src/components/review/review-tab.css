@@ -1,0 +1,206 @@
+/* =========================================================================
+   Scheda Revisione — stile auto-contenuto (token su .rv, dark via .dark .rv),
+   così funziona dentro il modale Lavorazione senza dipendere da altri scope.
+   Palette allineata al brand (magenta PM, cyan operatore/revisore, amber
+   cliente/revisione, mint consegna).
+   ========================================================================= */
+.rv {
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --surface-3: #f1efea;
+  --line: #e7e4dd;
+  --line-2: #d8d4cb;
+  --line-strong: #c7c2b7;
+  --tx: #1b1c1b;
+  --tx-2: #5a5b57;
+  --tx-3: #8c8d87;
+  --tx-4: #aeafa8;
+  --antracite: #1b1c1b;
+  --magenta: #ef3a65;
+  --mint: #16eb96;
+  --amber: #f5b800;
+  --cyan: #2ec3f3;
+  --shadow-1: 0 1px 2px rgba(27, 28, 27, 0.06);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--tx);
+}
+.dark .rv {
+  --surface: #191a19;
+  --surface-2: #1f211f;
+  --surface-3: #23251f;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.14);
+  --line-strong: rgba(255, 255, 255, 0.24);
+  --tx: #f4f4f2;
+  --tx-2: rgba(244, 244, 242, 0.66);
+  --tx-3: rgba(244, 244, 242, 0.44);
+  --tx-4: rgba(244, 244, 242, 0.3);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.rv * { box-sizing: border-box; }
+
+.rv-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-1); }
+.rv-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.rv-card-title { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tx-2); }
+.rv-card-title svg { width: 15px; height: 15px; color: var(--tx-3); }
+.rv-card-hint { font-size: 11px; color: var(--tx-3); }
+.rv-card-body { padding: 14px; }
+
+/* chips di stato */
+.rv-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 800; padding: 4px 10px; border-radius: 999px; }
+.rv-chip svg { width: 12px; height: 12px; }
+.rv-chip.review { background: color-mix(in srgb, var(--amber) 18%, var(--surface)); color: color-mix(in srgb, var(--amber) 66%, var(--tx)); }
+.rv-chip.stage { background: color-mix(in srgb, var(--cyan) 16%, var(--surface)); color: color-mix(in srgb, var(--cyan) 60%, var(--tx)); }
+.rv-chip.rework { background: color-mix(in srgb, var(--magenta) 14%, var(--surface)); color: var(--magenta); }
+
+/* thread scrollabile */
+.rv-thread { display: flex; flex-direction: column; gap: 14px; max-height: 320px; overflow-y: auto; padding: 2px 8px 2px 2px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.rv-thread::-webkit-scrollbar { width: 9px; }
+.rv-thread::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; border: 2px solid var(--surface); }
+.rv-cm { display: flex; gap: 11px; }
+.rv-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; flex: none; color: #fff; }
+.rv-av.operatore { background: var(--cyan); color: var(--antracite); }
+.rv-av.pm { background: var(--magenta); }
+.rv-av.cliente { background: var(--amber); color: var(--antracite); }
+.rv-cm-main { min-width: 0; max-width: 84%; display: flex; flex-direction: column; align-items: flex-start; }
+.rv-cm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; width: 100%; }
+.rv-cm-name { font-size: 13px; font-weight: 700; }
+.rv-cm-time { font-size: 11px; color: var(--tx-3); font-variant-numeric: tabular-nums; margin-left: auto; }
+.rv-cm-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-bottom: 6px; }
+.rv-cm-tag svg { width: 11px; height: 11px; }
+.rv-cm-tag.rework { background: color-mix(in srgb, var(--magenta) 12%, var(--surface)); color: var(--magenta); }
+.rv-cm-tag.rework.cliente { background: color-mix(in srgb, var(--amber) 16%, var(--surface)); color: color-mix(in srgb, var(--amber) 64%, var(--tx)); }
+.rv-cm-tag.generic { background: var(--surface-3); color: var(--tx-3); }
+.rv-cm-text { font-size: 13px; color: var(--tx); background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; border-bottom-left-radius: 3px; padding: 9px 12px; width: fit-content; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
+.rv-proxy { font-size: 10.5px; color: var(--tx-4); margin-top: 4px; }
+
+.rv-rolebadge { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; }
+.rv-rolebadge svg { width: 10px; height: 10px; }
+.rv-rolebadge.operatore { background: color-mix(in srgb, var(--cyan) 18%, var(--surface)); color: color-mix(in srgb, var(--cyan) 58%, var(--tx)); }
+.rv-rolebadge.pm { background: color-mix(in srgb, var(--magenta) 16%, var(--surface)); color: var(--magenta); }
+.rv-rolebadge.cliente { background: color-mix(in srgb, var(--amber) 20%, var(--surface)); color: color-mix(in srgb, var(--amber) 64%, var(--tx)); }
+
+/* stile chat: commenti dell'utente loggato a destra */
+.rv-cm.me { flex-direction: row-reverse; }
+.rv-cm.me .rv-cm-main { align-items: flex-end; }
+.rv-cm.me .rv-cm-head { flex-direction: row-reverse; }
+.rv-cm.me .rv-cm-time { margin-left: 0; margin-right: auto; }
+.rv-cm.me .rv-cm-text { background: color-mix(in srgb, var(--magenta) 13%, var(--surface)); border-color: color-mix(in srgb, var(--magenta) 28%, var(--line)); border-bottom-left-radius: 12px; border-bottom-right-radius: 3px; }
+
+/* composer */
+.rv-composer { margin-top: 14px; border-top: 1px dashed var(--line-2); padding-top: 14px; display: grid; gap: 10px; }
+.rv-textarea { width: 100%; font: inherit; font-size: 13px; color: var(--tx); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.rv-textarea:focus { outline: 2px solid color-mix(in srgb, var(--magenta) 55%, transparent); outline-offset: 1px; border-color: var(--magenta); }
+.rv-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rv-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx-3); }
+
+/* controlli composer (Badge, Tipo) su una riga ordinata */
+.rv-fields { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; }
+.rv-field { display: flex; flex-direction: column; gap: 6px; }
+/* striscia della sotto-scelta "Chiesta da" + descrizione, a tutta larghezza */
+.rv-rework-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.rv-sublabel { font-size: 9.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tx-3); }
+.rv-strip-desc { flex: 1; min-width: 180px; font-size: 11.5px; color: var(--tx-3); }
+
+.rv-seg { display: inline-flex; padding: 3px; gap: 3px; background: var(--surface-3); border: 1px solid var(--line); border-radius: 10px; }
+.rv-seg button { border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 700; color: var(--tx-2); padding: 6px 11px; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.rv-seg button svg { width: 12px; height: 12px; }
+.rv-seg button.on { background: var(--surface); color: var(--tx); box-shadow: var(--shadow-1); }
+.rv-seg button[data-role="operatore"].on { color: color-mix(in srgb, var(--cyan) 58%, var(--tx)); }
+.rv-seg button[data-role="pm"].on { color: var(--magenta); }
+.rv-seg button[data-role="cliente"].on { color: color-mix(in srgb, var(--amber) 64%, var(--tx)); }
+
+.rv-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.rv-btn { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 15px; font: inherit; font-size: 13px; font-weight: 700; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); color: var(--tx); cursor: pointer; transition: border-color 0.14s var(--ease), background 0.14s var(--ease), opacity 0.14s var(--ease); }
+.rv-btn:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
+.rv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rv-btn svg { width: 15px; height: 15px; flex: none; }
+.rv-btn.primary { background: var(--magenta); border-color: var(--magenta); color: #fff; }
+.rv-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--magenta) 88%, #000); }
+.rv-btn.warn { background: color-mix(in srgb, var(--magenta) 12%, var(--surface)); border-color: color-mix(in srgb, var(--magenta) 30%, var(--line-2)); color: var(--magenta); }
+.rv-btn.warn:hover:not(:disabled) { background: color-mix(in srgb, var(--magenta) 18%, var(--surface)); }
+.rv-btn.ghost { border-color: transparent; background: transparent; color: var(--tx-2); }
+.rv-btn.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--tx); }
+
+/* tempo / peso */
+.rv-subrow { display: grid; gap: 8px; margin-bottom: 14px; }
+.rv-picks { display: flex; gap: 8px; flex-wrap: wrap; }
+.rv-pick { border: 1px solid var(--line-2); background: var(--surface-2); color: var(--tx-2); font: inherit; font-size: 12.5px; font-weight: 700; padding: 8px 13px; border-radius: 10px; cursor: pointer; transition: all 0.14s var(--ease); }
+.rv-pick:hover { border-color: var(--line-strong); color: var(--tx); }
+.rv-pick.on { border-color: var(--magenta); background: color-mix(in srgb, var(--magenta) 8%, var(--surface)); color: var(--tx); box-shadow: 0 0 0 1px var(--magenta) inset; }
+.rv-pick.minutes.on { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 10%, var(--surface)); box-shadow: 0 0 0 1px var(--cyan) inset; }
+
+.rv-manual { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }
+.rv-numwrap { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 11px; padding: 4px 6px; }
+.rv-numwrap input { width: 70px; font: inherit; font-size: 16px; font-weight: 800; text-align: center; border: 0; background: transparent; color: var(--tx); font-variant-numeric: tabular-nums; padding: 6px 0; }
+.rv-numwrap input:focus { outline: none; }
+.rv-numwrap input::-webkit-outer-spin-button, .rv-numwrap input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rv-numwrap input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.rv-numwrap .unit { font-size: 12px; font-weight: 700; color: var(--tx-3); padding-right: 6px; }
+.rv-numwrap .stp { width: 30px; height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--tx-2); font-size: 18px; font-weight: 700; cursor: pointer; display: grid; place-items: center; }
+.rv-numwrap .stp:hover { border-color: var(--line-strong); color: var(--tx); }
+
+.rv-readout { display: flex; align-items: center; gap: 0; flex-wrap: wrap; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 4px; }
+.rv-ro { display: flex; flex-direction: column; gap: 2px; padding: 0 16px; }
+.rv-ro:first-child { padding-left: 0; }
+.rv-ro + .rv-ro { border-left: 1px solid var(--line); }
+.rv-ro .k { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tx-3); }
+.rv-ro .v { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.rv-ro .v.muted { color: var(--tx-3); text-decoration: line-through; text-decoration-color: var(--tx-4); }
+.rv-ro .v.mag { color: var(--magenta); }
+.rv-ro .v.cyan { color: color-mix(in srgb, var(--cyan) 62%, var(--tx)); }
+.rv-hint { font-size: 11.5px; color: var(--tx-3); margin-top: 8px; }
+.rv-hint b { color: var(--tx-2); }
+
+/* scadenza / consegna */
+.rv-inline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rv-deadline { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; }
+.rv-deadline svg { width: 15px; height: 15px; color: var(--tx-3); }
+.rv-reprog { display: flex; align-items: flex-end; gap: 8px; flex-wrap: nowrap; }
+.rv-datewrap { width: 180px; }
+.rv-reprog .rv-btn { flex: none; }
+
+.rv-deliver { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.rv-deliver-l { display: flex; align-items: center; gap: 12px; }
+.rv-deliver-ic { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: color-mix(in srgb, var(--mint) 16%, var(--surface)); color: color-mix(in srgb, var(--mint) 55%, var(--tx)); flex: none; }
+.rv-deliver-ic svg { width: 20px; height: 20px; }
+.rv-deliver-t { font-size: 14px; font-weight: 700; }
+.rv-deliver-s { font-size: 12px; color: var(--tx-3); }
+.rv-switch { position: relative; width: 46px; height: 26px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-3); cursor: pointer; transition: background 0.18s var(--ease), border-color 0.18s var(--ease); flex: none; }
+.rv-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-1); transition: transform 0.18s var(--ease); }
+.rv-switch.on { background: var(--mint); border-color: var(--mint); }
+.rv-switch.on::after { transform: translateX(20px); }
+.rv-switch:disabled { opacity: 0.55; cursor: not-allowed; }
+.rv-stamp { margin-top: 12px; font-size: 12.5px; color: color-mix(in srgb, var(--mint) 50%, var(--tx)); border-top: 1px dashed var(--line-2); padding-top: 12px; }
+
+.rv-state { padding: 22px; text-align: center; font-size: 13px; color: var(--tx-2); }
+.rv-empty { padding: 16px; text-align: center; font-size: 12.5px; color: var(--tx-3); }
+
+.rv-actions-hint { font-size: 11px; color: var(--tx-3); align-self: center; line-height: 1.3; }
+.rv-stamp.pending { color: var(--tx-3); font-style: italic; }
+
+/* Barra dei due pulsanti gemelli: appiccicata in fondo alla scheda revisione. */
+.rv-submitbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: 10px;
+  margin-top: -6px;
+  padding: 12px 2px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.rv-submit { flex: 1; height: 46px; justify-content: center; font-size: 13.5px; }
+
+@media (max-width: 560px) {
+  .rv-ro { padding: 0 10px; }
+  .rv-cm-main { max-width: 90%; }
+  .rv-submitbar { flex-direction: column; }
+}

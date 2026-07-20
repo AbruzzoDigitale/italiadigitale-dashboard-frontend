@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
+import { FieldHelpPopover, type FieldHelpPopoverProps } from "./FieldHelpPopover";
 
 export interface MultiSelectOption {
   id: number;
   label: string;
   color?: string | null;
+  avatarUrl?: string | null;
 }
 
 interface MultiSelectProps {
   label?: string;
+  help?: FieldHelpPopoverProps;
   value: number[];
   onChange: (value: number[]) => void;
   options: MultiSelectOption[];
@@ -23,6 +26,7 @@ interface MultiSelectProps {
 
 export function MultiSelect({
   label,
+  help,
   value,
   onChange,
   options,
@@ -144,8 +148,11 @@ export function MultiSelect({
   return (
     <div className="flex flex-col gap-1">
       {label && (
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-          {label}
+        <span className="flex items-center">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            {label}
+          </span>
+          {help && <FieldHelpPopover {...help} />}
         </span>
       )}
 
@@ -177,6 +184,9 @@ export function MultiSelect({
                   toggle(opt.id);
                 }}
               >
+                {opt.avatarUrl && (
+                  <img src={opt.avatarUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                )}
                 {opt.label}
                 <Icon name="x" className="w-2.5 h-2.5 opacity-70" />
               </span>
@@ -194,7 +204,7 @@ export function MultiSelect({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[3500] rounded-md border border-line bg-paper shadow-lg dark:border-line-dark dark:bg-[#1c1c20]"
+            className="fixed z-[13000] rounded-md border border-line bg-paper shadow-lg dark:border-line-dark dark:bg-[#1c1c20]"
             style={{
               top: menuRect.top,
               left: menuRect.left,
@@ -275,6 +285,13 @@ export function MultiSelect({
                             />
                           )}
                         </span>
+                        {opt.avatarUrl && (
+                          <img
+                            src={opt.avatarUrl}
+                            alt=""
+                            className="h-5 w-5 flex-shrink-0 rounded-full object-cover border border-line dark:border-line-dark"
+                          />
+                        )}
                         {opt.color && (
                           <span
                             className="h-2.5 w-2.5 flex-shrink-0 rounded-full"

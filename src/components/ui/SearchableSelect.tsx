@@ -8,6 +8,8 @@ export type SearchableSelectOption = {
   keywords?: string;
   disabled?: boolean;
   avatarUrl?: string | null;
+  /** Testo secondario allineato a destra nella riga (es. importo). */
+  trailing?: string;
 };
 
 type SearchableSelectProps = {
@@ -22,9 +24,11 @@ type SearchableSelectProps = {
   triggerClassName?: string;
   menuPlacement?: "top" | "bottom";
   menuLayer?: "local" | "portal";
+  /** Mostra l'avatar/iniziali per opzione (default true). false = opzioni "a colonne". */
+  showAvatar?: boolean;
 };
 
-const SELECT_MENU_Z_INDEX = 3100;
+const SELECT_MENU_Z_INDEX = 13000;
 
 function getInitials(label: string): string {
   return label
@@ -47,6 +51,7 @@ export function SearchableSelect({
   triggerClassName = "",
   menuPlacement = "bottom",
   menuLayer = "local",
+  showAvatar = true,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -161,21 +166,28 @@ export function SearchableSelect({
                 role="option"
                 aria-selected={isSelected}
               >
-                <span className="inline-flex items-center gap-2 min-w-0">
-                  {option.avatarUrl ? (
-                    <img
-                      src={option.avatarUrl}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
-                      {getInitials(option.label)}
+                <span className="flex w-full min-w-0 items-center gap-2">
+                  {showAvatar ? (
+                    option.avatarUrl ? (
+                      <img
+                        src={option.avatarUrl}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
+                        {getInitials(option.label)}
+                      </span>
+                    )
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.trailing ? (
+                    <span className="flex-shrink-0 tabular-nums text-[12px] text-muted dark:text-[#9999a0]">
+                      {option.trailing}
                     </span>
-                  )}
-                  <span className="truncate">{option.label}</span>
+                  ) : null}
                 </span>
               </button>
             );
@@ -195,7 +207,7 @@ export function SearchableSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`inline-flex items-center gap-2 min-w-0 ${selected ? "text-current" : "text-current/65"}`}>
+        <span className={`flex w-full min-w-0 items-center gap-2 pr-6 ${selected ? "text-current" : "text-current/65"}`}>
           {selected ? (
             selected.avatarUrl ? (
               <img
@@ -211,7 +223,7 @@ export function SearchableSelect({
               </span>
             )
           ) : null}
-          <span className="truncate">{selected?.label ?? placeholder}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
         </span>
         <Icon
           name="chevron-down"

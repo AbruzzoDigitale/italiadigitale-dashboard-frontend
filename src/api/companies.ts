@@ -21,13 +21,23 @@ export function normalizeCompanySettingKey(key: string) {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type SocialPackageCardStyle = "sober" | "tech" | "rail";
+
+export interface CardStyleOption {
+  id: SocialPackageCardStyle;
+  label: string;
+}
+
 export interface Company {
   id: number;
   name: string;
   slug: string;
+  social_packages_card_style?: SocialPackageCardStyle;
   parent_id: number | null;
   is_active?: boolean;
   created_at?: string;
+  opening_time?: string | null;
+  closing_time?: string | null;
   primary_color: string | null;
   login_title: string | null;
   logo_dark: string | null;
@@ -61,7 +71,20 @@ export interface CompanyBrand {
   logo_hero: string | null;
   notif_sound: string | null;
   notif_sound_enabled: boolean | null;
+  notification_settings: Record<string, unknown> | null;
   dashboard_kpis: string[] | null;
+  // Contatti / brand (firma email)
+  website: string | null;
+  contact_email: string | null;
+  phone: string | null;
+  address: string | null;
+  address_maps_url: string | null;
+  signature_logo_url: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
+  linkedin_url: string | null;
+  tiktok_url: string | null;
+  youtube_url: string | null;
 }
 
 export interface CreateCompanyPayload {
@@ -79,6 +102,12 @@ export interface SwitchActiveCompanyResponse {
   active_company_id: number;
 }
 
+export interface UpdateCompanyPayload {
+  opening_time?: string | null;
+  closing_time?: string | null;
+  social_packages_card_style?: SocialPackageCardStyle;
+}
+
 export interface UpdateCompanyBrandPayload {
   login_title?: string | null;
   login_subtitle?: string | null;
@@ -89,7 +118,20 @@ export interface UpdateCompanyBrandPayload {
   bg_color?: string | null;
   theme_color?: string | null;
   notif_sound_enabled?: boolean | null;
+  notification_settings?: Record<string, unknown> | null;
   dashboard_kpis?: string[] | null;
+  // Contatti / brand (firma email)
+  website?: string | null;
+  contact_email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  address_maps_url?: string | null;
+  signature_logo_url?: string | null;
+  facebook_url?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  tiktok_url?: string | null;
+  youtube_url?: string | null;
 }
 
 export interface CompanySettingResponse {
@@ -174,32 +216,6 @@ export interface CompanyHolidaySyncResponse {
   items: CompanyHolidaySyncItem[];
 }
 
-export interface CompanyWorkloadPolicy {
-  id: number;
-  company_id: number;
-  name: string;
-  strategy: string;
-  strategy_version: string | null;
-  default_is_fractionable: boolean;
-  daily_capacity_hours: number | null;
-  settings_json: Record<string, unknown> | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CompanyWorkloadPolicyCreate {
-  name: string;
-  strategy: string;
-  strategy_version?: string | null;
-  default_is_fractionable?: boolean;
-  daily_capacity_hours?: number | null;
-  settings_json?: Record<string, unknown> | null;
-  is_active?: boolean;
-}
-
-export type CompanyWorkloadPolicyUpdate = Partial<CompanyWorkloadPolicyCreate>;
-
 /** Campi upload asset brand */
 export type CompanyAssetField =
   | "logo_dark"
@@ -240,6 +256,40 @@ export async function getMyCompaniesApi(): Promise<Company[]> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Impossibile recuperare le aziende assegnate"));
+  }
+  return res.json();
+}
+
+export async function getCompanyApi(id: number): Promise<Company> {
+  const res = await authFetch(`${API_BASE}/api/v1/companies/${id}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile recuperare l'azienda"));
+  }
+  return res.json();
+}
+
+/** Catalogo stili card pacchetti social (admin). */
+export async function listCardStylesApi(): Promise<CardStyleOption[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/social-packages/card-styles`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile recuperare gli stili card"));
+  }
+  return res.json();
+}
+
+export async function updateCompanyApi(
+  id: number,
+  payload: UpdateCompanyPayload
+): Promise<Company> {
+  const res = await authFetch(`${API_BASE}/api/v1/companies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore nell'aggiornamento azienda"));
   }
   return res.json();
 }
@@ -447,67 +497,3 @@ export async function syncCompanyItalianHolidaysApi(
   return res.json();
 }
 
-export async function listCompanyWorkloadPoliciesApi(companyId: number): Promise<CompanyWorkloadPolicy[]> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(parseApiError(body, "Impossibile recuperare le workload policies"));
-  }
-  return res.json();
-}
-
-export async function getCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(parseApiError(body, "Workload policy non trovata"));
-  }
-  return res.json();
-}
-
-export async function createCompanyWorkloadPolicyApi(
-  companyId: number,
-  payload: CompanyWorkloadPolicyCreate
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore creazione workload policy")}`);
-  }
-  return res.json();
-}
-
-export async function updateCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number,
-  payload: CompanyWorkloadPolicyUpdate
-): Promise<CompanyWorkloadPolicy> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore aggiornamento workload policy")}`);
-  }
-  return res.json();
-}
-
-export async function deleteCompanyWorkloadPolicyApi(
-  companyId: number,
-  policyId: number
-): Promise<void> {
-  const res = await authFetch(`${API_BASE}/api/v1/companies/${companyId}/workload-policies/${policyId}`, {
-    method: "DELETE",
-  });
-  if (!res.ok && res.status !== 204) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(`[${res.status}] ${parseApiError(body, "Errore eliminazione workload policy")}`);
-  }
-}

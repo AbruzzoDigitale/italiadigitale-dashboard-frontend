@@ -29,6 +29,7 @@ import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { RichTextEditor, hasRichTextContent } from "../ui/RichTextEditor";
+import { BillingPlanSection } from "./BillingPlanSection";
 
 interface ContractDetailModalProps {
   open: boolean;
@@ -37,6 +38,7 @@ interface ContractDetailModalProps {
   isAdmin: boolean;
   companyId?: number | null;
   onContractUpdated?: (updated: ContractDetailResponse) => void;
+  onQuoteLineClick?: (line: QuoteLineItem, quoteId: number) => void;
   modalPosition?: "center" | "left" | "right";
   modalShowOverlay?: boolean;
   modalMobileFullscreen?: boolean;
@@ -93,6 +95,7 @@ export function ContractDetailModal({
   isAdmin,
   companyId,
   onContractUpdated,
+  onQuoteLineClick,
   modalPosition = "center",
   modalShowOverlay = true,
   modalMobileFullscreen = false,
@@ -137,7 +140,7 @@ export function ContractDetailModal({
   const [detailWorkAreaIdsDraft, setDetailWorkAreaIdsDraft] = useState<number[]>([]);
   const [workTagModalOpen, setWorkTagModalOpen] = useState(false);
   const [workAreaModalOpen, setWorkAreaModalOpen] = useState(false);
-  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "timeline">("contract");
+  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "billing" | "timeline">("contract");
   const [activeNotesTab, setActiveNotesTab] = useState<"commercial" | "operational" | "lost">("commercial");
   const [notesSaving, setNotesSaving] = useState(false);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<number[]>([]);
@@ -703,6 +706,13 @@ export function ContractDetailModal({
             </button>
             <button
               type="button"
+              onClick={() => setActiveMainTab("billing")}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeMainTab === "billing" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+            >
+              Fatturazione
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveMainTab("tasks")}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeMainTab === "tasks" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
             >
@@ -760,22 +770,26 @@ export function ContractDetailModal({
                   <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Stage</div>
                   <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{CONTRACT_STAGE_LABELS[detailData.commercial_stage]}</div>
                 </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Totale selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_total)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Mensile selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_monthly ?? 0)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Una tantum selezionato</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_one_time ?? 0)}</div>
-                </div>
-                <div className="rounded-md border border-line dark:border-line-dark p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</div>
-                  <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode}</div>
-                </div>
+                {detailData.pricing && (
+                  <>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Totale selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_total)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Mensile selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_monthly ?? 0)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Una tantum selezionato</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{formatEur(detailData.pricing.selected_one_time ?? 0)}</div>
+                    </div>
+                    <div className="rounded-md border border-line dark:border-line-dark p-3">
+                      <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Modalità prezzi</div>
+                      <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.pricing.mode === "single_quote" ? "Preventivo principale" : "Totale aggregato"}</div>
+                    </div>
+                  </>
+                )}
                 <div className="rounded-md border border-line dark:border-line-dark p-3">
                   <div className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Tipo rapporto</div>
                   <div className="mt-1 text-sm font-semibold text-ink dark:text-paper">{detailData.engagement_type === "one_time" ? "Una tantum" : detailData.engagement_type === "ongoing" ? "Continuativo" : "n/d"}</div>
@@ -829,19 +843,19 @@ export function ContractDetailModal({
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Input
-                      label="signed at"
+                      label="Data firma"
                       type="datetime-local"
                       value={signedAtDraft}
                       onChange={(event) => setSignedAtDraft(event.target.value)}
                     />
                     <Input
-                      label="start date"
+                      label="Data inizio"
                       type="date"
                       value={startDateDraft}
                       onChange={(event) => setStartDateDraft(event.target.value)}
                     />
                     <Input
-                      label="end date"
+                      label="Data fine"
                       type="date"
                       value={endDateDraft}
                       onChange={(event) => setEndDateDraft(event.target.value)}
@@ -850,7 +864,7 @@ export function ContractDetailModal({
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <MultiSelect
-                      label="work areas"
+                      label="Aree di lavoro"
                       value={detailWorkAreaIdsDraft}
                       onChange={setDetailWorkAreaIdsDraft}
                       options={workAreaOptions}
@@ -859,7 +873,7 @@ export function ContractDetailModal({
                       createActionLabel="Crea area"
                     />
                     <MultiSelect
-                      label="tags"
+                      label="Tag"
                       value={detailTagIdsDraft}
                       onChange={setDetailTagIdsDraft}
                       options={workTagOptions}
@@ -1110,16 +1124,27 @@ export function ContractDetailModal({
                                         {quoteLinesById[link.quote_id].map((line, lineIndex) => (
                                           <div
                                             key={`summary-quote-${link.quote_id}-line-${lineIndex}`}
-                                            className="rounded border border-line dark:border-line-dark px-2 py-1.5"
+                                            role={onQuoteLineClick ? "button" : undefined}
+                                            tabIndex={onQuoteLineClick ? 0 : undefined}
+                                            title={onQuoteLineClick ? "Precompila una task da questa voce" : undefined}
+                                            onClick={onQuoteLineClick ? () => onQuoteLineClick(line, link.quote_id) : undefined}
+                                            onKeyDown={onQuoteLineClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onQuoteLineClick(line, link.quote_id); } } : undefined}
+                                            className={`rounded border border-line dark:border-line-dark px-2 py-1.5${onQuoteLineClick ? " cursor-pointer transition-colors hover:border-brand-magenta/60 hover:bg-brand-magenta/5 focus:outline-none focus:ring-2 focus:ring-brand-magenta/40" : ""}`}
                                           >
                                             <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
+                                            {line.desc ? (
+                                              <div className="mt-0.5 whitespace-pre-line text-[11px] text-muted dark:text-muted-dark">{line.desc}</div>
+                                            ) : null}
                                             <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                                              Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)} · Unit {formatEur(line.net)}
-                                              {(line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
+                                              Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
+                                              {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}
+                                              {isAdmin && (line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
                                             </div>
-                                            <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
-                                              Totale linea {formatEur(computeQuoteLineTotal(line))}
-                                            </div>
+                                            {isAdmin && (
+                                              <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
+                                                Totale linea {formatEur(computeQuoteLineTotal(line))}
+                                              </div>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -1136,6 +1161,10 @@ export function ContractDetailModal({
               )}
             </div>
             </div>
+          )}
+
+          {activeMainTab === "billing" && detailData && (
+            <BillingPlanSection contractId={detailData.id} isAdmin={isAdmin} />
           )}
 
           {activeMainTab === "tasks" && (
@@ -1465,16 +1494,27 @@ export function ContractDetailModal({
                                     {quoteLinesById[link.quote_id].map((line, lineIndex) => (
                                       <div
                                         key={`quote-${link.quote_id}-line-${lineIndex}`}
-                                        className="rounded border border-line dark:border-line-dark px-2 py-1.5"
+                                        role={onQuoteLineClick ? "button" : undefined}
+                                        tabIndex={onQuoteLineClick ? 0 : undefined}
+                                        title={onQuoteLineClick ? "Precompila una task da questa voce" : undefined}
+                                        onClick={onQuoteLineClick ? () => onQuoteLineClick(line, link.quote_id) : undefined}
+                                        onKeyDown={onQuoteLineClick ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onQuoteLineClick(line, link.quote_id); } } : undefined}
+                                        className={`rounded border border-line dark:border-line-dark px-2 py-1.5${onQuoteLineClick ? " cursor-pointer transition-colors hover:border-brand-magenta/60 hover:bg-brand-magenta/5 focus:outline-none focus:ring-2 focus:ring-brand-magenta/40" : ""}`}
                                       >
                                         <div className="text-xs font-semibold text-ink dark:text-paper">{line.name}</div>
+                                        {line.desc ? (
+                                          <div className="mt-0.5 whitespace-pre-line text-[11px] text-muted dark:text-muted-dark">{line.desc}</div>
+                                        ) : null}
                                         <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                                          Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)} · Unit {formatEur(line.net)}
-                                          {(line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
+                                          Qta {line.quantity ?? 1} · {linePeriodLabel(line.period)}
+                                          {isAdmin ? ` · Unit ${formatEur(line.net)}` : ""}
+                                          {isAdmin && (line.discountPct ?? 0) > 0 ? ` · Sconto ${line.discountPct}%` : ""}
                                         </div>
-                                        <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
-                                          Totale linea {formatEur(computeQuoteLineTotal(line))}
-                                        </div>
+                                        {isAdmin && (
+                                          <div className="mt-0.5 text-xs font-semibold text-ink dark:text-paper">
+                                            Totale linea {formatEur(computeQuoteLineTotal(line))}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -1501,7 +1541,7 @@ export function ContractDetailModal({
                   { value: "aggregated", label: "Totale aggregato" },
                   { value: "single_quote", label: "Preventivo principale" },
                 ]}
-                placeholder="Modalità pricing"
+                placeholder="Modalità prezzi"
                 disabled={!isAdmin}
               />
               <div className="text-xs text-muted dark:text-muted-dark">

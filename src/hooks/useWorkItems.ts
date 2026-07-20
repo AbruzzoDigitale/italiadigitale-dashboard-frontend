@@ -5,7 +5,8 @@ interface UseWorkItemsResult {
   workItems: WorkItem[];
   isLoading: boolean;
   error: string | null;
-  refetch: () => void;
+  /** silent=true aggiorna i dati SENZA attivare lo spinner (refresh in background). */
+  refetch: (silent?: boolean) => Promise<void>;
 }
 
 export function useWorkItems(params: ListWorkItemsParams = {}): UseWorkItemsResult {
@@ -18,8 +19,8 @@ export function useWorkItems(params: ListWorkItemsParams = {}): UseWorkItemsResu
   const paramsKeyRef = useRef(paramsKey);
   paramsKeyRef.current = paramsKey;
 
-  const fetch = useCallback(async () => {
-    setIsLoading(true);
+  const fetch = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const data = await listWorkItemsApi(JSON.parse(paramsKeyRef.current) as ListWorkItemsParams);
@@ -27,7 +28,7 @@ export function useWorkItems(params: ListWorkItemsParams = {}): UseWorkItemsResu
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore sconosciuto");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);

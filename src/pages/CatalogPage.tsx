@@ -605,7 +605,7 @@ export function CatalogPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] animate-fadeIn px-10 py-8 pb-20">
+    <div className="mx-auto w-full animate-fadeIn px-6 py-8 pb-20">
       <div className="section-eyebrow">Catalogo servizi</div>
       <h1 className="section-title">
         Catalogo Aziendale
@@ -634,9 +634,15 @@ export function CatalogPage() {
             </label>
           )}
 
-          <Button variant="secondary" size="sm" onClick={loadCatalog} leftIcon={<Icon name="activity" />}>
-            Aggiorna
-          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            iconOnly
+            onClick={loadCatalog}
+            title="Aggiorna"
+            aria-label="Aggiorna"
+            leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+          />
         </div>
       </div>
 

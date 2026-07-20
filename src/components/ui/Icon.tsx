@@ -47,7 +47,20 @@ export type IconName =
   | "robot"
   | "trello"
   | "calendar"
-  | "clock";
+  | "clock"
+  | "copy"
+  | "download"
+  | "maximize"
+  | "minimize"
+  | "image"
+  | "minus"
+  | "arrows-v"
+  | "dots-horizontal"
+  | "dots-vertical"
+  | "link"
+  | "canva"
+  | "drive"
+  | "nas";
 
 interface IconProps {
   name: IconName;
@@ -167,6 +180,19 @@ const paths: Record<IconName, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="17 8 12 3 7 8" />
       <line x1="12" y1="3" x2="12" y2="15" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="8" y="8" width="14" height="14" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </>
   ),
   check: <polyline points="20 6 9 17 4 12" />,
@@ -340,6 +366,82 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="9" />
       <polyline points="12 7 12 12 15.5 14" />
+    </>
+  ),
+  maximize: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </>
+  ),
+  minimize: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 3v3a2 2 0 0 1-2 2H3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 8h-3a2 2 0 0 1-2-2V3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16h3a2 2 0 0 1 2 2v3" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-3a2 2 0 0 1 2-2h3" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m21 15-5-5L5 20" />
+    </>
+  ),
+  minus: <line x1="4" y1="12" x2="20" y2="12" />,
+  "arrows-v": (
+    <>
+      <polyline points="8 7 12 3 16 7" />
+      <polyline points="8 17 12 21 16 17" />
+      <line x1="12" y1="3" x2="12" y2="21" />
+    </>
+  ),
+  // Pallini pieni (l'svg è stroke-only: forzo fill per avere dot solidi, non anelli).
+  "dots-horizontal": (
+    <>
+      <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  "dots-vertical": (
+    <>
+      <circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Collegamento generico (catena, stile feather "link").
+  link: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  // Canva: badge circolare con una "C" stilizzata (monocromatico, non il logo a colori).
+  canva: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 9.6a3.6 3.6 0 0 0-6 2.4 3.6 3.6 0 0 0 6 2.4" />
+    </>
+  ),
+  // Google Drive: triangolo con la piega a tre spicchi (monocromatico).
+  drive: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4 3 19h18z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v9.5M12 13.5 3.7 18.3M12 13.5l8.3 4.8" />
+    </>
+  ),
+  // NAS / server di rete (due unità impilate con LED).
+  nas: (
+    <>
+      <rect x="3" y="4" width="18" height="7" rx="2" />
+      <rect x="3" y="13" width="18" height="7" rx="2" />
+      <line x1="7" y1="7.5" x2="7.01" y2="7.5" />
+      <line x1="7" y1="16.5" x2="7.01" y2="16.5" />
     </>
   ),
 };

@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
 import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Icon } from "../components/ui/Icon";
 import { Badge } from "../components/ui/Badge";
-import { Textarea } from "../components/ui/Textarea";
 
 export function ProfilePage() {
   const { user, myCompanies, activeCompanyId, login: _login } = useAuth();
@@ -87,7 +88,7 @@ export function ProfilePage() {
       }] : []);
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Header ── */}
       <div className="mb-8">
@@ -243,32 +244,8 @@ export function ProfilePage() {
             </div>
           </div>
 
-          {/* Firma */}
-          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
-            <h2
-              className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
-              style={{ fontSize: "17px" }}
-            >
-              Firma
-            </h2>
-            <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
-              Testo usato nelle email e nei documenti generati
-            </p>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
-                  Testo firma
-                </label>
-                <Textarea
-                  value={form.signature as string ?? ""}
-                  onChange={(e) => set("signature", e.target.value)}
-                  placeholder={"Mario Rossi\nSenior Consultant\nazienda@example.com"}
-                  rows={4}
-                  className="w-full rounded-md border px-3 py-2.5 text-sm font-body bg-paper text-ink placeholder:text-muted border-line focus:border-ink focus:outline-none transition-colors resize-vertical dark:bg-[#1a1a1a] dark:text-[#f4f4f7] dark:border-[#2e2e2e] dark:placeholder:text-[#9999a0] dark:focus:border-white"
-                />
-              </div>
-            </div>
-          </div>
+          {/* Firma email — compilazione dal template aziendale (definito dall'admin) */}
+          <SignatureFromTemplate companies={myCompanies} defaultCompanyId={activeCompanyId} />
 
           {/* Account */}
           <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
@@ -300,6 +277,9 @@ export function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* Email di invio (per organizzazione) */}
+          <EmailAccountsSection companies={myCompanies} defaultCompanyId={activeCompanyId} />
 
           {/* Save bar */}
           <div className="flex justify-end">

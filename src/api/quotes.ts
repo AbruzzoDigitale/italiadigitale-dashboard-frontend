@@ -19,7 +19,7 @@ export type QuoteStatus =
   | "perso"
   | "rifiutato";
 
-export type QuoteSortBy = "date" | "created_at" | "updated_at" | "number" | "title";
+export type QuoteSortBy = "date" | "created_at" | "updated_at" | "number" | "title" | "status" | "client";
 export type QuoteSortDir = "asc" | "desc";
 
 export interface QuoteLineItem {
@@ -87,10 +87,22 @@ export interface Quote {
   duplicated_from: string | null;
   is_active: boolean;
   client_id: number | null;
+  /** Nome / nome commerciale del cliente (arricchiti dalla lista preventivi). */
+  client_name?: string | null;
+  client_commercial_name?: string | null;
   company_id: number | null;
   company_ids: number[] | null;
   created_by: number | null;
+  /** Nome di chi ha creato la richiesta/preventivo (arricchito dalla lista). */
+  created_by_name?: string | null;
+  /** Accorpamento pipeline: preventivi con lo stesso group_id si muovono insieme. */
+  group_id?: number | null;
+  /** Preventivo scartato (perso a favore del vincitore): nascosto dalla pipeline. */
+  group_archived?: boolean;
   requested_by: number | null;
+  /** Destinatario della richiesta (chi la riceve e la approva) + nome per la UI. */
+  recipient_user_id?: number | null;
+  recipient_name?: string | null;
   created_at: string;
   updated_at: string;
   totals: QuoteTotals | null;
@@ -114,6 +126,8 @@ export interface CreateQuotePayload {
   fic_id?: string | null;
   duplicated_from?: string | null;
   kind?: "preventivo" | "richiesta";
+  /** Destinatario della richiesta (utente dell'azienda che la riceve/approva). */
+  recipient_user_id?: number | null;
 }
 
 export interface QuotePreviewResponse {
@@ -273,6 +287,18 @@ export function getQuoteHistoryLabel(event: QuoteEventResponse): string {
   if (event.event_type === "status_changed" && event.field_name === "status") {
     return `Stato cambiato da ${event.from_value ?? "-"} a ${event.to_value ?? "-"}`;
   }
+  switch (event.event_type) {
+    case "group_joined":
+      return "Accorpato in un gruppo";
+    case "group_moved":
+      return `Spostato con il gruppo a ${event.to_value ?? "-"}`;
+    case "group_winner_chosen":
+      return "Scelto come preventivo vincente";
+    case "group_lost":
+      return "Scartato a favore del vincitore";
+    case "group_left":
+      return "Sganciato dal gruppo";
+  }
   return event.event_type;
 }
 
@@ -295,6 +321,27 @@ export async function getQuotesApi(params?: ListQuotesParams): Promise<QuotesLis
     throw new Error("Impossibile recuperare la lista preventivi");
   }
   return res.json();
+}
+
+/** Scarica il CSV di tutti i preventivi che rispettano i filtri correnti (endpoint backend). */
+export async function exportQuotesCsvApi(params?: ListQuotesParams): Promise<void> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.company_id != null) qs.set("company_id", String(params.company_id));
+  if (params?.client_id != null) qs.set("client_id", String(params.client_id));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const res = await authFetch(`${API_BASE}/api/v1/quotes/export${suffix}`);
+  if (!res.ok) throw new Error("Impossibile esportare i preventivi");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "preventivi.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function getQuoteApi(id: number): Promise<Quote> {
@@ -362,6 +409,47 @@ export async function updateQuoteStatusApi(id: number, status: QuoteStatus, note
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.detail ?? "Transizione non valida");
+  }
+  return res.json();
+}
+
+// ── Accorpamento preventivi (pipeline) ────────────────────────────────────────
+
+/** Accorpa più preventivi (stesso cliente): da qui si muovono insieme. */
+export async function createQuoteGroupApi(quoteIds: number[]): Promise<Quote[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/quotes/groups`, {
+    method: "POST",
+    body: JSON.stringify({ quote_ids: quoteIds }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail ?? "Impossibile accorpare i preventivi");
+  }
+  return res.json();
+}
+
+/** Sceglie il preventivo vincente del gruppo: prosegue da solo, gli altri escono. */
+export async function chooseGroupWinnerApi(groupId: number, quoteId: number): Promise<Quote[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/quotes/groups/${groupId}/choose`, {
+    method: "POST",
+    body: JSON.stringify({ quote_id: quoteId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail ?? "Impossibile scegliere il vincitore");
+  }
+  return res.json();
+}
+
+/** Sgancia un preventivo dal gruppo (torna a muoversi da solo). */
+export async function detachFromGroupApi(quoteId: number): Promise<Quote> {
+  const res = await authFetch(`${API_BASE}/api/v1/quotes/groups/detach`, {
+    method: "POST",
+    body: JSON.stringify({ quote_id: quoteId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail ?? "Impossibile sganciare dal gruppo");
   }
   return res.json();
 }

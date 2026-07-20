@@ -18,15 +18,19 @@ import {
   type QuotePreviewResponse,
 } from "../api/quotes";
 import {
+  convertRequestToQuoteApi,
   createRequestApi,
   createRequestFromConfiguratorApi,
   getRequestApi,
   updateRequestApi,
+  updateRequestStatusApi,
 } from "../api/requests";
+import { getUsersApi, type User as CompanyUser } from "../api/users";
 import { getSocialPackageApi, listSocialPackagesApi, type SocialPackageBase, type SocialPackageDetail } from "../api/socialPackages";
 import { CONTRACT_STAGE_LABELS, createContractApi } from "../api/contracts";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
+import { FieldHelpPopover } from "../components/ui/FieldHelpPopover";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
@@ -262,8 +266,9 @@ function sanitizeLineForApi(line: EditableQuoteLine): QuoteLineItem {
   };
 }
 
-function validateLines(lines: EditableQuoteLine[]): string | null {
-  if (lines.length === 0) return "Aggiungi almeno una riga";
+function validateLines(lines: EditableQuoteLine[], allowEmpty = false): string | null {
+  // Nelle richieste le righe sono facoltative: si può inviare anche senza prodotti.
+  if (lines.length === 0) return allowEmpty ? null : "Aggiungi almeno una riga";
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = sanitizeLineForApi(lines[i]);
@@ -277,6 +282,46 @@ function validateLines(lines: EditableQuoteLine[]): string | null {
 
   return null;
 }
+
+// Testi di aiuto (popover "?") che spiegano le voci del dettaglio preventivo.
+const QUOTE_HELP = {
+  totali: {
+    title: "Totali del preventivo",
+    shortText: "Come si compongono gli importi.",
+    longText: [
+      "• Mensile: somma delle righe con periodo mensile (canone ricorrente).",
+      "• Una tantum: somma delle righe a pagamento singolo (oneoff/annuale).",
+      "• Subtotale: Mensile + Una tantum, al netto dell'IVA.",
+      "• Sconto globale: (Sconto % × Subtotale) + Sconto fisso €.",
+      "• Netto: Subtotale − Sconto globale.",
+      "• IVA: imposta calcolata sul Netto (di norma 22%).",
+      "• Totale: Netto + IVA, l'importo finale.",
+    ].join("\n"),
+  },
+  periodo: {
+    title: "Periodo riga",
+    shortText: "Cadenza di fatturazione della riga.",
+    longText: [
+      "• oneoff: una tantum, pagamento singolo.",
+      "• monthly: mensile, canone ricorrente.",
+      "• yearly: annuale (dal catalogo).",
+      "",
+      "Nei totali solo 'monthly' confluisce in Mensile; oneoff e yearly vanno in Una tantum.",
+    ].join("\n"),
+  },
+  udm: {
+    title: "UDM — unità di misura",
+    shortText: "Unità della riga (es. Mese, Anno, Una tantum, Pezzo).",
+    longText:
+      "Testo descrittivo dell'unità. Per le righe importate da Fatture in Cloud determina il Periodo: se l'UDM contiene “mese/mensile/month” diventa mensile, altrimenti una tantum.",
+  },
+  iva: {
+    title: "IVA della riga",
+    shortText: "Aliquota IVA applicata alla riga.",
+    longText:
+      "Valore decimale: 0,22 = 22%. Si applica sul netto della riga (prezzo × quantità, meno l'eventuale sconto riga).",
+  },
+} as const;
 
 const HISTORY_FIELD_LABELS: Record<string, string> = {
   fic_id: "ID FIC",
@@ -324,7 +369,20 @@ function getTimelineTitle(event: QuoteEventResponse): string {
   return getQuoteHistoryLabel(event);
 }
 
-export function QuoteEditorPage() {
+export function QuoteEditorPage({
+  embedded = false,
+  forceNew = false,
+  forceRequest = false,
+  onClose,
+  onSaved,
+}: {
+  /** Reso dentro un modal: niente navigazioni di rotta, chiude via onClose. */
+  embedded?: boolean;
+  forceNew?: boolean;
+  forceRequest?: boolean;
+  onClose?: () => void;
+  onSaved?: () => void;
+} = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -334,7 +392,7 @@ export function QuoteEditorPage() {
   const isOperator = !isAdmin;
   const canSeePricing = isAdmin;
   const { selectedCompanyId } = useSelectedCompanyId(activeCompanyId ?? user?.company_id ?? null);
-  const isRequestMode = location.pathname.startsWith("/requests");
+  const isRequestMode = embedded ? forceRequest : location.pathname.startsWith("/requests");
   const useOperatorRequestTerminology = isOperator && !isRequestMode;
   const hideTagAndDiscount = isOperator;
   const editorLabel = isRequestMode || useOperatorRequestTerminology ? "Richiesta" : "Preventivo";
@@ -350,8 +408,8 @@ export function QuoteEditorPage() {
   const previewPayload = navState?.previewPayload;
   const previewSource = navState?.previewSource ?? (previewPayload ? "configurator" : undefined);
   const quoteIdFromQuery = Number(searchParams.get("quote_id"));
-  const quoteId = navState?.quoteId ?? (Number.isFinite(quoteIdFromQuery) ? quoteIdFromQuery : null);
-  const isNewDraftMode = searchParams.get("new") === "1";
+  const quoteId = embedded ? null : (navState?.quoteId ?? (Number.isFinite(quoteIdFromQuery) ? quoteIdFromQuery : null));
+  const isNewDraftMode = embedded ? forceNew : searchParams.get("new") === "1";
   const quotesSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete("quote_id");
@@ -362,6 +420,12 @@ export function QuoteEditorPage() {
 
   const [clients, setClients] = useState<Client[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
+  // Destinatario della richiesta: utenti dell'azienda tra cui scegliere.
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([]);
+  const [recipientUserId, setRecipientUserId] = useState<number | null>(null);
+  const [converting, setConverting] = useState(false);
+  // Stato corrente della richiesta caricata (serve per i pulsanti del flusso).
+  const [loadedStatus, setLoadedStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [creatingContract, setCreatingContract] = useState(false);
   const [linkedContractsLoading, setLinkedContractsLoading] = useState(false);
@@ -461,6 +525,8 @@ export function QuoteEditorPage() {
           setAppuntiCommerciali(quote.appunti_commerciali ?? "");
           setBriefOperativo(quote.brief_operativo ?? "");
           setClientId(quote.client_id ?? null);
+          setRecipientUserId(quote.recipient_user_id ?? null);
+          setLoadedStatus(quote.status ?? null);
           setDiscountPct(quote.discount_pct ?? 0);
           setDiscountEur(quote.discount_eur ?? 0);
           if (!hasLocalLineEditsRef.current) {
@@ -507,6 +573,23 @@ export function QuoteEditorPage() {
       cancelled = true;
     };
   }, [quoteCompanyId, selectedCompanyId, toast, user?.company_id]);
+
+  // Utenti dell'azienda: servono per scegliere il destinatario della richiesta.
+  useEffect(() => {
+    if (!isRequestMode && !useOperatorRequestTerminology) return;
+    let cancelled = false;
+    const cid = selectedCompanyId ?? quoteCompanyId ?? user?.company_id ?? undefined;
+    getUsersApi(cid)
+      .then((list) => {
+        if (!cancelled) setCompanyUsers(list.filter((u) => u.id !== user?.id));
+      })
+      .catch(() => {
+        /* silenzioso: il campo resta vuoto */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRequestMode, useOperatorRequestTerminology, quoteCompanyId, selectedCompanyId, user?.company_id, user?.id]);
 
   useEffect(() => {
     if (!quoteId || isRequestMode || !isAdmin) {
@@ -802,7 +885,7 @@ export function QuoteEditorPage() {
     }
   };
 
-  const save = async () => {
+  const save = async (opts?: { submit?: boolean; approve?: boolean }) => {
     if (isReadOnly) {
       toast.error((isRequestMode || useOperatorRequestTerminology) ? "Richiesta in sola lettura per questo stato o permesso" : "Preventivo in sola lettura per questo stato o permesso");
       return;
@@ -812,7 +895,7 @@ export function QuoteEditorPage() {
       return;
     }
 
-    const lineValidationError = validateLines(lines);
+    const lineValidationError = validateLines(lines, isRequestMode || useOperatorRequestTerminology);
     if (lineValidationError) {
       toast.error(lineValidationError);
       return;
@@ -834,6 +917,8 @@ export function QuoteEditorPage() {
       const requestPayload: CreateQuotePayload = {
         ...companyPayload,
         kind: isRequestMode ? "richiesta" : (previewPayload?.kind ?? "preventivo"),
+        // Destinatario: solo per le richieste.
+        ...(isRequestMode || useOperatorRequestTerminology ? { recipient_user_id: recipientUserId } : {}),
       };
 
       const effectivePayload: CreateQuotePayload = previewPayload
@@ -866,6 +951,7 @@ export function QuoteEditorPage() {
             configurator: null,
           };
 
+      let createdId: number | null = null;
       if (quoteId && !isCompanyChanged) {
             if (isRequestMode) {
               await updateRequestApi(quoteId, effectivePayload);
@@ -874,28 +960,51 @@ export function QuoteEditorPage() {
             }
       } else if (quoteId && isCompanyChanged) {
             if (isRequestMode) {
-              await createRequestApi(effectivePayload);
+              createdId = (await createRequestApi(effectivePayload)).id;
             } else {
               await createQuoteApi(effectivePayload);
             }
       } else if (previewSource === "configurator") {
             if (isRequestMode) {
-              await createRequestFromConfiguratorApi(effectivePayload);
+              createdId = (await createRequestFromConfiguratorApi(effectivePayload)).id;
             } else {
               await createQuoteFromConfiguratorApi(effectivePayload);
             }
       } else {
             if (isRequestMode) {
-              await createRequestApi(effectivePayload);
+              createdId = (await createRequestApi(effectivePayload)).id;
             } else {
               await createQuoteApi(effectivePayload);
             }
       }
 
-      if (quoteId && isCompanyChanged) {
+      // "Invia richiesta": creata la bozza, la si porta subito a "da approvare"
+      // (esce dalle bozze private e notifica il destinatario scelto).
+      if (opts?.submit && createdId != null) {
+        try {
+          await updateRequestStatusApi(createdId, "da_approvare");
+          toast.success("Richiesta inviata");
+        } catch {
+          toast.error("Richiesta creata, ma l'invio non è riuscito: resta in bozza.");
+        }
+      } else if (opts?.approve && quoteId) {
+        // "Approva e salva": salvate le modifiche, segna la richiesta approvata.
+        try {
+          await updateRequestStatusApi(quoteId, "accettato");
+          setLoadedStatus("accettato");
+          toast.success("Richiesta approvata");
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Salvata, ma approvazione non riuscita");
+        }
+      } else if (quoteId && isCompanyChanged) {
             toast.success(isRequestMode ? "Richiesta salvata nella nuova company" : "Preventivo salvato nella nuova company");
       } else {
             toast.success(quoteId ? (isRequestMode ? "Richiesta aggiornata" : "Preventivo aggiornato") : (isRequestMode ? "Richiesta salvata" : "Preventivo salvato"));
+      }
+      if (embedded) {
+        onSaved?.();
+        onClose?.();
+        return;
       }
       const redirectParams = new URLSearchParams(quotesSearch);
       if (currentCompanyId != null) {
@@ -912,6 +1021,21 @@ export function QuoteEditorPage() {
       setSaving(false);
     }
       };
+
+  // Converte la richiesta approvata in un preventivo e apre quest'ultimo (solo admin).
+  const convertToQuote = async () => {
+    if (!quoteId) return;
+    setConverting(true);
+    try {
+      const created = await convertRequestToQuoteApi(quoteId);
+      toast.success(`Convertita nel preventivo ${created.number}`);
+      navigate({ pathname: "/preventivo", search: `?quote_id=${created.id}` }, { state: { quoteId: created.id } });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore nella conversione in preventivo");
+    } finally {
+      setConverting(false);
+    }
+  };
 
   const createContractFromQuote = async () => {
     if (isRequestMode) {
@@ -961,17 +1085,21 @@ export function QuoteEditorPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
-      <div className="section-eyebrow">
-        <Icon name="list" className="w-3.5 h-3.5" />
-        {`Editor ${editorLabel}`}
-      </div>
-      <h1 className="section-title">{`Modifica ${editorLabel}`}</h1>
-      <p className="section-lead">{hideTagAndDiscount ? "Rivedi righe e cliente prima del salvataggio definitivo della richiesta." : "Rivedi righe, sconti e cliente prima del salvataggio definitivo."}</p>
+    <div className={embedded ? "w-full" : "px-6 py-8 pb-20 mx-auto w-full animate-fadeIn"}>
+      {!embedded && (
+        <>
+          <div className="section-eyebrow">
+            <Icon name="list" className="w-3.5 h-3.5" />
+            {`Editor ${editorLabel}`}
+          </div>
+          <h1 className="section-title">{`Modifica ${editorLabel}`}</h1>
+          <p className="section-lead">{hideTagAndDiscount ? "Rivedi righe e cliente prima del salvataggio definitivo della richiesta." : "Rivedi righe, sconti e cliente prima del salvataggio definitivo."}</p>
+        </>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 mt-8">
+      <div className={embedded ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 mt-8"}>
         <div className="rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] overflow-hidden">
-          <div className="p-5 border-b border-line dark:border-[#2a2a2e] grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={"p-5 border-b border-line dark:border-[#2a2a2e] grid grid-cols-1 gap-4" + (embedded ? "" : " md:grid-cols-2")}>
             <Input label="Data" type="date" value={date ?? ""} onChange={(e) => setDate(e.target.value)} disabled={isReadOnly} />
             <Input label="Titolo" value={title ?? ""} onChange={(e) => setTitle(e.target.value)} placeholder={(isRequestMode || useOperatorRequestTerminology) ? "Es. Richiesta Campagna Estate 2026" : "Es. Preventivo Campagna Estate 2026"} disabled={isReadOnly} />
             {!hideTagAndDiscount && (
@@ -994,7 +1122,26 @@ export function QuoteEditorPage() {
               />
             </div>
 
-            {!hideTagAndDiscount && (
+            {(isRequestMode || useOperatorRequestTerminology) && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                  Invia a
+                </label>
+                <SearchableSelect
+                  value={recipientUserId != null ? String(recipientUserId) : ""}
+                  onChange={(v) => setRecipientUserId(v ? Number(v) : null)}
+                  options={companyUsers.map((u) => ({ value: String(u.id), label: u.full_name || u.username }))}
+                  placeholder="- Scegli destinatario -"
+                  searchPlaceholder="Cerca utente…"
+                  disabled={isReadOnly}
+                />
+                <span className="text-[11px] text-muted dark:text-muted-dark">
+                  Riceverà la notifica e potrà approvare la richiesta. Se vuoto, notifica tutti gli admin/PM.
+                </span>
+              </div>
+            )}
+
+            {!hideTagAndDiscount && canSeePricing && (
               <>
                 <Input
                   label="Sconto %"
@@ -1004,7 +1151,7 @@ export function QuoteEditorPage() {
                   step={0.5}
                   value={String(discountPct)}
                   onChange={(e) => setDiscountPct(Number(e.target.value) || 0)}
-                  disabled={!canSeePricing || isReadOnly}
+                  disabled={isReadOnly}
                 />
 
                 <Input
@@ -1014,7 +1161,7 @@ export function QuoteEditorPage() {
                   step={0.01}
                   value={String(discountEur)}
                   onChange={(e) => setDiscountEur(Number(e.target.value) || 0)}
-                  disabled={!canSeePricing || isReadOnly}
+                  disabled={isReadOnly}
                 />
               </>
             )}
@@ -1199,7 +1346,7 @@ export function QuoteEditorPage() {
                           />
                         </label>
                         <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Periodo</span>
+                          <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Periodo<FieldHelpPopover {...QUOTE_HELP.periodo} /></span>
                           <select
                             className="w-full rounded-md border px-2.5 py-2 text-sm font-body bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
                             value={line.period ?? "oneoff"}
@@ -1212,7 +1359,7 @@ export function QuoteEditorPage() {
                           </select>
                         </label>
                         <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Udm</span>
+                          <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Udm<FieldHelpPopover {...QUOTE_HELP.udm} /></span>
                           <input
                             className="w-full rounded-md border px-3 py-2 text-sm font-body bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
                             value={line.udm ?? ""}
@@ -1234,44 +1381,48 @@ export function QuoteEditorPage() {
                             disabled={isReadOnly}
                           />
                         </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Prezzo</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={line.net ?? 0}
-                            onChange={(e) => updateLineNumber(index, "net", Number(e.target.value))}
-                            disabled={isReadOnly || !canSeePricing}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Sconto %</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.01}
-                            value={line.discountPct ?? 0}
-                            onChange={(e) => updateLineNumber(index, "discountPct", Number(e.target.value))}
-                            disabled={isReadOnly || !canSeePricing}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Iva</span>
-                          <input
-                            className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
-                            type="number"
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            value={line.vat ?? 0.22}
-                            onChange={(e) => updateLineNumber(index, "vat", Number(e.target.value))}
-                            disabled={isReadOnly}
-                          />
-                        </label>
+                        {canSeePricing && (
+                          <>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Prezzo</span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={line.net ?? 0}
+                                onChange={(e) => updateLineNumber(index, "net", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">Sconto %</span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.01}
+                                value={line.discountPct ?? 0}
+                                onChange={(e) => updateLineNumber(index, "discountPct", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="inline-flex items-center text-[10px] uppercase tracking-wider text-muted font-semibold">Iva<FieldHelpPopover {...QUOTE_HELP.iva} /></span>
+                              <input
+                                className="w-full rounded-md border px-3 py-2 text-sm font-body text-right bg-paper dark:bg-[#1c1c20] text-ink dark:text-[#f4f4f7] border-line dark:border-[#2a2a2e] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                value={line.vat ?? 0.22}
+                                onChange={(e) => updateLineNumber(index, "vat", Number(e.target.value))}
+                                disabled={isReadOnly}
+                              />
+                            </label>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1284,7 +1435,10 @@ export function QuoteEditorPage() {
         <aside className="rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-5 h-fit sticky top-5">
           {canSeePricing ? (
             <>
-              <div className="text-xs uppercase tracking-wider text-muted font-semibold">Totali</div>
+              <div className="flex items-center text-xs uppercase tracking-wider text-muted font-semibold">
+                Totali
+                <FieldHelpPopover {...QUOTE_HELP.totali} />
+              </div>
               <div className="mt-4 space-y-2 text-sm font-body">
                 <div className="flex justify-between"><span className="text-muted dark:text-[#9999a0]">Mensile</span><b>{formatEur(totals.monthly)}</b></div>
                 <div className="flex justify-between"><span className="text-muted dark:text-[#9999a0]">Una tantum</span><b>{formatEur(totals.one_time)}</b></div>
@@ -1312,7 +1466,42 @@ export function QuoteEditorPage() {
           )}
 
           <div className="mt-5 flex flex-col gap-2">
-            <Button variant="primary" onClick={save} loading={saving} disabled={isReadOnly}>{primaryActionLabel}</Button>
+            {embedded ? (
+              <>
+                <Button variant="primary" onClick={() => void save({ submit: true })} loading={saving} disabled={isReadOnly}>
+                  Invia richiesta
+                </Button>
+                <Button variant="secondary" onClick={() => void save({ submit: false })} loading={saving} disabled={isReadOnly}>
+                  Salva bozza
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" onClick={() => void save()} loading={saving} disabled={isReadOnly}>{primaryActionLabel}</Button>
+            )}
+
+            {/* Flusso richiesta lato revisore/admin: approva, poi (a parte) converti. */}
+            {isRequestMode && isAdmin && quoteId && loadedStatus === "in_revisione" && (
+              <Button
+                variant="primary"
+                onClick={() => void save({ approve: true })}
+                loading={saving}
+                disabled={isReadOnly}
+                leftIcon={<Icon name="check-circle" className="w-4 h-4" />}
+              >
+                Approva e salva richiesta
+              </Button>
+            )}
+            {isRequestMode && isAdmin && quoteId && loadedStatus === "accettato" && (
+              <Button
+                variant="secondary"
+                onClick={() => void convertToQuote()}
+                loading={converting}
+                leftIcon={<Icon name="document-text" className="w-4 h-4" />}
+              >
+                Converti in preventivo
+              </Button>
+            )}
+
             {!isRequestMode && isAdmin && (
               <Button
                 variant="secondary"
@@ -1403,7 +1592,7 @@ export function QuoteEditorPage() {
                               <td className="px-2 py-1.5">{item.date ?? "-"}</td>
                               <td className="px-2 py-1.5">{item.entity?.name ?? "-"}</td>
                               <td className="px-2 py-1.5">{item.subject ?? "-"}</td>
-                              <td className="px-2 py-1.5">{item.amount_gross != null ? formatEur(item.amount_gross) : "-"}</td>
+                              <td className="px-2 py-1.5">{canSeePricing && item.amount_gross != null ? formatEur(item.amount_gross) : "-"}</td>
                               <td className="px-2 py-1.5 text-right">
                                 <Button
                                   size="sm"
@@ -1520,18 +1709,20 @@ export function QuoteEditorPage() {
                 </>
               );
             })()}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                const redirectParams = new URLSearchParams(quotesSearch);
-                if (currentCompanyId != null) {
-                  redirectParams.set("company_id", String(currentCompanyId));
-                }
-                navigate({ pathname: "/quotes", search: `?${redirectParams.toString()}` });
-              }}
-            >
-              Annulla
-            </Button>
+            {!embedded && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const redirectParams = new URLSearchParams(quotesSearch);
+                  if (currentCompanyId != null) {
+                    redirectParams.set("company_id", String(currentCompanyId));
+                  }
+                  navigate({ pathname: "/quotes", search: `?${redirectParams.toString()}` });
+                }}
+              >
+                Annulla
+              </Button>
+            )}
           </div>
 
           {!isRequestMode && isAdmin && (

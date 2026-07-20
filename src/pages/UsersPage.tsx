@@ -12,6 +12,7 @@ import {
   type User,
   type CreateUserPayload,
   type UpdateUserPayload,
+  type AccessLevel,
 } from "../api/users";
 import type { WorkArea } from "../api/workAreas";
 import { listRolesApi, type Role } from "../api/roles";
@@ -66,7 +67,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     username: user?.username ?? "",
     email: user?.email ?? "",
     password: "",
-    is_admin: user?.is_admin ?? false,
+    access_level: (user?.access_level ?? (user?.is_admin ? "admin" : "operator")) as AccessLevel,
     is_active: user?.is_active ?? true,
     company_id: user?.company_id ? String(user.company_id) : "",
     company_ids: (user?.company_ids ?? []).map(String),
@@ -89,7 +90,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         username: user.username ?? "",
         email: user.email ?? "",
         password: "",
-        is_admin: user.is_admin ?? false,
+        access_level: (user.access_level ?? (user.is_admin ? "admin" : "operator")) as AccessLevel,
         is_active: user.is_active ?? true,
         company_id: user.company_id ? String(user.company_id) : "",
         company_ids: (user.company_ids ?? []).map(String),
@@ -107,7 +108,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
       username: "",
       email: "",
       password: "",
-      is_admin: false,
+      access_level: "operator" as AccessLevel,
       is_active: true,
       company_id: fallbackCompanyId,
       company_ids: fallbackCompanyId ? [fallbackCompanyId] : [],
@@ -282,7 +283,8 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     try {
       if (isEdit && user) {
         const currentOperatorPermissions = (user.operator_permissions ?? []).filter((permission) => permission !== "llm");
-        const nextOperatorPermissions = form.is_admin
+        // Le viste operatore (incl. LLM) si gestiscono solo per l'operatore; admin e PM hanno viste fisse lato backend.
+        const nextOperatorPermissions = form.access_level !== "operator"
           ? null
           : form.can_use_llm
             ? Array.from(new Set([...currentOperatorPermissions, "llm"]))
@@ -291,7 +293,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
           full_name: form.full_name,
           username: form.username,
           email: form.email,
-          is_admin: form.is_admin,
+          access_level: form.access_level,
           is_active: form.is_active,
           company_id: form.company_id ? Number(form.company_id) : null,
           company_ids: form.company_ids.length ? form.company_ids.map(Number) : null,
@@ -303,7 +305,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         await updateUserApi(user.id, payload);
         toast.success("Utente aggiornato");
       } else {
-        const nextOperatorPermissions = form.is_admin
+        const nextOperatorPermissions = form.access_level !== "operator"
           ? null
           : form.can_use_llm
             ? ["llm"]
@@ -313,7 +315,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
           username: form.username,
           email: form.email,
           password: form.password,
-          is_admin: form.is_admin,
+          access_level: form.access_level,
           company_id: form.company_id ? Number(form.company_id) : null,
           company_ids: form.company_ids.length ? form.company_ids.map(Number) : null,
           role_ids: form.role_ids.length ? form.role_ids.map(Number) : null,
@@ -492,17 +494,32 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
           </div>
         )}
 
+        {/* Livello di accesso */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            Livello di accesso
+          </label>
+          <SearchableSelect
+            value={form.access_level}
+            onChange={(v) => set("access_level", (v || "operator") as AccessLevel)}
+            options={[
+              { value: "operator", label: "Operatore" },
+              { value: "project_manager", label: "Project Manager" },
+              { value: "admin", label: "Amministratore" },
+            ]}
+            placeholder="Seleziona livello"
+          />
+          <p className="text-[11px] text-muted dark:text-muted-dark">
+            {form.access_level === "admin"
+              ? "Accesso completo: impostazioni, utenti/ruoli e dati commerciali."
+              : form.access_level === "project_manager"
+                ? "Gestisce le task di tutti gli operatori della propria azienda; niente impostazioni, utenti/ruoli o prezzi."
+                : "Vede e gestisce solo le proprie task (workload e attività del giorno)."}
+          </p>
+        </div>
+
         {/* Toggles */}
         <div className="flex gap-6 pt-1">
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <Checkbox
-              checked={form.is_admin}
-              onChange={(v) => set("is_admin", v)}
-            />
-            <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
-              Amministratore
-            </span>
-          </label>
           {isEdit && (
             <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <Checkbox
@@ -515,16 +532,18 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
             </label>
           )}
 
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <Checkbox
-              checked={form.can_use_llm}
-              onChange={(v) => set("can_use_llm", v)}
-              disabled={form.is_admin}
-            />
-            <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
-              Accesso LLM
-            </span>
-          </label>
+          {/* L'accesso LLM è una vista operatore: configurabile solo per il livello Operatore */}
+          {form.access_level === "operator" && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Checkbox
+                checked={form.can_use_llm}
+                onChange={(v) => set("can_use_llm", v)}
+              />
+              <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
+                Accesso LLM
+              </span>
+            </label>
+          )}
         </div>
       </div>
     </Modal>
@@ -610,7 +629,7 @@ export function UsersPage() {
   }, [deleteUser, toast, refetch]);
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
 
       {/* ── Header ── */}
       <div className="mb-8">
@@ -710,9 +729,12 @@ export function UsersPage() {
                       {u.email}
                     </td>
                     <td className="px-6 py-3.5">
-                      <Badge variant={u.is_admin ? "admin" : "user"}>
-                        {u.is_admin ? "Admin" : "Operatore"}
-                      </Badge>
+                      {(() => {
+                        const level: AccessLevel = u.access_level ?? (u.is_admin ? "admin" : "operator");
+                        if (level === "admin") return <Badge variant="admin">Admin</Badge>;
+                        if (level === "project_manager") return <Badge variant="info">Project Manager</Badge>;
+                        return <Badge variant="user">Operatore</Badge>;
+                      })()}
                     </td>
                     <td className="px-6 py-3.5 text-muted dark:text-[#9999a0] hidden lg:table-cell">
                       <div className="flex flex-col gap-2">

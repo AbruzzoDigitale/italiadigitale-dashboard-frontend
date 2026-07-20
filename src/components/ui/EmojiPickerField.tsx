@@ -99,7 +99,7 @@ export function EmojiPickerField({
         {open && menuRect && createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[2000]"
+            className="fixed z-[3500]"
             style={{ top: menuRect.top, left: menuRect.left }}
           >
             <EmojiPicker

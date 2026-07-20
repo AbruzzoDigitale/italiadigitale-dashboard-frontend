@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createWorkTagApi, type WorkTag } from "../../api/workTags";
 import { Button } from "../ui/Button";
 import { ColorHexField } from "../ui/ColorHexField";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 
@@ -80,6 +81,7 @@ export function WorkTagCreateModal({ open, companyId, onClose, onCreated }: Prop
       open={open}
       onClose={close}
       title="Nuovo tag"
+      icon={<Icon name="star" className="h-5 w-5" />}
       size="sm"
       footer={(
         <>
@@ -90,9 +92,10 @@ export function WorkTagCreateModal({ open, companyId, onClose, onCreated }: Prop
     >
       <div className="space-y-3">
         {error && <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</div>}
-        <Input label="Nome" value={name} onChange={(e) => handleName(e.target.value)} placeholder="Es. Urgente" />
+        <Input label="Nome" labelIcon={<Icon name="pencil" className="h-3 w-3" />} value={name} onChange={(e) => handleName(e.target.value)} placeholder="Es. Urgente" />
         <Input
           label="Slug"
+          labelIcon={<Icon name="list" className="h-3 w-3" />}
           value={slug}
           onChange={(e) => {
             setSlugTouched(true);

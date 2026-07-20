@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
@@ -19,83 +20,39 @@ import { usePostSalesSituation } from "../hooks/usePostSalesSituation";
 import {
   CONTRACT_STAGE_ORDER,
   CONTRACT_STAGE_LABELS,
-  createContractApi,
   type ContractCommercialStage,
-  type ContractEngagementType,
-  type ContractType,
 } from "../api/contracts";
 import type { ContractDetailResponse } from "../api/contracts";
 import { createWorkAreaApi, listWorkAreasApi, type WorkArea } from "../api/workAreas";
 import { createWorkTagApi, listWorkTagsApi, type WorkTag } from "../api/workTags";
 import { formatEur, getQuoteApi, type Quote } from "../api/quotes";
-import { getWorkItemApi, listWorkItemsApi, type WorkItem } from "../api/workItems";
+import { getWorkItemApi, listWorkItemsApi, updateWorkItemApi, type WorkItem } from "../api/workItems";
 import { getUsersApi, type User } from "../api/users";
 import { ContractDetailModal } from "../components/contracts/ContractDetailModal";
 import { ContractCreateModal } from "../components/contracts/ContractCreateModal";
 import { QuoteQuickCreateModal } from "../components/contracts/QuoteQuickCreateModal";
 import { ClientModal } from "../components/clients/ClientModal";
+import { ClientBillingTab } from "../components/billing/ClientBillingTab";
 import { ClientFullDetails } from "../components/clients/ClientFullDetails";
+import { SituationWizardModal } from "../components/clients/SituationWizardModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
-import { WorkItemSummaryCard } from "../components/work-items/WorkItemCard";
+import { WorkItemBoardCard } from "../components/work-items/WorkItemBoardCard";
 import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
-import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { MultiSelect } from "../components/ui/MultiSelect";
 import { Checkbox } from "../components/ui/Checkbox";
 import { ViewModeToggle } from "../components/ui/ViewModeToggle";
-import { Textarea } from "../components/ui/Textarea";
+import { SituationViews } from "../components/clients/ClientSituationViews";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
 import { useToast } from "../context/ToastContext";
+import "./clients-situation-page.css";
 import { getCommercialStageTone } from "../utils/commercialStageTone";
 
 const PER_PAGE = 20;
-
-type SituationCreateState = {
-  client_id: string;
-  title: string;
-  contract_type: ContractType;
-  engagement_type: "" | ContractEngagementType;
-  commercial_stage: ContractCommercialStage;
-  execution_stage: string;
-  stage_accepted_at: string;
-  signed_at: string;
-  start_date: string;
-  end_date: string;
-  commercial_notes: string;
-  operational_brief: string;
-  contract_sent_at: string;
-  stage_sent_at: string;
-  stage_negotiation_at: string;
-  in_production_at: string;
-  completed_at: string;
-  lost_at: string;
-};
-
-const EMPTY_SITUATION_FORM: SituationCreateState = {
-  client_id: "",
-  title: "",
-  contract_type: "commercial",
-  engagement_type: "",
-  commercial_stage: "bozza",
-  execution_stage: "",
-  stage_accepted_at: "",
-  signed_at: "",
-  start_date: "",
-  end_date: "",
-  commercial_notes: "",
-  operational_brief: "",
-  contract_sent_at: "",
-  stage_sent_at: "",
-  stage_negotiation_at: "",
-  in_production_at: "",
-  completed_at: "",
-  lost_at: "",
-};
 
 const EMPTY_STATS: ClientPostSalesSituationStats = {
   clients_count: 0,
@@ -117,23 +74,8 @@ function formatDate(value?: string | null): string {
   return parsed.toLocaleDateString("it-IT");
 }
 
-function toIsoDatetimeValue(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
-
 function sortCountEntries(entries: ClientSituationCountEntry[]): ClientSituationCountEntry[] {
   return [...entries].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-}
-
-function paymentTone(paymentType?: string | null): string {
-  if (paymentType === "ongoing") return "bg-success/10 text-success border border-success/20";
-  if (paymentType === "one_time") return "bg-warning/10 text-warning border border-warning/20";
-  if (paymentType === "mixed") return "bg-info/10 text-info border border-info/20";
-  return "bg-line text-ink dark:bg-line-dark dark:text-paper";
 }
 
 function quoteStatusTone(status?: string | null): string {
@@ -158,12 +100,6 @@ function formatAmountBreakdown(monthly?: number | null, oneTime?: number | null,
   return `Mese ${formatEur(0)} · Una tantum ${formatEur(0)}`;
 }
 
-function formatCompactAmount(monthly?: number | null, total?: number | null): string {
-  if ((monthly ?? 0) > 0) return `${formatEur(monthly ?? 0)} / mese`;
-  if ((total ?? 0) > 0) return `Totale ${formatEur(total ?? 0)}`;
-  return `${formatEur(0)} / mese`;
-}
-
 const WORK_ITEMS_ENABLED_STAGES = new Set(["firmato", "in_produzione", "completato"]);
 
 function clampPercent(value: number | null | undefined): number {
@@ -171,29 +107,6 @@ function clampPercent(value: number | null | undefined): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function formatStatusSummary(summary: unknown): string {
-  if (!summary) return "Stato contratti non disponibile";
-  if (typeof summary === "string") return summary;
-  if (Array.isArray(summary)) {
-    const entries = summary
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const label = (item as { label?: unknown; key?: unknown }).label ?? (item as { key?: unknown }).key;
-        const count = (item as { count?: unknown }).count;
-        if ((typeof label !== "string" && typeof label !== "number") || typeof count !== "number") return null;
-        return `${label}: ${count}`;
-      })
-      .filter((item): item is string => !!item);
-    return entries.length > 0 ? entries.join(" · ") : "Stato contratti non disponibile";
-  }
-  if (typeof summary === "object") {
-    const entries = Object.entries(summary as Record<string, unknown>)
-      .filter(([, value]) => typeof value === "number")
-      .map(([key, value]) => `${key}: ${value}`);
-    return entries.length > 0 ? entries.join(" · ") : "Stato contratti non disponibile";
-  }
-  return "Stato contratti non disponibile";
-}
 
 function getPrimaryStatus(summary: unknown): { label: string; count?: number } | null {
   if (!summary) return null;
@@ -229,12 +142,7 @@ function getPrimaryStatus(summary: unknown): { label: string; count?: number } |
   return null;
 }
 
-type ClientDetailTab = "client" | "contracts" | "work-items" | "quotes";
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return !!target.closest("button,a,input,select,textarea");
-}
+type ClientDetailTab = "client" | "contracts" | "work-items" | "quotes" | "fatturazione";
 
 function CountInlineRow({ title, entries }: { title: string; entries: ClientSituationCountEntry[] }) {
   if (entries.length === 0) return null;
@@ -424,242 +332,8 @@ function QuoteRow({ quote, onClick }: { quote: ClientSituationQuoteRef; onClick?
   );
 }
 
-function ContractsCarousel({
-  contracts,
-  onOpenContract,
-  onOpenWorkItems,
-}: {
-  contracts: ClientSituationContractRef[];
-  onOpenContract: (contractId: number) => void;
-  onOpenWorkItems: (contractId: number) => void;
-}) {
-  const [currentIndex, setCurrentIndex] = useState(0);
 
-  useEffect(() => {
-    if (contracts.length === 0) {
-      setCurrentIndex(0);
-      return;
-    }
-    setCurrentIndex((current) => Math.min(current, contracts.length - 1));
-  }, [contracts]);
 
-  if (contracts.length === 0) {
-    return <div className="text-sm text-muted dark:text-muted-dark">Nessun contratto associato.</div>;
-  }
-
-  const canNavigate = contracts.length > 1;
-  const prev = () => setCurrentIndex((current) => (current - 1 + contracts.length) % contracts.length);
-  const next = () => setCurrentIndex((current) => (current + 1) % contracts.length);
-
-  return (
-    <div className="space-y-2">
-      <div className="relative overflow-hidden">
-        <div
-          className="flex transition-transform duration-300 ease-out"
-          style={{ transform: `translateX(-${currentIndex * 100}%)` }}
-        >
-          {contracts.map((contract) => (
-            <div key={`carousel-contract-${contract.id}`} className="w-full shrink-0">
-              <ContractRow
-                contract={contract}
-                onClick={() => onOpenContract(contract.id)}
-                onOpenWorkItems={onOpenWorkItems}
-              />
-            </div>
-          ))}
-        </div>
-
-        {canNavigate && (
-          <>
-            <button
-              type="button"
-              onClick={prev}
-              className="absolute left-1 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full border border-line dark:border-line-dark bg-paper/95 dark:bg-[#1c1c20]/95 text-ink dark:text-paper hover:bg-cream dark:hover:bg-[#252529]"
-              aria-label="Contratto precedente"
-            >
-              <Icon name="chevron-right" className="w-4 h-4 rotate-180" />
-            </button>
-            <button
-              type="button"
-              onClick={next}
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full border border-line dark:border-line-dark bg-paper/95 dark:bg-[#1c1c20]/95 text-ink dark:text-paper hover:bg-cream dark:hover:bg-[#252529]"
-              aria-label="Contratto successivo"
-            >
-              <Icon name="chevron-right" className="w-4 h-4" />
-            </button>
-          </>
-        )}
-      </div>
-
-      {canNavigate && (
-        <div className="flex items-center justify-center gap-1.5">
-          {contracts.map((contract, index) => {
-            const active = index === currentIndex;
-            return (
-              <button
-                key={`carousel-dot-${contract.id}`}
-                type="button"
-                onClick={() => setCurrentIndex(index)}
-                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                  active ? "bg-ink dark:bg-paper" : "bg-line dark:bg-line-dark hover:bg-muted dark:hover:bg-muted-dark"
-                }`}
-                aria-label={`Vai al contratto ${index + 1}`}
-                aria-pressed={active}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function QuotesCarousel({
-  quotes,
-  onOpenQuote,
-}: {
-  quotes: ClientSituationQuoteRef[];
-  onOpenQuote: (quoteId: number) => void;
-}) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    if (quotes.length === 0) {
-      setCurrentIndex(0);
-      return;
-    }
-    setCurrentIndex((current) => Math.min(current, quotes.length - 1));
-  }, [quotes]);
-
-  if (quotes.length === 0) {
-    return <div className="text-sm text-muted dark:text-muted-dark">Nessun preventivo associato.</div>;
-  }
-
-  const canNavigate = quotes.length > 1;
-  const prev = () => setCurrentIndex((current) => (current - 1 + quotes.length) % quotes.length);
-  const next = () => setCurrentIndex((current) => (current + 1) % quotes.length);
-
-  return (
-    <div className="space-y-2">
-      <div className="relative overflow-hidden">
-        <div
-          className="flex transition-transform duration-300 ease-out"
-          style={{ transform: `translateX(-${currentIndex * 100}%)` }}
-        >
-          {quotes.map((quote) => (
-            <div key={`carousel-quote-${quote.id}`} className="w-full shrink-0">
-              <QuoteRow quote={quote} onClick={() => onOpenQuote(quote.id)} />
-            </div>
-          ))}
-        </div>
-
-        {canNavigate && (
-          <>
-            <button
-              type="button"
-              onClick={prev}
-              className="absolute left-1 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full border border-line dark:border-line-dark bg-paper/95 dark:bg-[#1c1c20]/95 text-ink dark:text-paper hover:bg-cream dark:hover:bg-[#252529]"
-              aria-label="Preventivo precedente"
-            >
-              <Icon name="chevron-right" className="w-4 h-4 rotate-180" />
-            </button>
-            <button
-              type="button"
-              onClick={next}
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full border border-line dark:border-line-dark bg-paper/95 dark:bg-[#1c1c20]/95 text-ink dark:text-paper hover:bg-cream dark:hover:bg-[#252529]"
-              aria-label="Preventivo successivo"
-            >
-              <Icon name="chevron-right" className="w-4 h-4" />
-            </button>
-          </>
-        )}
-      </div>
-
-      {canNavigate && (
-        <div className="flex items-center justify-center gap-1.5">
-          {quotes.map((quote, index) => {
-            const active = index === currentIndex;
-            return (
-              <button
-                key={`carousel-quote-dot-${quote.id}`}
-                type="button"
-                onClick={() => setCurrentIndex(index)}
-                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                  active ? "bg-ink dark:bg-paper" : "bg-line dark:bg-line-dark hover:bg-muted dark:hover:bg-muted-dark"
-                }`}
-                aria-label={`Vai al preventivo ${index + 1}`}
-                aria-pressed={active}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ClientActivityTabs({
-  contracts,
-  quotes,
-  contractStatusSummary,
-  quoteStatusSummary,
-  onOpenContract,
-  onOpenWorkItems,
-  onOpenQuote,
-}: {
-  contracts: ClientSituationContractRef[];
-  quotes: ClientSituationQuoteRef[];
-  contractStatusSummary?: unknown;
-  quoteStatusSummary?: unknown;
-  onOpenContract: (contractId: number) => void;
-  onOpenWorkItems: (contractId: number) => void;
-  onOpenQuote: (quoteId: number) => void;
-}) {
-  const [activeTab, setActiveTab] = useState<"contracts" | "quotes">("contracts");
-
-  useEffect(() => {
-    if (activeTab === "contracts" && contracts.length === 0 && quotes.length > 0) {
-      setActiveTab("quotes");
-    }
-    if (activeTab === "quotes" && quotes.length === 0 && contracts.length > 0) {
-      setActiveTab("contracts");
-    }
-  }, [activeTab, contracts.length, quotes.length]);
-
-  const contractSummary = formatStatusSummary(contractStatusSummary);
-  const quoteSummary = formatStatusSummary(quoteStatusSummary);
-
-  return (
-    <div className="mt-3 border-t border-line dark:border-line-dark pt-2.5 space-y-2">
-      <div className="inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("contracts")}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "contracts" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
-        >
-          Contratti ({contracts.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("quotes")}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === "quotes" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
-        >
-          Preventivi ({quotes.length})
-        </button>
-      </div>
-
-      <div className="text-[11px] text-muted dark:text-muted-dark">
-        {activeTab === "contracts" ? contractSummary : quoteSummary}
-      </div>
-
-      {activeTab === "contracts" ? (
-        <ContractsCarousel contracts={contracts} onOpenContract={onOpenContract} onOpenWorkItems={onOpenWorkItems} />
-      ) : (
-        <QuotesCarousel quotes={quotes} onOpenQuote={onOpenQuote} />
-      )}
-    </div>
-  );
-}
 
 export function ClientsSituationPage() {
   const navigate = useNavigate();
@@ -696,9 +370,6 @@ export function ClientsSituationPage() {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [createContractOpen, setCreateContractOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [createForm, setCreateForm] = useState<SituationCreateState>(EMPTY_SITUATION_FORM);
   const [companyClients, setCompanyClients] = useState<CompanyClient[]>([]);
   const [companyClientsLoading, setCompanyClientsLoading] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -716,6 +387,10 @@ export function ClientsSituationPage() {
   const [companyUsers, setCompanyUsers] = useState<User[]>([]);
   const [clientWorkItems, setClientWorkItems] = useState<WorkItem[]>([]);
   const [clientWorkItemsLoading, setClientWorkItemsLoading] = useState(false);
+  // Collegamento in bulk lavorazioni -> contratto (per farle apparire in fatturazione).
+  const [linkSelection, setLinkSelection] = useState<Set<number>>(new Set());
+  const [linkContractId, setLinkContractId] = useState<number | null>(null);
+  const [linking, setLinking] = useState(false);
 
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -759,10 +434,6 @@ export function ClientsSituationPage() {
     refetch: refetchSituation,
   } = usePostSalesSituation(situationParams, { enabled: effectiveCompanyId != null });
 
-  const updateCreateForm = <K extends keyof SituationCreateState>(key: K, value: SituationCreateState[K]) => {
-    setCreateForm((current) => ({ ...current, [key]: value }));
-  };
-
   const handleCreateTag = async (name: string) => {
     if (!effectiveCompanyId || !name.trim()) return;
     setCreatingTag(true);
@@ -801,15 +472,6 @@ export function ClientsSituationPage() {
       setCreatingArea(false);
     }
   };
-
-  const clientOptions = useMemo(
-    () => companyClients.map((client) => ({
-      value: String(client.id),
-      label: client.commercial_name ?? client.name,
-      keywords: `${client.commercial_name ?? ""} ${client.name} ${client.email ?? ""} ${client.vat ?? ""}`,
-    })),
-    [companyClients]
-  );
 
   useEffect(() => {
     if (effectiveCompanyId == null) {
@@ -904,6 +566,11 @@ export function ClientsSituationPage() {
       .catch(() => { if (!cancelled) setCompanyUsers([]); });
     return () => { cancelled = true; };
   }, [clientDetailOpen, effectiveCompanyId]);
+
+  useEffect(() => {
+    // Ogni volta che cambia cliente/dataset, azzera la selezione di collegamento.
+    setLinkSelection(new Set());
+  }, [selectedClientId, reloadNonce]);
 
   useEffect(() => {
     if (!clientDetailOpen || effectiveCompanyId == null || selectedClientId == null) {
@@ -1013,6 +680,101 @@ export function ClientsSituationPage() {
     setSelectedClientDetail(null);
     setSelectedClientDetailError(null);
     setSelectedClientDetailLoading(false);
+    setLinkSelection(new Set());
+    setLinkContractId(null);
+  };
+
+  const toggleLinkSelection = (id: number) =>
+    setLinkSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const linkItemsToContract = async (ids: number[], contractId: number) => {
+    if (ids.length === 0 || contractId == null) return;
+    setLinking(true);
+    try {
+      await Promise.all(
+        ids.map((id) => {
+          const item = clientWorkItems.find((wi) => wi.id === id);
+          const merged = Array.from(new Set([...(item?.contract_ids ?? []), contractId]));
+          return updateWorkItemApi(id, { contract_ids: merged });
+        })
+      );
+      toast.success(
+        ids.length === 1 ? "Lavorazione collegata al contratto" : `${ids.length} lavorazioni collegate al contratto`
+      );
+      setLinkSelection(new Set());
+      setReloadNonce((current) => current + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore nel collegamento al contratto");
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const bulkLinkToContract = (unlinkedIds: number[]) => {
+    if (linkContractId == null || linkSelection.size === 0) return;
+    const ids = [...linkSelection].filter((id) => unlinkedIds.includes(id));
+    setLinkContractId(null);
+    void linkItemsToContract(ids, linkContractId);
+  };
+
+  // Drag & drop: trascinamento (anche multiplo) delle lavorazioni sui contratti.
+  const dragIdsRef = useRef<number[]>([]);
+  const [dragOverContractId, setDragOverContractId] = useState<number | null>(null);
+  // Ghost "fisico" per il drag multiplo: pila di card che segue il cursore.
+  const [dragCount, setDragCount] = useState(0);
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const setDragGhost = (el: HTMLDivElement | null) => {
+    dragGhostRef.current = el;
+    if (el) {
+      const { x, y } = dragStartPosRef.current;
+      el.style.transform = `translate3d(${x + 16}px, ${y + 16}px, 0)`;
+    }
+  };
+
+  const handleItemDragStart = (id: number, event: React.DragEvent<HTMLDivElement>) => {
+    // Se la task trascinata è tra quelle selezionate, sposta tutta la selezione.
+    const ids = linkSelection.has(id) && linkSelection.size > 0 ? [...linkSelection] : [id];
+    dragIdsRef.current = ids;
+    event.dataTransfer.effectAllowed = "move";
+    if (ids.length > 1) {
+      // Nasconde l'immagine di drag nativa: usiamo il ghost custom animato.
+      const blank = document.createElement("div");
+      blank.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;";
+      document.body.appendChild(blank);
+      event.dataTransfer.setDragImage(blank, 0, 0);
+      setTimeout(() => document.body.removeChild(blank), 0);
+      dragStartPosRef.current = { x: event.clientX, y: event.clientY };
+      setDragCount(ids.length);
+    }
+  };
+  const handleItemDragEnd = () => {
+    dragIdsRef.current = [];
+    setDragOverContractId(null);
+    setDragCount(0);
+  };
+
+  // Il ghost segue il cursore durante il drag multiplo (con leggero trailing "fisico").
+  useEffect(() => {
+    if (dragCount === 0) return;
+    const onDragOver = (e: DragEvent) => {
+      const g = dragGhostRef.current;
+      if (g) g.style.transform = `translate3d(${e.clientX + 16}px, ${e.clientY + 16}px, 0)`;
+    };
+    document.addEventListener("dragover", onDragOver);
+    return () => document.removeEventListener("dragover", onDragOver);
+  }, [dragCount]);
+  const handleContractDrop = (contractId: number) => {
+    const ids = dragIdsRef.current;
+    dragIdsRef.current = [];
+    setDragOverContractId(null);
+    if (ids.length > 0) void linkItemsToContract(ids, contractId);
   };
 
   const openQuoteDetail = async (quoteId: number) => {
@@ -1057,81 +819,11 @@ export function ClientsSituationPage() {
   }, [clients, selectedClientId, selectedClientSnapshot]);
 
   const openCreateSituation = () => {
-    setCreateError(null);
-    setCreateForm(EMPTY_SITUATION_FORM);
     setCreateOpen(true);
   };
 
   const closeCreateSituation = () => {
-    if (creating) return;
     setCreateOpen(false);
-    setCreateError(null);
-  };
-
-  const handleCreateClientChange = (value: string) => {
-    const nextClient = companyClients.find((client) => String(client.id) === value);
-    setCreateForm((current) => ({
-      ...current,
-      client_id: value,
-      title:
-        current.title.trim().length > 0
-          ? current.title
-          : `Situazione cliente - ${nextClient?.commercial_name ?? nextClient?.name ?? ""}`,
-    }));
-  };
-
-  const handleCreateSituation = async () => {
-    if (effectiveCompanyId == null) {
-      setCreateError("Seleziona una company valida prima di creare una situazione.");
-      return;
-    }
-    if (!createForm.client_id) {
-      setCreateError("Seleziona un cliente.");
-      return;
-    }
-    if (!createForm.title.trim()) {
-      setCreateError("Il titolo è obbligatorio.");
-      return;
-    }
-
-    setCreateError(null);
-    setCreating(true);
-    try {
-      const created = await createContractApi({
-        company_id: effectiveCompanyId,
-        client_id: Number(createForm.client_id),
-        title: createForm.title.trim(),
-        contract_type: createForm.contract_type,
-        engagement_type: createForm.engagement_type || null,
-        commercial_stage: createForm.commercial_stage,
-        execution_stage: createForm.execution_stage.trim() || null,
-        stage_accepted_at: toIsoDatetimeValue(createForm.stage_accepted_at),
-        signed_at: toIsoDatetimeValue(createForm.signed_at),
-        start_date: createForm.start_date || null,
-        end_date: createForm.end_date || null,
-        commercial_notes: createForm.commercial_notes.trim() || null,
-        operational_brief: createForm.operational_brief.trim() || null,
-        contract_sent_at: toIsoDatetimeValue(createForm.contract_sent_at),
-        stage_sent_at: toIsoDatetimeValue(createForm.stage_sent_at),
-        stage_negotiation_at: toIsoDatetimeValue(createForm.stage_negotiation_at),
-        in_production_at: toIsoDatetimeValue(createForm.in_production_at),
-        completed_at: toIsoDatetimeValue(createForm.completed_at),
-        lost_at: toIsoDatetimeValue(createForm.lost_at),
-        pricing_view_mode: "aggregated",
-      });
-
-      toast.success("Situazione cliente creata");
-      setCreateOpen(false);
-      setReloadNonce((current) => current + 1);
-      setSelectedContractId(created.id);
-      setContractModalOpen(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Errore creazione situazione cliente";
-      setCreateError(message);
-      toast.error(message);
-    } finally {
-      setCreating(false);
-    }
   };
 
   const applyContractUpdateToClients = (updated: ContractDetailResponse) => {
@@ -1171,7 +863,7 @@ export function ClientsSituationPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="cs-scope px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
         eyebrow="Post-sales"
         eyebrowIcon={<Icon name="users" className="w-3.5 h-3.5" />}
@@ -1179,27 +871,14 @@ export function ClientsSituationPage() {
         lead={loading ? "Caricamento situazione clienti..." : `${stats.clients_count} clienti con contratti formalizzati`}
       />
 
-      <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] px-3 py-2 mb-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink dark:text-paper">
-          <span>
-            <b>{stats.clients_count}</b> clienti
-          </span>
-          <span>
-            <b>{stats.quotes_count}</b> preventivi
-          </span>
-          <span>
-            <b>{stats.contracts_count}</b> contratti
-          </span>
-          <span>
-            <b>{stats.active_contracts_count}</b> attivi
-          </span>
-          <span>
-            <b>{formatEur(stats.recurring_monthly_total)}</b> ricorrente/mese
-          </span>
-          <span>
-            <b>{formatEur(stats.one_time_total)}</b> una tantum
-          </span>
-        </div>
+      <div className="cs-summary mb-3">
+        <span><b>{stats.clients_count}</b> clienti</span>
+        <span><b>{stats.quotes_count}</b> preventivi</span>
+        <span><b>{stats.contracts_count}</b> contratti</span>
+        <span><b>{stats.active_contracts_count}</b> attivi</span>
+        <span className="cs-sum-sep" />
+        <span><b>{formatEur(stats.recurring_monthly_total)}</b> ricorrente/mese</span>
+        <span><b>{formatEur(stats.one_time_total)}</b> una tantum</span>
       </div>
 
       <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] px-3 py-2 mb-4 space-y-2">
@@ -1324,248 +1003,16 @@ export function ClientsSituationPage() {
               Nessun cliente trovato con i filtri selezionati.
             </div>
           ) : (
-            <div
-              className={
-                viewMode === "list"
-                  ? "space-y-3"
-                  : viewMode === "compact"
-                    ? "grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-2"
-                    : "grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3"
-              }
-            >
-              {clients.map((client) => (
-                (() => {
-                  const primaryStatus = getPrimaryStatus(client.contract_status_summary);
-
-                  if (viewMode === "compact") {
-                    return (
-                      <article
-                        key={client.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={(event) => {
-                          if (isInteractiveTarget(event.target)) return;
-                          openClientDetail(client);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openClientDetail(client);
-                          }
-                        }}
-                        className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] p-2.5 cursor-pointer"
-                      >
-                        <div className="text-xs font-semibold text-ink dark:text-paper truncate" title={client.name}>{client.name}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted dark:text-muted-dark">
-                          <span className="font-semibold text-ink dark:text-paper">Referente:</span>
-                          <span className="truncate max-w-[120px]" title={client.contact ?? undefined}>{client.contact || "n/d"}</span>
-                          {client.email && (
-                            <>
-                              <span aria-hidden>·</span>
-                              <button
-                                type="button"
-                                className="underline decoration-dotted underline-offset-2 hover:text-ink dark:hover:text-paper"
-                                onClick={() => void copyContactValue(client.email!, "Email copiata")}
-                                title="Copia email"
-                              >
-                                {client.email}
-                              </button>
-                            </>
-                          )}
-                          {client.phone && (
-                            <>
-                              <span aria-hidden>·</span>
-                              <button
-                                type="button"
-                                className="underline decoration-dotted underline-offset-2 hover:text-ink dark:hover:text-paper"
-                                onClick={() => void copyContactValue(client.phone!, "Telefono copiato")}
-                                title="Copia telefono"
-                              >
-                                {client.phone}
-                              </button>
-                            </>
-                          )}
-                        </div>
-
-                        <div className="mt-1.5 flex items-center justify-between gap-1.5">
-                          <span className="text-[11px] text-muted dark:text-muted-dark">{client.active_contract_count} attivi</span>
-                          <span className={`inline-flex items-center rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${paymentTone(client.payment_type)}`}>
-                            {client.payment_type_label ?? "n/d"}
-                          </span>
-                        </div>
-
-                        {primaryStatus && (
-                          <div className="mt-1 text-[10px] text-muted dark:text-muted-dark truncate" title={primaryStatus.label}>
-                            Stato: {primaryStatus.label}
-                            {typeof primaryStatus.count === "number" && primaryStatus.count > 0 ? ` (${primaryStatus.count})` : ""}
-                          </div>
-                        )}
-
-                        <div className="mt-1.5 text-xs font-semibold text-ink dark:text-paper">
-                          {formatCompactAmount(client.monthly_amount, client.total_amount)}
-                        </div>
-
-                        <div className="mt-1 pt-1 border-t border-line dark:border-line-dark">
-                          <div className="overflow-x-auto">
-                            <div className="flex items-stretch gap-1.5 min-w-full">
-                              {client.contracts.slice(0, 2).map((contract) => (
-                                <button
-                                  key={`compact-contract-${contract.id}`}
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openContractDetail(contract.id);
-                                  }}
-                                  className="shrink-0 rounded border border-line dark:border-line-dark px-1.5 py-1 text-[10px] text-left text-ink dark:text-paper hover:bg-cream dark:hover:bg-[#1c1c20]"
-                                  title={contract.title || `Contratto #${contract.id}`}
-                                >
-                                  {contract.title || `#${contract.id}`}
-                                </button>
-                              ))}
-                              {client.contracts.length > 2 && (
-                                <span className="shrink-0 rounded border border-dashed border-line dark:border-line-dark px-1.5 py-1 text-[10px] text-muted dark:text-muted-dark">
-                                  +{client.contracts.length - 2}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  }
-
-                  return (
-                <article
-                  key={client.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => {
-                    if (isInteractiveTarget(event.target)) return;
-                    openClientDetail(client);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openClientDetail(client);
-                    }
-                  }}
-                  className={`rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] p-3 ${
-                    viewMode === "list" ? "" : "h-full"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-ink dark:text-paper">{client.name}</div>
-                      <div className="text-xs text-muted dark:text-muted-dark mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                        <span className="font-semibold text-ink dark:text-paper">Referente:</span>
-                        <span>{client.contact || "n/d"}</span>
-                        {client.email && (
-                          <>
-                            <span aria-hidden>·</span>
-                            <button
-                              type="button"
-                              className="underline decoration-dotted underline-offset-2 hover:text-ink dark:hover:text-paper"
-                              onClick={() => void copyContactValue(client.email!, "Email copiata")}
-                              title="Copia email"
-                            >
-                              {client.email}
-                            </button>
-                          </>
-                        )}
-                        {client.phone && (
-                          <>
-                            <span aria-hidden>·</span>
-                            <button
-                              type="button"
-                              className="underline decoration-dotted underline-offset-2 hover:text-ink dark:hover:text-paper"
-                              onClick={() => void copyContactValue(client.phone!, "Telefono copiato")}
-                              title="Copia telefono"
-                            >
-                              {client.phone}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted dark:text-muted-dark mt-0.5">
-                        {client.city || ""}
-                        {client.prov ? ` (${client.prov})` : ""}
-                        {client.vat ? ` · P.IVA ${client.vat}` : ""}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      {primaryStatus && (
-                        <span className="inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-line dark:border-line-dark text-ink dark:text-paper">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted dark:bg-muted-dark" aria-hidden />
-                          Stato: {primaryStatus.label}
-                          {typeof primaryStatus.count === "number" && primaryStatus.count > 0 ? ` (${primaryStatus.count})` : ""}
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${paymentTone(client.payment_type)}`}>
-                        {client.payment_type_label ?? "n/d"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div>
-                      <div className="text-muted dark:text-muted-dark">Contratti attivi</div>
-                      <div className="font-semibold text-ink dark:text-paper">{client.active_contract_count}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted dark:text-muted-dark">Formalizzati</div>
-                      <div className="font-semibold text-ink dark:text-paper">{client.formalized_contract_count}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted dark:text-muted-dark">Prima firma</div>
-                      <div className="font-semibold text-ink dark:text-paper">{formatDate(client.first_signed_at)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted dark:text-muted-dark">Prima partenza</div>
-                      <div className="font-semibold text-ink dark:text-paper">{formatDate(client.first_start_date)}</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-sm font-semibold text-ink dark:text-paper">
-                    {formatAmountBreakdown(client.monthly_amount, client.one_time_amount, client.total_amount)}
-                  </div>
-
-                  {((client.work_areas?.length ?? 0) > 0 || (client.tags?.length ?? 0) > 0) && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(client.work_areas ?? []).map((area) => (
-                        <span
-                          key={`client-${client.id}-area-${area.id}`}
-                          className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                          style={area.color ? { borderColor: `${area.color}55`, color: area.color, backgroundColor: `${area.color}1A` } : undefined}
-                        >
-                          {area.name}
-                        </span>
-                      ))}
-                      {(client.tags ?? []).map((tag) => (
-                        <span
-                          key={`client-${client.id}-tag-${tag.id}`}
-                          className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                          style={tag.color ? { borderColor: `${tag.color}55`, color: tag.color, backgroundColor: `${tag.color}1A` } : undefined}
-                        >
-                          #{tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <ClientActivityTabs
-                    contracts={client.contracts}
-                    quotes={client.quotes ?? []}
-                    contractStatusSummary={client.contract_status_summary}
-                    quoteStatusSummary={client.quote_status_summary}
-                    onOpenContract={openContractDetail}
-                    onOpenWorkItems={openWorkItemsByContract}
-                    onOpenQuote={openQuoteDetail}
-                  />
-                </article>
-                  );
-                })()
-              ))}
-            </div>
+            <SituationViews
+              clients={clients}
+              viewMode={viewMode}
+              onOpenClient={openClientDetail}
+              onOpenContract={openContractDetail}
+              onOpenQuote={openQuoteDetail}
+              onOpenWorkItems={openWorkItemsByContract}
+              copyContact={copyContactValue}
+              primaryStatusOf={(client) => getPrimaryStatus(client.contract_status_summary)}
+            />
           )}
 
           {totalPages > 1 && (
@@ -1621,34 +1068,41 @@ export function ClientsSituationPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
+            <div className="seg-switch">
               <button
                 type="button"
                 onClick={() => setClientDetailTab("client")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "client" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "client" ? "is-active" : ""}
               >
                 Cliente
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("contracts")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "contracts" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "contracts" ? "is-active" : ""}
               >
                 Contratti ({selectedClient.contracts.length})
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("work-items")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "work-items" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "work-items" ? "is-active" : ""}
               >
                 Lavorazioni ({selectedClient.tasks_completion?.total_tasks ?? 0})
               </button>
               <button
                 type="button"
                 onClick={() => setClientDetailTab("quotes")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${clientDetailTab === "quotes" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+                className={clientDetailTab === "quotes" ? "is-active" : ""}
               >
                 Preventivi ({selectedClient.quotes?.length ?? 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setClientDetailTab("fatturazione")}
+                className={clientDetailTab === "fatturazione" ? "is-active" : ""}
+              >
+                Fatturazione
               </button>
             </div>
 
@@ -1716,41 +1170,152 @@ export function ClientsSituationPage() {
                   <div className="rounded-md border border-dashed border-line dark:border-line-dark px-3 py-5 text-sm text-muted dark:text-muted-dark">
                     Nessuna lavorazione disponibile per il cliente.
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-                    {clientWorkItems.map((item) => (
-                      <WorkItemSummaryCard
-                        key={`client-work-item-${item.id}`}
-                        item={{
-                          id: item.id,
-                          title: item.title,
-                          status: item.status,
-                          completion_state: item.is_completed
-                            ? "completed"
-                            : item.status === "in_progress"
-                              ? "in_progress"
-                              : item.status === "review"
-                                ? "review"
-                                : "todo",
-                          is_completed: item.is_completed,
-                          progress_percent: item.progress_percent,
-                          work_date: item.work_date,
-                          deadline_date: item.deadline_date,
-                          assignee_ids: item.assignee_ids,
-                          work_area_ids: item.work_area_ids,
-                          tag_ids: item.tag_ids,
-                          updated_at: item.updated_at,
-                        }}
-                        users={companyUsers}
-                        workAreas={availableAreas}
-                        workTags={availableTags}
-                        linkedToContract={(item.contract_ids?.length ?? 0) > 0}
-                        onEdit={() => void openWorkItemEdit(item.id)}
-                      />
-                    ))}
-                  </div>
-                )}
+                ) : (() => {
+                  const clientContracts = selectedClient.contracts ?? [];
+                  const unlinkedIds = clientWorkItems
+                    .filter((i) => (i.contract_ids?.length ?? 0) === 0)
+                    .map((i) => i.id);
+                  const unlinkedSet = new Set(unlinkedIds);
+                  const selectedUnlinked = unlinkedIds.filter((id) => linkSelection.has(id));
+                  const allSelected = unlinkedIds.length > 0 && selectedUnlinked.length === unlinkedIds.length;
+                  const toggleAll = () =>
+                    setLinkSelection((prev) => {
+                      const next = new Set(prev);
+                      if (allSelected) unlinkedIds.forEach((id) => next.delete(id));
+                      else unlinkedIds.forEach((id) => next.add(id));
+                      return next;
+                    });
+                  return (
+                    <div className="space-y-2.5">
+                      {clientContracts.length > 0 && (
+                        <div className="rounded-md border border-line bg-cream/40 p-2.5 dark:border-line-dark dark:bg-ink-2/40">
+                          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark">
+                            <Icon name="document-text" className="h-3.5 w-3.5" /> Contratti — trascina qui le lavorazioni
+                            per collegarle
+                          </div>
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {clientContracts.map((c) => {
+                              const linkedCount = clientWorkItems.filter((wi) =>
+                                (wi.contract_ids ?? []).includes(c.id)
+                              ).length;
+                              const active = dragOverContractId === c.id;
+                              return (
+                                <div
+                                  key={`drop-contract-${c.id}`}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    if (dragOverContractId !== c.id) setDragOverContractId(c.id);
+                                  }}
+                                  onDragLeave={() =>
+                                    setDragOverContractId((prev) => (prev === c.id ? null : prev))
+                                  }
+                                  onDrop={() => handleContractDrop(c.id)}
+                                  className={`flex min-w-[172px] max-w-[230px] flex-shrink-0 flex-col gap-1 rounded-lg border-2 border-dashed px-3 py-2.5 transition-colors ${
+                                    active
+                                      ? "border-brand-magenta bg-brand-magenta/5"
+                                      : "border-line dark:border-line-dark"
+                                  } ${linking ? "opacity-60" : ""}`}
+                                  title={c.title}
+                                >
+                                  <div className="truncate text-[13px] font-semibold text-ink dark:text-paper">
+                                    {c.title}
+                                  </div>
+                                  <div className="text-[11px] capitalize text-muted dark:text-muted-dark">
+                                    {(c.commercial_stage ?? "").replace(/_/g, " ") || "—"}
+                                  </div>
+                                  <div className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-pill bg-line/60 px-2 py-0.5 text-[10px] font-semibold text-muted dark:bg-line-dark/60 dark:text-muted-dark">
+                                    <Icon name="list" className="h-3 w-3" /> {linkedCount} collegate
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {unlinkedIds.length > 0 && (
+                        <div className="rounded-md border border-dashed border-warning/40 bg-warning/5 px-3 py-2.5 text-xs">
+                          {clientContracts.length === 0 ? (
+                            <div className="flex items-center gap-2 text-muted dark:text-muted-dark">
+                              <Icon name="information-circle" className="h-4 w-4 shrink-0 text-warning" />
+                              {unlinkedIds.length} lavorazioni senza contratto — crea prima un contratto per poterle
+                              collegare e fatturare.
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-ink dark:text-paper">
+                                <Icon name="information-circle" className="h-4 w-4 text-warning" />
+                                {unlinkedIds.length} senza contratto
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded border border-line px-2 py-1 font-semibold text-muted hover:text-ink dark:border-line-dark dark:text-muted-dark dark:hover:text-paper"
+                                onClick={toggleAll}
+                              >
+                                {allSelected ? "Deseleziona tutte" : "Seleziona tutte"}
+                              </button>
+                              <span className="text-muted dark:text-muted-dark">{selectedUnlinked.length} selezionate</span>
+                              <span className="mx-1 h-4 w-px bg-line dark:bg-line-dark" />
+                              <select
+                                className="rounded-md border border-line bg-paper px-2 py-1.5 text-xs text-ink dark:border-line-dark dark:bg-ink-2 dark:text-paper"
+                                value={linkContractId ?? ""}
+                                onChange={(e) => setLinkContractId(e.target.value ? Number(e.target.value) : null)}
+                              >
+                                <option value="">Scegli contratto…</option>
+                                {clientContracts.map((c) => (
+                                  <option key={`link-contract-${c.id}`} value={c.id}>
+                                    {c.title}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={linking}
+                                disabled={linking || linkContractId == null || selectedUnlinked.length === 0}
+                                onClick={() => void bulkLinkToContract(unlinkedIds)}
+                              >
+                                <Icon name="document-text" className="h-3.5 w-3.5" /> Collega{" "}
+                                {selectedUnlinked.length > 0 ? selectedUnlinked.length : ""}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+                        {clientWorkItems.map((item) => {
+                          const isUnlinked = unlinkedSet.has(item.id);
+                          const canSelect = isUnlinked && clientContracts.length > 0;
+                          return (
+                            <WorkItemBoardCard
+                              key={`client-work-item-${item.id}`}
+                              item={item}
+                              clientName={selectedClient.name}
+                              users={companyUsers}
+                              workAreas={availableAreas}
+                              workTags={availableTags}
+                              linkedToContract={(item.contract_ids?.length ?? 0) > 0}
+                              showContractStatus
+                              selectable={canSelect}
+                              selected={linkSelection.has(item.id)}
+                              onToggleSelect={() => toggleLinkSelection(item.id)}
+                              onEdit={() => void openWorkItemEdit(item.id)}
+                              draggable={clientContracts.length > 0}
+                              onDragStart={(e) => handleItemDragStart(item.id, e)}
+                              onDragEnd={handleItemDragEnd}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
+            )}
+
+            {clientDetailTab === "fatturazione" && selectedClientId != null && (
+              <ClientBillingTab clientId={selectedClientId} />
             )}
 
             {clientDetailTab === "quotes" && (
@@ -1870,157 +1435,35 @@ export function ClientsSituationPage() {
         }}
       />
 
-      <Modal
+      <SituationWizardModal
         open={createOpen}
+        companyId={effectiveCompanyId}
+        clients={companyClients}
+        clientsLoading={companyClientsLoading}
+        canCreateTaxonomy={isAdmin}
+        canSyncFromFic={isAdmin}
         onClose={closeCreateSituation}
-        title="Nuova situazione cliente"
-        size="xl"
-        footer={
-          <>
-            <Button variant="ghost" onClick={closeCreateSituation} disabled={creating}>Annulla</Button>
-            <Button variant="primary" onClick={handleCreateSituation} loading={creating}>Crea situazione</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {createError && (
-            <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
-              {createError}
-            </div>
-          )}
+        onCreated={(created) => {
+          setReloadNonce((current) => current + 1);
+          setSelectedContractId(created.id);
+          setContractModalOpen(true);
+        }}
+      />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Cliente *</label>
-              <SearchableSelect
-                value={createForm.client_id}
-                onChange={handleCreateClientChange}
-                options={clientOptions}
-                placeholder={companyClientsLoading ? "Caricamento clienti..." : "Seleziona cliente"}
-                searchPlaceholder="Cerca cliente..."
-                disabled={companyClientsLoading}
-              />
-            </div>
-            <Input
-              label="Titolo *"
-              value={createForm.title}
-              onChange={(event) => updateCreateForm("title", event.target.value)}
-              placeholder="Situazione cliente - La Perla Del Mare"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo contratto</label>
-              <SearchableSelect
-                value={createForm.contract_type}
-                onChange={(value) => updateCreateForm("contract_type", value as ContractType)}
-                options={[
-                  { value: "commercial", label: "Commerciale" },
-                  { value: "execution", label: "Execution" },
-                ]}
-                placeholder="Tipo contratto"
-                searchPlaceholder="Cerca tipo..."
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo ingaggio</label>
-              <SearchableSelect
-                value={createForm.engagement_type}
-                onChange={(value) => updateCreateForm("engagement_type", value as "" | ContractEngagementType)}
-                options={[
-                  { value: "", label: "Non specificato" },
-                  { value: "one_time", label: "Una tantum" },
-                  { value: "ongoing", label: "Continuativo" },
-                ]}
-                placeholder="Tipo ingaggio"
-                searchPlaceholder="Cerca tipo..."
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Situazione contrattuale</label>
-              <SearchableSelect
-                value={createForm.commercial_stage}
-                onChange={(value) => updateCreateForm("commercial_stage", value as ContractCommercialStage)}
-                options={CONTRACT_STAGE_ORDER.map((stage) => ({ value: stage, label: CONTRACT_STAGE_LABELS[stage] }))}
-                placeholder="Situazione contrattuale"
-                searchPlaceholder="Cerca stato..."
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              label="Situazione operativa"
-              value={createForm.execution_stage}
-              onChange={(event) => updateCreateForm("execution_stage", event.target.value)}
-              placeholder="Es. in_produzione"
-            />
-            <Input
-              label="Firma/accettazione preventivo"
-              type="datetime-local"
-              value={createForm.stage_accepted_at}
-              onChange={(event) => updateCreateForm("stage_accepted_at", event.target.value)}
-            />
-            <Input
-              label="Firma contratto"
-              type="datetime-local"
-              value={createForm.signed_at}
-              onChange={(event) => updateCreateForm("signed_at", event.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input
-              label="Inizio periodo"
-              type="date"
-              value={createForm.start_date}
-              onChange={(event) => updateCreateForm("start_date", event.target.value)}
-            />
-            <Input
-              label="Fine periodo"
-              type="date"
-              value={createForm.end_date}
-              onChange={(event) => updateCreateForm("end_date", event.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Accordi commerciali</label>
-              <Textarea
-                rows={3}
-                value={createForm.commercial_notes}
-                onChange={(event) => updateCreateForm("commercial_notes", event.target.value)}
-                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                placeholder="Accordi economici concordati"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Accordi operativi</label>
-              <Textarea
-                rows={3}
-                value={createForm.operational_brief}
-                onChange={(event) => updateCreateForm("operational_brief", event.target.value)}
-                className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                placeholder="Attività operative e vincoli cliente"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-md border border-line dark:border-line-dark p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark mb-2">Timeline opzionale</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input label="Inviato stage" type="datetime-local" value={createForm.stage_sent_at} onChange={(event) => updateCreateForm("stage_sent_at", event.target.value)} />
-              <Input label="In trattativa" type="datetime-local" value={createForm.stage_negotiation_at} onChange={(event) => updateCreateForm("stage_negotiation_at", event.target.value)} />
-              <Input label="Contratto inviato" type="datetime-local" value={createForm.contract_sent_at} onChange={(event) => updateCreateForm("contract_sent_at", event.target.value)} />
-              <Input label="In produzione" type="datetime-local" value={createForm.in_production_at} onChange={(event) => updateCreateForm("in_production_at", event.target.value)} />
-              <Input label="Completato" type="datetime-local" value={createForm.completed_at} onChange={(event) => updateCreateForm("completed_at", event.target.value)} />
-              <Input label="Perso" type="datetime-local" value={createForm.lost_at} onChange={(event) => updateCreateForm("lost_at", event.target.value)} />
-            </div>
-          </div>
-        </div>
-      </Modal>
+      {dragCount > 1 &&
+        createPortal(
+          <div ref={setDragGhost} className="wl-drag-ghost" aria-hidden>
+            <span className="wl-drag-ghost-stack">
+              <span className="wl-drag-ghost-card c3" />
+              <span className="wl-drag-ghost-card c2" />
+              <span className="wl-drag-ghost-card c1">
+                <Icon name="list" className="h-3.5 w-3.5" /> {dragCount} lavorazioni
+              </span>
+              <span className="wl-drag-ghost-badge">{dragCount}</span>
+            </span>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -1,40 +1,98 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { getUsersApi, type User } from "../api/users";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import { useSearchParams } from "react-router-dom";
+import { getUsersApi, updateMeApi, type User } from "../api/users";
 import { listRolesApi, type Role } from "../api/roles";
-import { getWorkItemApi, moveWorkItemApi, type MoveWorkItemPayload, type WorkItem } from "../api/workItems";
-import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
-import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import {
-  applyWorkloadEngineRunApi,
-  getWorkloadAllocationGridApi,
+  getWorkItemApi,
+  isSwapConfirmationRequiredError,
+  isWorkItemOverlapApiError,
+  moveWorkItemApi,
+  rescheduleNextAvailableWorkItemApi,
+  swapWorkItemsApi,
+  updateWorkItemApi,
+  type WorkItemSwapPreviewResponse,
+  type WorkItemSwapEffectivePosition,
+  type MoveWorkItemPayload,
+  type WorkItem,
+  type WorkItemOverlapConflict,
+  type WorkItemSuggestedSlot,
+  type WorkItemScheduleState,
+} from "../api/workItems";
+import { getCompanyApi } from "../api/companies";
+import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { TaskConflictModal } from "../components/work-items/TaskConflictModal";
+import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
+import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
+import { WorkloadCalendar, type WorkloadCalendarDensity, type WorkloadCalendarHandle } from "../components/workload/WorkloadCalendar";
+import { WorkloadDateNav } from "../components/workload/WorkloadDateNav";
+import { WorkloadTray, type WorkloadTrayLayout, type WorkloadTrayTab, type WorkloadTrayGroup, type WorkloadTrayItem } from "../components/workload/WorkloadTray";
+import { WorkloadMonthGrid } from "../components/workload/WorkloadMonthGrid";
+import { SwapConfirmModal } from "../components/workload/SwapConfirmModal";
+import {
   getWorkloadUserCalendarDayApi,
+  getWorkloadToPlanApi,
   listWorkloadUsersApi,
   listWorkloadUsersGroupedByAreaAndDayApi,
-  previewWorkloadEngineRunApi,
-  type WorkloadAllocationGrid,
+  type WorkloadToPlanResponse,
   type WorkloadComputedStatus,
-  type WorkloadDayStatus,
-  type WorkloadEngineRunResponse,
   type WorkloadGroupedByAreaAndDayResponse,
   type WorkloadTaskSummary,
   type WorkloadTimelineItem,
+  type WorkloadCalendarConflict,
   type WorkloadUserByDay,
   type WorkloadUserCalendarDayResponse,
   type WorkloadUserSummary,
 } from "../api/workload";
 import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
+import { MultiSelect } from "../components/ui/MultiSelect";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../hooks/useAuth";
+import { useOverdueTasks } from "../hooks/useOverdueTasks";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import "./workload-page.css";
 
 type RangeMode = "day" | "week" | "month" | "custom";
-type ViewMode = "accordion" | "complete" | "heatmap" | "calendar" | "griglia";
+type ViewMode = "accordion" | "complete" | "heatmap" | "calendar";
+
+// ── Persistenza stato calendario nella URL (sopravvive al refresh) ──
+const RANGE_MODES: RangeMode[] = ["day", "week", "month", "custom"];
+const VIEW_MODES: ViewMode[] = ["accordion", "complete", "heatmap", "calendar"];
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseRangeParam(value: string | null, fallback: RangeMode): RangeMode {
+  return RANGE_MODES.includes(value as RangeMode) ? (value as RangeMode) : fallback;
+}
+function parseViewParam(value: string | null, fallback: ViewMode): ViewMode {
+  return VIEW_MODES.includes(value as ViewMode) ? (value as ViewMode) : fallback;
+}
+function parseIsoDateParam(value: string | null, fallback: string): string {
+  return value && ISO_DATE_RE.test(value) ? value : fallback;
+}
+function parseIntParam(value: string | null, fallback: number): number {
+  const n = Number(value);
+  return value != null && Number.isInteger(n) ? n : fallback;
+}
+function parseOpsParam(value: string | null): number[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((part) => Number(part))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+type CalendarCreatePreview = { startMinutes: number; endMinutes: number; isDragging: boolean };
+type CalendarResizeState = {
+  workItemId: number;
+  startMinutes: number;
+  originalEndMinutes: number;
+  currentEndMinutes: number;
+  minEndMinutes: number;
+  maxEndMinutes: number;
+  startClientY: number;
+};
 
 const RANGE_MODE_OPTIONS: Array<{ value: Exclude<RangeMode, "custom">; label: string }> = [
   { value: "day", label: "Giorno" },
@@ -47,10 +105,12 @@ const VIEW_MODE_OPTIONS: Array<{ value: ViewMode; label: string; icon: IconName 
   { value: "complete", label: "Vista completa", icon: "document-text" },
   { value: "heatmap", label: "Heatmap", icon: "activity" },
   { value: "calendar", label: "Calendario", icon: "annotation" },
-  { value: "griglia", label: "Griglia allocazioni", icon: "grid" },
 ];
 
 const CALENDAR_SLOT_MINUTES = 30;
+const CALENDAR_CREATE_SLOT_MINUTES = 15;
+const CALENDAR_HOUR_HEIGHT_PX = 64;
+const CALENDAR_INITIAL_SCROLL_OFFSET_PX = 16;
 
 function dateFromIso(iso: string): Date {
   const [year, month, day] = iso.split("-").map(Number);
@@ -121,6 +181,30 @@ function formatDayChip(iso: string): { weekday: string; day: string; month: stri
   };
 }
 
+// Intestazione giorno nelle lane dell'accordion (es. "mercoledì 24 giugno"); il CSS la rende maiuscola.
+function formatAccDayLabel(iso: string): string {
+  return dateFromIso(iso).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" });
+}
+
+/** Raggruppa una lista di giorni (ISO) in settimane (lun→dom), per la vista "mese" della vista completa. */
+function groupDaysIntoWeeks(days: string[]): { key: string; days: string[]; label: string }[] {
+  const groups: { key: string; days: string[] }[] = [];
+  for (const day of days) {
+    const date = dateFromIso(day);
+    const dow = (date.getDay() + 6) % 7; // 0 = lunedì
+    const monday = shiftIsoByDays(day, -dow);
+    const last = groups[groups.length - 1];
+    if (last && last.key === monday) last.days.push(day);
+    else groups.push({ key: monday, days: [day] });
+  }
+  return groups.map((g) => {
+    const first = dateFromIso(g.days[0]);
+    const lastD = dateFromIso(g.days[g.days.length - 1]);
+    const month = lastD.toLocaleDateString("it-IT", { month: "short" }).replace(".", "");
+    return { key: g.key, days: g.days, label: `${first.getDate()}–${lastD.getDate()} ${month}` };
+  });
+}
+
 function formatRangeLabel(fromIso: string, toIso: string): string {
   const from = dateFromIso(fromIso);
   const to = dateFromIso(toIso);
@@ -136,7 +220,12 @@ function formatRangeLabel(fromIso: string, toIso: string): string {
 }
 
 function formatHours(value: number) {
-  return `${value.toFixed(1)}h`;
+  const totalMinutes = Math.round((value || 0) * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
 }
 
 function taskEffectiveHours(task: Pick<WorkloadTaskSummary, "affects_daily_load" | "effective_load_hours" | "estimated_hours">): number {
@@ -149,14 +238,6 @@ function taskHoursLabel(task: Pick<WorkloadTaskSummary, "affects_daily_load" | "
   const effective = taskEffectiveHours(task);
   if (task.estimated_hours == null) return `${formatHours(effective)} eff`;
   return `${formatHours(effective)} eff · ${formatHours(task.estimated_hours)} st`;
-}
-
-function statusBadgeVariant(status: WorkloadComputedStatus) {
-  if (status === "overload") return "danger" as const;
-  if (status === "warning") return "warning" as const;
-  if (status === "ok" || status === "active") return "success" as const;
-  if (status === "empty") return "default" as const;
-  return "info" as const;
 }
 
 function statusLabel(status: WorkloadComputedStatus) {
@@ -184,19 +265,12 @@ function statusLabel(status: WorkloadComputedStatus) {
   }
 }
 
-function heatClass(status: WorkloadComputedStatus) {
-  if (status === "overload") return "bg-danger/20 border-danger/30";
-  if (status === "warning") return "bg-warning/20 border-warning/30";
-  if (status === "ok" || status === "active") return "bg-success/20 border-success/30";
-  if (status === "empty") return "bg-line dark:bg-line-dark border-line dark:border-line-dark";
-  return "bg-info/20 border-info/30";
-}
-
-function heatmapLoadClass(utilizationPercent: number, status: WorkloadComputedStatus) {
-  if (status === "empty" || utilizationPercent <= 0) return "bg-line dark:bg-line-dark border-line dark:border-line-dark";
-  if (utilizationPercent >= 100) return "bg-danger/20 border-danger/30";
-  if (utilizationPercent >= 80) return "bg-warning/20 border-warning/30";
-  return "bg-success/20 border-success/30";
+// Badge stato lane accordion in stile prototipo (.acc-badge): pill senza bordo, tinta piena.
+function accBadgeClass(status: WorkloadComputedStatus): string {
+  const base = "inline-flex items-center h-[26px] px-3 rounded-pill text-[11px] font-bold uppercase tracking-[0.04em] whitespace-nowrap";
+  if (status === "overload") return `${base} bg-[#ef3a65] text-white`;
+  if (status === "warning") return `${base} bg-[#f5b800]/20 text-[#b07d00] dark:text-[#f5c64a]`;
+  return `${base} bg-[#16eb96]/20 text-[#0c8a57] dark:text-[#3fe9a0]`;
 }
 
 function getTaskDay(task: WorkloadTaskSummary): string {
@@ -224,20 +298,9 @@ function formatTaskStartTime(value: string | null): string | null {
 
 function hhmmToMinutes(value: string | null | undefined): number | null {
   if (!value) return null;
-  const [h, m] = value.split(":").map(Number);
+  const [h, m] = value.split(":").slice(0, 2).map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
-}
-
-function clampTimeline(start: number, end: number): { start: number; end: number } {
-  const min = 0;
-  const max = 24 * 60;
-  const safeStart = Math.min(max, Math.max(min, start));
-  const safeEnd = Math.min(max, Math.max(min, end));
-  if (safeEnd <= safeStart) {
-    return { start: safeStart, end: Math.min(max, safeStart + 30) };
-  }
-  return { start: safeStart, end: safeEnd };
 }
 
 function minutesToHHMM(totalMinutes: number): string {
@@ -247,31 +310,31 @@ function minutesToHHMM(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function snapMinutesToSlot(totalMinutes: number, slotMinutes = CALENDAR_SLOT_MINUTES): number {
-  const max = (24 * 60) - slotMinutes;
-  const bounded = Math.max(0, Math.min(max, totalMinutes));
-  return Math.round(bounded / slotMinutes) * slotMinutes;
+function resolveTimelineTask(item: WorkloadTimelineItem) {
+  return (item as { task?: (WorkItem & { client?: { commercial_name?: string | null; name?: string | null } | null }) | null }).task ?? null;
 }
 
-function timelineItemClass(kind: WorkloadTimelineItem["kind"]) {
-  if (kind === "break") return "border-amber-400 text-amber-900 dark:border-amber-700 dark:text-amber-100";
-  if (kind === "remote") return "border-sky-300 bg-sky-100/80 text-sky-900 dark:border-sky-700 dark:bg-sky-900/35 dark:text-sky-100";
-  if (kind === "holiday" || kind === "day_off") return "border-rose-300 bg-rose-100/80 text-rose-900 dark:border-rose-700 dark:bg-rose-900/35 dark:text-rose-100";
-  return "border-line bg-paper/90 text-ink dark:border-line-dark dark:bg-ink-soft/90 dark:text-paper";
+function resolveTimelineScheduleState(item: WorkloadTimelineItem): WorkItemScheduleState | null {
+  return resolveTimelineTask(item)?.schedule_state ?? item.schedule_state ?? null;
 }
 
-function timelineItemStyle(item: WorkloadTimelineItem) {
-  if (item.kind === "break") {
-    return {
-      backgroundColor: "rgba(245, 158, 11, 0.2)",
-      backgroundImage:
-        "repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0px, rgba(245, 158, 11, 0.18) 8px, rgba(245, 158, 11, 0.36) 8px, rgba(245, 158, 11, 0.36) 16px)",
-    };
-  }
-  if (item.color) {
-    return { backgroundColor: item.color };
-  }
-  return undefined;
+function resolveTimelineEffectiveHours(item: WorkloadTimelineItem) {
+  const state = resolveTimelineScheduleState(item);
+  if (typeof state?.effective_load_hours === "number") return state.effective_load_hours;
+  if (item.affects_daily_load === false) return 0;
+  return item.effective_load_hours ?? item.estimated_hours ?? 0;
+}
+
+function calendarConflictClass(conflict: WorkloadCalendarConflict) {
+  if (conflict.severity === "danger") return "border-danger/35 bg-danger/10 text-danger";
+  if (conflict.severity === "warning") return "border-warning/35 bg-warning/10 text-warning";
+  return "border-info/30 bg-info/10 text-info";
+}
+
+function calendarConflictIcon(conflict: WorkloadCalendarConflict) {
+  if (conflict.severity === "danger") return "alert-triangle" as const;
+  if (conflict.severity === "warning") return "alert-triangle" as const;
+  return "info" as const;
 }
 
 function extractCalendarOperators(groups: WorkloadGroupedByAreaAndDayResponse | null): WorkloadUserByDay[] {
@@ -289,12 +352,35 @@ function extractCalendarOperators(groups: WorkloadGroupedByAreaAndDayResponse | 
 
 export function WorkloadPage() {
   const toast = useToast();
-  const { user, permissions } = useAuth();
+  const { user, permissions, refreshSession } = useAuth();
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
+  const toastRef = useRef(toast);
 
-  const [rangeMode, setRangeMode] = useState<RangeMode>("week");
-  const [anchorDate, setAnchorDate] = useState(getTodayDate());
-  const [weekOffset, setWeekOffset] = useState(0);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
+
+  // Stato calendario persistito nella URL: ripristinato al primo render (sopravvive al refresh).
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [rangeMode, setRangeMode] = useState<RangeMode>(() => parseRangeParam(searchParams.get("range"), "week"));
+  const [calendarDensity, setCalendarDensity] = useState<WorkloadCalendarDensity>("comfortable");
+  // Mostra/nascondi le task in revisione sul calendario.
+  const [showReviewTasks, setShowReviewTasks] = useState(true);
+  // Legenda collassabile: di default chiusa per dare più spazio al calendario.
+  const [legendOpen, setLegendOpen] = useState(false);
+  // Tray "Da pianificare" condivisa da tutte le view: layout (sidebar/dock) + stato pannello dock + tab.
+  const [trayLayout, setTrayLayout] = useState<WorkloadTrayLayout>("sidebar");
+  const [trayDockOpen, setTrayDockOpen] = useState(false);
+  const [trayTab, setTrayTab] = useState<WorkloadTrayTab>("reassign");
+  const [trayOnlyMine, setTrayOnlyMine] = useState(false);
+  // Admin/PM: mostra nella tray le task di TUTTI gli operatori, ignorando la
+  // selezione operatori del calendario (vale per ogni scheda).
+  const [trayAllOperators, setTrayAllOperators] = useState(false);
+  // Handle al calendario: la tray (a livello pagina) avvia il drag pointer-based del calendario.
+  const calendarRef = useRef<WorkloadCalendarHandle>(null);
+  const [anchorDate, setAnchorDate] = useState(() => parseIsoDateParam(searchParams.get("anchor"), getTodayDate()));
+  const [weekOffset, setWeekOffset] = useState(() => parseIntParam(searchParams.get("woff"), 0));
   const [customFromDate, setCustomFromDate] = useState(getTodayDate());
   const [customToDate, setCustomToDate] = useState(getTodayDate());
 
@@ -303,8 +389,8 @@ export function WorkloadPage() {
   const [sortBy, setSortBy] = useState<"name" | "load" | "utilization" | "tasks">("load");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const [viewMode, setViewMode] = useState<ViewMode>("accordion");
-  const [selectedDay, setSelectedDay] = useState(getTodayDate());
+  const [viewMode, setViewMode] = useState<ViewMode>(() => parseViewParam(searchParams.get("view"), "accordion"));
+  const [selectedDay, setSelectedDay] = useState(() => parseIsoDateParam(searchParams.get("day"), getTodayDate()));
 
   const [summary, setSummary] = useState<WorkloadUserSummary[]>([]);
   const [heatmap, setHeatmap] = useState<WorkloadGroupedByAreaAndDayResponse | null>(null);
@@ -313,48 +399,315 @@ export function WorkloadPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [expandedAreas, setExpandedAreas] = useState<Record<string, boolean>>({});
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
 
   const [teamModalOpen, setTeamModalOpen] = useState(false);
 
   const [newWorkModalOpen, setNewWorkModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
-  const [quickAdd, setQuickAdd] = useState<{ day: string; userId: number } | null>(null);
-  const [openingEditTaskId, setOpeningEditTaskId] = useState<number | null>(null);
+  const [quickAdd, setQuickAdd] = useState<{ day: string; userId: number; startTime?: string; estimatedHours?: number } | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [dragSourceAssigneeId, setDragSourceAssigneeId] = useState<number | null | undefined>(undefined);
-  const [movingTaskId, setMovingTaskId] = useState<number | null>(null);
+  // Traccia la task in fase di spostamento (per evitare drag concorrenti); il feedback visivo
+  // ora è un toast unificato (non più un riquadro dedicato).
+  const [, setMovingTaskId] = useState<number | null>(null);
   const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
   const [hotDropTarget, setHotDropTarget] = useState<string | null>(null);
   const moveInFlightRef = useRef(false);
   const completeScrollRef = useRef<HTMLDivElement | null>(null);
   const dropHoverRef = useRef<{ key: string | null; sinceMs: number }>({ key: null, sinceMs: 0 });
+  const calendarScrollRef = useRef<HTMLDivElement | null>(null);
+  const calendarInitialScrollKeyRef = useRef<string | null>(null);
   const [unassignedOpen, setUnassignedOpen] = useState(false);
-  const [calendarOperatorId, setCalendarOperatorId] = useState<number | null>(null);
+  // Operatori selezionati nel calendario: 1 → vista singola (com'era), >1 → colonne affiancate.
+  const [calendarOperatorIds, setCalendarOperatorIds] = useState<number[]>(() => parseOpsParam(searchParams.get("ops")));
+  // Operatori ripristinati da URL ancora da validare contro la lista caricata (heatmap async).
+  const initialUrlOps = parseOpsParam(searchParams.get("ops"));
+  const pendingUrlOpsRef = useRef<number[] | null>(initialUrlOps.length > 0 ? initialUrlOps : null);
+  const calendarOperatorId = calendarOperatorIds[0] ?? null; // operatore primario (vista singola)
+  // Bump per forzare il refetch del calendario multi-operatore dopo modifiche esterne (es. nuova task).
+  const [multiReloadToken, setMultiReloadToken] = useState(0);
   const [calendarData, setCalendarData] = useState<WorkloadUserCalendarDayResponse | null>(null);
+  // Dati tray "Da pianificare" per le view non-calendario (operatore selezionato/preferito).
+  const [toPlanData, setToPlanData] = useState<WorkloadToPlanResponse | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
-  const [calendarDropPreviewMinutes, setCalendarDropPreviewMinutes] = useState<number | null>(null);
+  const [, setCalendarDropPreviewMinutes] = useState<number | null>(null);
+  const [, setCalendarCreatePreview] = useState<CalendarCreatePreview | null>(null);
+  const [, setCalendarResizeState] = useState<CalendarResizeState | null>(null);
+  const [, setCalendarTaskUiState] = useState<Record<number, "saving" | "exiting">>({});
+  const [calendarConflictModal, setCalendarConflictModal] = useState<{
+    message: string;
+    conflicts: WorkItemOverlapConflict[];
+    suggestedSlots: WorkItemSuggestedSlot[];
+    /** Data richiesta in origine: distingue gli slot "stesso giorno" dai rimandi. */
+    requestedDate: string | null;
+    /** Riprogramma la task allo slot scelto (varia in base all'operazione: creazione o spostamento). */
+    onPickSlot?: (slot: WorkItemSuggestedSlot) => void;
+  } | null>(null);
+  const [conflictRetrySlot, setConflictRetrySlot] = useState<string | null>(null);
+  const [calendarConflictsModalOpen, setCalendarConflictsModalOpen] = useState(false);
+  const [conflictsModalTab, setConflictsModalTab] = useState<"conflitti" | "arretrate">("conflitti");
+  const [reschedulingTaskId, setReschedulingTaskId] = useState<number | null>(null);
   const calendarRequestSeqRef = useRef(0);
+  const calendarCreateDragStartRef = useRef<number | null>(null);
+  // ── Swap preview state (residuo del drag-and-drop swap, mantenuto per il reset al drag-end) ──
+  const [, setSwapPreview] = useState<{ targetIds: number[]; canSwap: boolean | null } | null>(null);
+  const swapPreviewSeqRef = useRef(0);
+  const swapHoverKeyRef = useRef<string | null>(null);
+  // Spring-open: trascinando una task sopra un box-giorno della strip, dopo una breve attesa
+  // il calendario apre quel giorno così la si può rilasciare in uno slot orario (stile AD4).
+  const daySpringTimerRef = useRef<number | null>(null);
+  const daySpringDayRef = useRef<string | null>(null);
+  const [companyOpeningTime, setCompanyOpeningTime] = useState<string | null>(null);
+  const [companyClosingTime, setCompanyClosingTime] = useState<string | null>(null);
+  // Minuti dall'inizio del giorno per la linea "ora corrente"; aggiornato ogni minuto.
+  const [nowMinutes, setNowMinutes] = useState(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  });
 
-  // ── Workload Engine State ──────────────────────────────────────────────────
-  const [engineRunning, setEngineRunning] = useState(false);
-  const [engineResult, setEngineResult] = useState<WorkloadEngineRunResponse | null>(null);
-  const [engineError, setEngineError] = useState<string | null>(null);
-  const [engineModalOpen, setEngineModalOpen] = useState(false);
-
-  // ── Allocation Grid State ──────────────────────────────────────────────────
-  const [allocationGrid, setAllocationGrid] = useState<WorkloadAllocationGrid | null>(null);
-  const [allocationGridLoading, setAllocationGridLoading] = useState(false);
-  const [allocationGridError, setAllocationGridError] = useState<string | null>(null);
-  const [allocationGridView, setAllocationGridView] = useState<"globale" | "operatore" | "area">("globale");
+  // ── Arretrati (overdue tasks) per l'operatore selezionato in calendario ──────
+  const {
+    data: overdueData,
+    isLoading: overdueLoading,
+    error: overdueError,
+  } = useOverdueTasks(
+    {
+      company_id: selectedCompanyId ?? undefined,
+      user_id: calendarOperatorId ?? undefined,
+      days: 7,
+    },
+    { enabled: calendarConflictsModalOpen && !!selectedCompanyId && !!calendarOperatorId }
+  );
 
   const canManageProfiles = !!permissions?.is_admin;
+  // Vista ristretta (solo calendario, solo se stessi) per i soli operatori.
+  // Admin e Project Manager vedono/gestiscono tutti gli operatori e tutte le viste.
+  const isOperatorView = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
+  // Per l'operatore la sidebar tiene in primo piano Scadute e In revisione: all'apertura
+  // apriamo direttamente "Scadute" (una sola volta, senza sovrascrivere scelte successive).
+  const operatorTabDefaulted = useRef(false);
+  useEffect(() => {
+    if (isOperatorView && !operatorTabDefaulted.current) {
+      operatorTabDefaulted.current = true;
+      setTrayTab("overdue");
+    }
+  }, [isOperatorView]);
+  // Tutte le view sono a tutta altezza: la pagina non scrolla (header/toolbar fissi),
+  // scrolla solo la sezione contenuto sotto. Niente sottotitolo né barra giorni.
+  const isFillView = true;
 
   const visibleDays = useMemo(() => getVisibleDays(rangeMode, anchorDate, weekOffset), [anchorDate, rangeMode, weekOffset]);
   const calendarOperators = useMemo(() => extractCalendarOperators(heatmap), [heatmap]);
+
+  // ── Scadute (overdue) per la sidebar: admin/PM vedono tutti gli operatori, l'operatore
+  //    solo le proprie. Caricate a livello pagina (non gated al modal), raggruppate per operatore.
+  const { data: sidebarOverdueData } = useOverdueTasks(
+    {
+      company_id: selectedCompanyId ?? undefined,
+      user_id: isOperatorView && user?.id != null ? user.id : undefined,
+      days: 60,
+    },
+    { enabled: !!selectedCompanyId }
+  );
+
+  // Lookup nome/avatar operatore (per gli operatori presenti solo tra le scadute).
+  const operatorMeta = useMemo(() => {
+    const meta = new Map<number, { name: string; avatarUrl: string | null }>();
+    calendarOperators.forEach((op) => meta.set(op.user_id, { name: op.full_name || op.username, avatarUrl: op.avatar_url }));
+    (toPlanData?.operators ?? []).forEach((op) => {
+      if (!meta.has(op.user_id)) meta.set(op.user_id, { name: op.full_name || op.username, avatarUrl: op.avatar_url });
+    });
+    return meta;
+  }, [calendarOperators, toPlanData]);
+
+  // Scadute raggruppate per operatore (una task con più assegnatari compare per ciascuno).
+  const overdueByUser = useMemo(() => {
+    const map = new Map<number, WorkloadTrayItem[]>();
+    const onlySelf = isOperatorView && user?.id != null ? user.id : null;
+    (sidebarOverdueData?.tasks ?? []).forEach((t) => {
+      const item: WorkloadTrayItem = {
+        id: t.work_item_id,
+        client: t.client_name || "Senza cliente",
+        type: t.title,
+        durationMinutes: Math.max(15, Math.round((t.effective_load_hours || 0.5) * 60)),
+        areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+        isOverdue: true,
+        daysOverdue: t.days_overdue,
+        nonDeferrable: t.delay_code === "non_deferrable_overdue",
+      };
+      const assignees = t.assignee_ids?.length ? t.assignee_ids : [];
+      assignees.forEach((uid) => {
+        if (onlySelf != null && uid !== onlySelf) return;
+        const arr = map.get(uid) ?? [];
+        arr.push(item);
+        map.set(uid, arr);
+      });
+    });
+    return map;
+  }, [sidebarOverdueData, isOperatorView, user?.id]);
+
+  // Tray "Da pianificare" a livello azienda, raggruppata per operatore (admin/PM vedono tutti;
+  // l'operatore vede solo se stesso). I bucket: "reassign" (oltre capacità), "unscheduled" (senza
+  // orario) e "overdue" (oltre la scadenza).
+  const trayGroups = useMemo<WorkloadTrayGroup[]>(() => {
+    const toItem = (t: {
+      work_item_id: number;
+      client_name: string | null;
+      title: string;
+      effective_load_hours: number;
+      work_areas: { color: string | null }[];
+      overflow_hours?: number;
+    }): WorkloadTrayItem => ({
+      id: t.work_item_id,
+      client: t.client_name || "Senza cliente",
+      type: t.title,
+      durationMinutes: Math.max(15, Math.round((t.effective_load_hours || 0.5) * 60)),
+      areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+      overflowHours: t.overflow_hours,
+    });
+    const byUser = new Map<number, WorkloadTrayGroup>();
+    (toPlanData?.operators ?? []).forEach((op) => {
+      byUser.set(op.user_id, {
+        userId: op.user_id,
+        name: op.full_name || op.username,
+        avatarUrl: op.avatar_url,
+        reassign: op.reassign.map(toItem),
+        unscheduled: op.unscheduled.map(toItem),
+        overdue: overdueByUser.get(op.user_id) ?? [],
+        review: op.review.map((t) => ({ ...toItem(t), isReview: true })),
+      });
+    });
+    // Operatori presenti SOLO tra le scadute (nessuna task da pianificare).
+    overdueByUser.forEach((items, uid) => {
+      if (byUser.has(uid)) return;
+      const meta = operatorMeta.get(uid);
+      byUser.set(uid, {
+        userId: uid,
+        name: meta?.name ?? `Operatore #${uid}`,
+        avatarUrl: meta?.avatarUrl ?? null,
+        reassign: [],
+        unscheduled: [],
+        overdue: items,
+        review: [],
+      });
+    });
+    return [...byUser.values()];
+  }, [toPlanData, overdueByUser, operatorMeta]);
+  // Scheda "Da assegnare": task senza alcun operatore (dalla heatmap), lista piatta.
+  const trayUnassignedItems = useMemo<WorkloadTrayItem[]>(
+    () =>
+      (heatmap?.unassigned_tasks.tasks ?? []).map((t) => ({
+        id: t.work_item_id,
+        client: t.client_name || "Senza cliente",
+        type: t.title,
+        durationMinutes: Math.max(15, Math.round((t.effective_load_hours || 0.5) * 60)),
+        areaColor: t.work_areas?.find((a) => a.color)?.color ?? null,
+      })),
+    [heatmap],
+  );
+  // Filtri della tray: se sono selezionati uno o più operatori in calendario, la tray
+  // (Scadute / Senza orario / Da riprogrammare) mostra solo i loro gruppi. Il toggle
+  // "Solo le mie" restringe ulteriormente ai soli gruppi dell'utente loggato.
+  const displayTrayGroups = useMemo(() => {
+    let groups = trayGroups;
+    // Con "tutti gli operatori" attivo (admin/PM) si ignora la selezione del calendario.
+    if (!trayAllOperators && calendarOperatorIds.length > 0) {
+      const selected = new Set(calendarOperatorIds);
+      groups = groups.filter((g) => selected.has(g.userId));
+    }
+    if (trayOnlyMine && user?.id != null) {
+      groups = groups.filter((g) => g.userId === user.id);
+    }
+    return groups;
+  }, [trayGroups, calendarOperatorIds, trayOnlyMine, trayAllOperators, user?.id]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setToPlanData(null);
+      return;
+    }
+    let cancelled = false;
+    getWorkloadToPlanApi({
+      company_id: selectedCompanyId,
+      range_mode: rangeMode,
+      anchor_date: anchorDate,
+      from_date: rangeMode === "custom" ? customFromDate : undefined,
+      to_date: rangeMode === "custom" ? customToDate : undefined,
+      week_offset: rangeMode === "week" ? weekOffset : undefined,
+      q: searchQuery || undefined,
+    })
+      .then((data) => { if (!cancelled) setToPlanData(data); })
+      .catch(() => { if (!cancelled) setToPlanData(null); });
+    return () => { cancelled = true; };
+  }, [selectedCompanyId, rangeMode, anchorDate, customFromDate, customToDate, weekOffset, searchQuery, multiReloadToken]);
+  // Aree di lavoro presenti (per la legenda): dedup dai gruppi della heatmap.
+  const legendAreas = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; color: string }>();
+    for (const group of heatmap?.groups ?? []) {
+      if (group.area_id == null || !group.area_color) continue;
+      if (!map.has(group.area_id)) {
+        map.set(group.area_id, { id: group.area_id, name: group.area_name, color: group.area_color });
+      }
+    }
+    return Array.from(map.values());
+  }, [heatmap]);
   const summaryByUserId = useMemo(() => new Map(summary.map((item) => [item.user_id, item])), [summary]);
+  // Statistiche per-giorno (ore, n. task, arretrate) dell'operatore del calendario, ricavate dalla
+  // heatmap raggruppata già caricata: ogni task porta schedule_state.delay_code → "arretrata".
+  const calendarDayStats = useMemo(() => {
+    const map = new Map<string, { hours: number; tasks: number; overdue: number; dots: string[] }>();
+    if (!heatmap || calendarOperatorId == null) return map;
+    const seenByDate = new Map<string, Set<number>>();
+    for (const group of heatmap.groups) {
+      for (const operator of group.users) {
+        if (operator.user_id !== calendarOperatorId) continue;
+        for (const cell of operator.days) {
+          let entry = map.get(cell.date);
+          if (!entry) {
+            entry = { hours: 0, tasks: 0, overdue: 0, dots: [] };
+            map.set(cell.date, entry);
+          }
+          let seen = seenByDate.get(cell.date);
+          if (!seen) {
+            seen = new Set<number>();
+            seenByDate.set(cell.date, seen);
+          }
+          for (const task of cell.tasks ?? []) {
+            if (seen.has(task.work_item_id)) continue;
+            seen.add(task.work_item_id);
+            entry.tasks += 1;
+            entry.hours += task.effective_load_hours ?? 0;
+            if (task.schedule_state?.delay_code) entry.overdue += 1;
+            const areaColor = task.work_areas?.find((a) => a.color)?.color;
+            if (areaColor && entry.dots.length < 6) entry.dots.push(areaColor);
+          }
+        }
+      }
+    }
+    return map;
+  }, [heatmap, calendarOperatorId]);
+  const calendarBounds = useMemo(() => {
+    const openingMinutes = hhmmToMinutes(companyOpeningTime);
+    const closingMinutes = hhmmToMinutes(companyClosingTime);
+    // Mostra sempre l'intera giornata (00:00–24:00); l'orario azienda resta
+    // evidenziato dalle fasce di apertura/chiusura.
+    const dayStartMinutes = 0;
+    const dayEndMinutes = 24 * 60;
+    const totalMinutes = Math.max(60, dayEndMinutes - dayStartMinutes);
+    const hourSlots = Math.ceil(totalMinutes / 60);
+    const halfSlots = Math.ceil(totalMinutes / CALENDAR_SLOT_MINUTES);
+    return {
+      dayStartMinutes,
+      dayEndMinutes,
+      totalMinutes,
+      hourSlots,
+      halfSlots,
+      openingMinutes,
+      closingMinutes,
+    };
+  }, [companyClosingTime, companyOpeningTime]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -362,6 +715,16 @@ export function WorkloadPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Aggiorna la posizione della linea "ora corrente" ogni minuto.
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setNowMinutes(now.getHours() * 60 + now.getMinutes());
+    };
+    const timer = setInterval(tick, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (visibleDays.length === 0) return;
@@ -376,6 +739,13 @@ export function WorkloadPage() {
     }
   }, [rangeMode]);
 
+  // L'operatore può vedere solo il calendario: forza la vista e blocca gli altri tab.
+  useEffect(() => {
+    if (isOperatorView && viewMode !== "calendar") {
+      setViewMode("calendar");
+    }
+  }, [isOperatorView, viewMode]);
+
   useEffect(() => {
     if (viewMode !== "calendar") return;
     if (!calendarData?.selected_date) return;
@@ -384,21 +754,54 @@ export function WorkloadPage() {
 
   useEffect(() => {
     if (viewMode !== "calendar") return;
+
+    // Operatore: vista bloccata su se stesso, indipendentemente dagli operatori in heatmap.
+    if (isOperatorView) {
+      pendingUrlOpsRef.current = null;
+      if (user?.id != null && (calendarOperatorIds.length !== 1 || calendarOperatorIds[0] !== user.id)) {
+        setCalendarOperatorIds([user.id]);
+      }
+      return;
+    }
+
     if (calendarOperators.length === 0) {
-      setCalendarOperatorId(null);
+      // Non azzerare l'operatore ripristinato da URL finché la lista non è caricata.
+      if (pendingUrlOpsRef.current) return;
+      if (calendarOperatorIds.length > 0) setCalendarOperatorIds([]);
       setCalendarData(null);
       return;
     }
 
-    if (calendarOperatorId != null && calendarOperators.some((op) => op.user_id === calendarOperatorId)) {
-      return;
-    }
+    // Lista operatori disponibile: la validazione qui sotto sostituisce il ripristino da URL.
+    pendingUrlOpsRef.current = null;
 
-    const preferred = user?.id != null
-      ? calendarOperators.find((op) => op.user_id === user.id)
-      : null;
-    setCalendarOperatorId((preferred ?? calendarOperators[0]).user_id);
-  }, [calendarOperatorId, calendarOperators, user?.id, viewMode]);
+    // Mantieni solo gli operatori ancora presenti; se nessuno valido, parti da quello preferito.
+    const valid = calendarOperatorIds.filter((id) => calendarOperators.some((op) => op.user_id === id));
+    if (valid.length === 0) {
+      const preferred = user?.id != null
+        ? calendarOperators.find((op) => op.user_id === user.id)
+        : null;
+      setCalendarOperatorIds([(preferred ?? calendarOperators[0]).user_id]);
+    } else if (valid.length !== calendarOperatorIds.length) {
+      setCalendarOperatorIds(valid);
+    }
+  }, [calendarOperatorIds, calendarOperators, isOperatorView, user?.id, viewMode]);
+
+  // Riflette lo stato del calendario nella URL così da ripristinarlo dopo un refresh.
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", viewMode);
+      next.set("range", rangeMode);
+      next.set("day", selectedDay);
+      next.set("anchor", anchorDate);
+      if (rangeMode === "week" && weekOffset !== 0) next.set("woff", String(weekOffset));
+      else next.delete("woff");
+      if (calendarOperatorIds.length > 0) next.set("ops", calendarOperatorIds.join(","));
+      else next.delete("ops");
+      return next;
+    }, { replace: true });
+  }, [viewMode, rangeMode, selectedDay, anchorDate, weekOffset, calendarOperatorIds, setSearchParams]);
 
   const reloadCalendar = useCallback(async () => {
     if (viewMode !== "calendar") return;
@@ -417,6 +820,8 @@ export function WorkloadPage() {
         to_date: rangeMode === "custom" ? customToDate : undefined,
         week_offset: rangeMode === "week" ? weekOffset : undefined,
         company_id: selectedCompanyId,
+        // Backend support can expose completed tasks in timeline without UI changes.
+        include_completed: true,
       });
 
       if (requestSeq !== calendarRequestSeqRef.current) return;
@@ -452,7 +857,7 @@ export function WorkloadPage() {
         }
 
         const startMinutes = hhmmToMinutes(startTime) ?? 0;
-        const weightedHours = item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0;
+        const weightedHours = resolveTimelineEffectiveHours(item);
         const estimatedMinutes = Math.max(CALENDAR_SLOT_MINUTES, Math.round(weightedHours * 60));
         const endMinutes = Math.min((24 * 60) - 1, startMinutes + estimatedMinutes);
 
@@ -493,6 +898,29 @@ export function WorkloadPage() {
     weekOffset,
     reloadCalendar,
   ]);
+
+  useEffect(() => {
+    if (viewMode !== "calendar") return;
+    if (!calendarData) return;
+    const container = calendarScrollRef.current;
+    if (!container) return;
+
+    const dayKey = `${calendarData.user_id}-${calendarData.selected_date}`;
+    if (calendarInitialScrollKeyRef.current === dayKey) return;
+
+    const now = new Date();
+    const totalMinutes = now.getHours() * 60 + now.getMinutes();
+    const roundedDownMinutes = Math.floor(totalMinutes / CALENDAR_SLOT_MINUTES) * CALENDAR_SLOT_MINUTES;
+    const boundedMinutes = Math.max(
+      calendarBounds.dayStartMinutes,
+      Math.min(calendarBounds.dayEndMinutes - CALENDAR_SLOT_MINUTES, roundedDownMinutes)
+    );
+    const targetTop = ((boundedMinutes - calendarBounds.dayStartMinutes) / 60) * CALENDAR_HOUR_HEIGHT_PX;
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+
+    container.scrollTop = Math.max(0, Math.min(maxScrollTop, targetTop - CALENDAR_INITIAL_SCROLL_OFFSET_PX));
+    calendarInitialScrollKeyRef.current = dayKey;
+  }, [calendarBounds.dayEndMinutes, calendarBounds.dayStartMinutes, calendarData, viewMode]);
 
   const loadMain = useCallback(async (options?: { silent?: boolean }) => {
     const silent = !!options?.silent;
@@ -535,20 +963,10 @@ export function WorkloadPage() {
 
       setSummary(summaryData);
       setHeatmap(heatmapData);
-
-      const groups = heatmapData?.groups || [];
-      if (groups.length > 0) {
-        const nextExpanded: Record<string, boolean> = {};
-        groups.forEach((group, index) => {
-          const key = String(group.area_id ?? `none-${index}`);
-          nextExpanded[key] = index === 0;
-        });
-        setExpandedAreas(nextExpanded);
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Errore nel caricamento workload";
       setError(message);
-      toast.error(message);
+      toastRef.current.error(message);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -561,7 +979,6 @@ export function WorkloadPage() {
     selectedCompanyId,
     sortBy,
     sortDir,
-    toast,
     viewMode,
     weekOffset,
   ]);
@@ -582,9 +999,9 @@ export function WorkloadPage() {
       setRoles(rolesData);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Errore nel caricamento profili";
-      toast.error(message);
+      toastRef.current.error(message);
     }
-  }, [selectedCompanyId, toast]);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     loadMain();
@@ -593,6 +1010,24 @@ export function WorkloadPage() {
   useEffect(() => {
     loadProfiles();
   }, [loadProfiles]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setCompanyOpeningTime(null);
+      setCompanyClosingTime(null);
+      return;
+    }
+
+    getCompanyApi(selectedCompanyId)
+      .then((company) => {
+        setCompanyOpeningTime(company.opening_time ?? null);
+        setCompanyClosingTime(company.closing_time ?? null);
+      })
+      .catch(() => {
+        setCompanyOpeningTime(null);
+        setCompanyClosingTime(null);
+      });
+  }, [selectedCompanyId]);
 
   const currentRangeLabel = useMemo(() => {
     if (rangeMode === "custom") {
@@ -648,179 +1083,6 @@ export function WorkloadPage() {
     }
   };
 
-  const resolvePlanningRange = useCallback((): { planningStart: string; planningEnd: string } => {
-    if (rangeMode === "day") {
-      return { planningStart: anchorDate, planningEnd: anchorDate };
-    }
-
-    if (rangeMode === "week") {
-      const shiftedAnchor = shiftIsoByDays(anchorDate, weekOffset * 7);
-      const planningStart = startOfIsoWeek(shiftedAnchor);
-      return { planningStart, planningEnd: shiftIsoByDays(planningStart, 6) };
-    }
-
-    if (rangeMode === "month") {
-      const date = dateFromIso(anchorDate);
-      const year = date.getFullYear();
-      const month = date.getMonth();
-      return {
-        planningStart: isoFromDate(new Date(year, month, 1)),
-        planningEnd: isoFromDate(new Date(year, month + 1, 0)),
-      };
-    }
-
-    return { planningStart: customFromDate, planningEnd: customToDate };
-  }, [anchorDate, customFromDate, customToDate, rangeMode, weekOffset]);
-
-  // ── Workload Engine Handlers ───────────────────────────────────────────────
-  const handlePreviewWorkload = useCallback(async () => {
-    if (!selectedCompanyId) {
-      toast.error("Seleziona un'azienda");
-      return;
-    }
-
-    setEngineRunning(true);
-    setEngineError(null);
-    setEngineResult(null);
-
-    try {
-      const { planningStart, planningEnd } = resolvePlanningRange();
-      const result = await previewWorkloadEngineRunApi({
-        company_id: selectedCompanyId,
-        planning_start_date: planningStart,
-        planning_end_date: planningEnd,
-      });
-
-      setEngineResult(result);
-      setEngineModalOpen(true);
-
-      toast.success(
-        `Preview: ${result.allocated_tasks}/${result.total_tasks} task allocate, ${result.total_overload_hours.toFixed(1)}h di overload`
-      );
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Errore sconosciuto";
-      setEngineError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setEngineRunning(false);
-    }
-  }, [resolvePlanningRange, selectedCompanyId, toast]);
-
-  const handleApplyWorkload = useCallback(async () => {
-    if (!selectedCompanyId || !canManageProfiles) {
-      toast.error(canManageProfiles ? "Seleziona un'azienda" : "Solo admin può applicare");
-      return;
-    }
-
-    setEngineRunning(true);
-    setEngineError(null);
-
-    try {
-      const { planningStart, planningEnd } = resolvePlanningRange();
-      const result = await applyWorkloadEngineRunApi({
-        company_id: selectedCompanyId,
-        planning_start_date: planningStart,
-        planning_end_date: planningEnd,
-      });
-
-      setEngineResult(result);
-
-      const [summaryData, grouped] = await Promise.all([
-        listWorkloadUsersApi({
-          range_mode: rangeMode === "custom" ? "custom" : rangeMode,
-          from_date: planningStart,
-          to_date: planningEnd,
-          company_id: selectedCompanyId,
-          q: searchQuery || undefined,
-          sort_by: sortBy,
-          sort_dir: sortDir,
-          include_tasks: viewMode === "accordion",
-        }),
-        listWorkloadUsersGroupedByAreaAndDayApi({
-          range_mode: rangeMode === "custom" ? "custom" : rangeMode,
-          from_date: planningStart,
-          to_date: planningEnd,
-          company_id: selectedCompanyId,
-          q: searchQuery || undefined,
-          sort_by: sortBy,
-          sort_dir: sortDir,
-          include_tasks: true,
-          include_task_details: true,
-        }),
-      ]);
-
-      setSummary(summaryData);
-      setHeatmap(grouped);
-
-      // Fetch allocation grid with the run_id from this apply so columns are precise
-      try {
-        const grid = await getWorkloadAllocationGridApi({
-          company_id: selectedCompanyId,
-          from_date: planningStart,
-          to_date: planningEnd,
-          run_id: result.run_id,
-        });
-        setAllocationGrid(grid);
-        setAllocationGridError(null);
-      } catch {
-        // fail silently – user can refresh manually in griglia view
-      }
-
-      toast.success(
-        `Workload applicato: ${result.allocated_tasks}/${result.total_tasks} task, ${result.total_overload_hours.toFixed(1)}h overload persistito`
-      );
-      setEngineModalOpen(false);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Errore sconosciuto";
-      setEngineError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setEngineRunning(false);
-    }
-  }, [
-    canManageProfiles,
-    rangeMode,
-    resolvePlanningRange,
-    searchQuery,
-    selectedCompanyId,
-    sortBy,
-    sortDir,
-    toast,
-    viewMode,
-  ]);
-
-  const shiftCalendarOperator = useCallback((direction: -1 | 1) => {
-    if (calendarOperators.length === 0) return;
-    const fallbackId = calendarOperators[0].user_id;
-    const currentId = calendarOperatorId ?? fallbackId;
-    const currentIndex = Math.max(0, calendarOperators.findIndex((op) => op.user_id === currentId));
-    const nextIndex = (currentIndex + direction + calendarOperators.length) % calendarOperators.length;
-    setCalendarOperatorId(calendarOperators[nextIndex].user_id);
-  }, [calendarOperatorId, calendarOperators]);
-
-  const buildCalendarDayMovePayload = useCallback((day: string): MoveWorkItemPayload => {
-    const fallbackOperatorId = calendarOperatorId ?? calendarData?.user_id ?? null;
-    if (dragSourceAssigneeId === null) {
-      return {
-        assignee_ids: [],
-        work_date: day,
-      };
-    }
-    if (typeof dragSourceAssigneeId === "number") {
-      return {
-        assignee_id: dragSourceAssigneeId,
-        work_date: day,
-      };
-    }
-    if (typeof fallbackOperatorId === "number") {
-      return {
-        assignee_id: fallbackOperatorId,
-        work_date: day,
-      };
-    }
-    return { work_date: day };
-  }, [calendarData?.user_id, calendarOperatorId, dragSourceAssigneeId]);
-
   const openNewWorkModal = () => {
     if (!selectedCompanyId) {
       toast.error("Seleziona una company");
@@ -836,7 +1098,7 @@ export function WorkloadPage() {
       return;
     }
     try {
-      setOpeningEditTaskId(workItemId);
+      toast.info("Apertura lavorazione…");
       const item = await getWorkItemApi(workItemId);
       setQuickAdd(null);
       setEditingItem(item);
@@ -844,16 +1106,263 @@ export function WorkloadPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Impossibile aprire la lavorazione";
       toast.error(message);
-    } finally {
-      setOpeningEditTaskId(null);
     }
   };
+
+  const toggleCalendarTaskCompleted = useCallback(async (item: WorkloadTimelineItem) => {
+    if (item.kind !== "task" || !item.work_item_id) return;
+
+    const workItemId = item.work_item_id;
+    const isDone = item.status === "completed" || item.status === "done";
+    const nextStatus = isDone ? "planned" : "completed";
+
+    setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "saving" }));
+
+    try {
+      await updateWorkItemApi(workItemId, {
+        status: nextStatus,
+        is_completed: !isDone,
+      });
+
+      if (!isDone) {
+        setCalendarTaskUiState((current) => ({ ...current, [workItemId]: "exiting" }));
+        // Backend calendar currently filters completed tasks: animate out then remove locally with a single timeline mutation.
+        window.setTimeout(() => {
+          setCalendarData((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              timeline: current.timeline.filter((timelineItem) => !(timelineItem.kind === "task" && timelineItem.work_item_id === workItemId)),
+            };
+          });
+          setCalendarTaskUiState((current) => {
+            const next = { ...current };
+            delete next[workItemId];
+            return next;
+          });
+        }, 320);
+      } else {
+        setCalendarData((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            timeline: current.timeline.map((timelineItem) => {
+              if (timelineItem.kind !== "task" || timelineItem.work_item_id !== workItemId) return timelineItem;
+              return { ...timelineItem, status: nextStatus };
+            }),
+          };
+        });
+        setCalendarTaskUiState((current) => {
+          const next = { ...current };
+          delete next[workItemId];
+          return next;
+        });
+      }
+
+      toast.success(isDone ? "Task riaperta" : "Task completata");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Impossibile aggiornare la task";
+      toast.error(message);
+      setCalendarTaskUiState((current) => {
+        const next = { ...current };
+        delete next[workItemId];
+        return next;
+      });
+    }
+  }, [toast]);
+
+  const handleOverlapApiError = useCallback((
+    err: unknown,
+    fallbackMessage: string,
+    options?: { requestedDate?: string | null; onPickSlot?: (slot: WorkItemSuggestedSlot) => void },
+  ) => {
+    if (isWorkItemOverlapApiError(err)) {
+      setConflictRetrySlot(null);
+      setCalendarConflictModal({
+        message: err.backendMessage,
+        conflicts: err.conflicts,
+        suggestedSlots: err.suggestedSlots,
+        requestedDate: options?.requestedDate ?? null,
+        onPickSlot: options?.onPickSlot,
+      });
+      toast.error(err.backendMessage);
+      return true;
+    }
+    toast.error(err instanceof Error ? err.message : fallbackMessage);
+    return false;
+  }, [toast]);
+
+  // Riprogramma (sposta) la task allo slot scelto dal modal conflitti. Se anche il
+  // nuovo slot risulta occupato (409), riapre il modal con gli slot aggiornati.
+  const retryMoveToSlotRef = useRef<((taskId: number, payload: MoveWorkItemPayload) => void) | null>(null);
+  const retryMoveToSlot = useCallback(async (taskId: number, payload: MoveWorkItemPayload) => {
+    const slotKey = `${payload.work_date ?? ""}T${payload.start_time ?? ""}`;
+    setConflictRetrySlot(slotKey);
+    try {
+      await moveWorkItemApi(taskId, payload);
+      await loadMain({ silent: true });
+      await reloadCalendar();
+      setMultiReloadToken((t) => t + 1);
+      setCalendarConflictModal(null);
+      toast.success("Task riprogrammata allo slot scelto");
+    } catch (err) {
+      handleOverlapApiError(err, "Impossibile riprogrammare la task", {
+        requestedDate: payload.work_date ?? null,
+        onPickSlot: (slot) =>
+          retryMoveToSlotRef.current?.(taskId, { ...payload, work_date: slot.date, start_time: slot.start_time }),
+      });
+    } finally {
+      setConflictRetrySlot(null);
+    }
+  }, [loadMain, reloadCalendar, handleOverlapApiError, toast]);
+  useEffect(() => { retryMoveToSlotRef.current = retryMoveToSlot; }, [retryMoveToSlot]);
+
+  const rescheduleTaskToNextAvailable = useCallback(async (workItemId: number) => {
+    const candidateTask =
+      calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === workItemId)?.task ??
+      calendarData?.over_capacity?.tasks.find((task) => task.work_item_id === workItemId)?.task ??
+      calendarData?.conflicts?.flatMap((conflict) => conflict.tasks).find((task) => task.id === workItemId) ??
+      null;
+
+    if (!candidateTask?.deadline_date) {
+      toast.error("Serve una scadenza per riprogrammare automaticamente la task");
+      return;
+    }
+
+    setReschedulingTaskId(workItemId);
+    try {
+      await rescheduleNextAvailableWorkItemApi(workItemId, {
+        from_date: calendarData?.selected_date ?? selectedDay,
+        slot_minutes: CALENDAR_CREATE_SLOT_MINUTES,
+      });
+      await loadMain({ silent: true });
+      await reloadCalendar();
+      toast.success("Task riprogrammata al primo slot libero");
+    } catch (err) {
+      handleOverlapApiError(err, "Impossibile riprogrammare la task", {
+        requestedDate: calendarData?.selected_date ?? selectedDay,
+        onPickSlot: (slot) =>
+          retryMoveToSlotRef.current?.(workItemId, { work_date: slot.date, start_time: slot.start_time }),
+      });
+    } finally {
+      setReschedulingTaskId(null);
+    }
+  }, [calendarData, handleOverlapApiError, loadMain, reloadCalendar, selectedDay, toast]);
+
+  // Adapter per il calendario settimanale (WorkloadCalendar): sposta una task in un
+  // giorno+slot espliciti (diverso da moveCalendarTaskToSlot che usa il giorno selezionato).
+  const moveCalendarTaskToDaySlot = useCallback(async (taskId: number, day: string, startTime: string) => {
+    if (moveInFlightRef.current) return;
+    const payload: MoveWorkItemPayload = {
+      assignee_id: calendarOperatorId ?? undefined,
+      work_date: day,
+      start_time: startTime,
+    };
+    try {
+      moveInFlightRef.current = true;
+      setMovingTaskId(taskId);
+      await moveWorkItemApi(taskId, payload);
+      await loadMain({ silent: true });
+      await reloadCalendar();
+      setMultiReloadToken((t) => t + 1);
+      toast.success("Task spostata");
+    } catch (err) {
+      // Lo spostamento è fallito: ripristina la posizione originale annullando l'anteprima
+      // ottimistica (refetch del calendario settimanale via reloadToken) oltre al reload parent.
+      await reloadCalendar();
+      setMultiReloadToken((t) => t + 1);
+      handleOverlapApiError(err, "Impossibile spostare la task", {
+        requestedDate: day,
+        onPickSlot: (slot) => void retryMoveToSlot(taskId, {
+          assignee_id: calendarOperatorId ?? undefined,
+          work_date: slot.date,
+          start_time: slot.start_time,
+        }),
+      });
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingTaskId(null);
+    }
+  }, [calendarOperatorId, loadMain, reloadCalendar, handleOverlapApiError, retryMoveToSlot, toast]);
+
+  // Swap di due task dello stesso operatore (drop di una task su un'altra).
+  // Avviso di conferma scambio (mostrato finché l'utente non lo disattiva).
+  const [swapConfirm, setSwapConfirm] = useState<
+    { sourceId: number; targetId: number; positions?: WorkItemSwapEffectivePosition[]; preview: WorkItemSwapPreviewResponse } | null
+  >(null);
+  const [swapConfirmSubmitting, setSwapConfirmSubmitting] = useState(false);
+
+  const performSwap = useCallback(async (sourceId: number, targetId: number, confirm: boolean, positions?: WorkItemSwapEffectivePosition[]) => {
+    try {
+      moveInFlightRef.current = true;
+      setMovingTaskId(sourceId);
+      const res = await swapWorkItemsApi({ source_work_item_ids: [sourceId], target_work_item_ids: [targetId], confirm, effective_positions: positions });
+      if (res?.can_swap) {
+        await loadMain({ silent: true });
+        await reloadCalendar();
+        toast.success("Posizioni scambiate");
+      } else {
+        toast.error("Scambio non possibile");
+      }
+      setMultiReloadToken((t) => t + 1);
+    } catch (err) {
+      // 409 confirmation_required → apri il warning SENZA riconciliare (mantiene l'anteprima).
+      if (isSwapConfirmationRequiredError(err)) {
+        setSwapConfirm({ sourceId, targetId, positions, preview: err.preview });
+        return;
+      }
+      await reloadCalendar();
+      handleOverlapApiError(err, "Scambio non possibile");
+      setMultiReloadToken((t) => t + 1);
+    } finally {
+      moveInFlightRef.current = false;
+      setMovingTaskId(null);
+    }
+  }, [loadMain, reloadCalendar, handleOverlapApiError, toast]);
+
+  const swapCalendarTasks = useCallback(async (sourceId: number, targetId: number, positions?: WorkItemSwapEffectivePosition[]) => {
+    if (moveInFlightRef.current || sourceId === targetId) return;
+    await performSwap(sourceId, targetId, false, positions);
+  }, [performSwap]);
+
+  const confirmSwap = useCallback(async (dontShowAgain: boolean) => {
+    if (!swapConfirm) return;
+    const { sourceId, targetId, positions } = swapConfirm;
+    setSwapConfirmSubmitting(true);
+    try {
+      if (dontShowAgain) {
+        // Disattiva il warning per le prossime volte (self-service).
+        try { await updateMeApi({ swap_confirmation_disabled: true }); await refreshSession(); } catch { /* la preferenza non blocca lo swap */ }
+      }
+      setSwapConfirm(null);
+      await performSwap(sourceId, targetId, true, positions);
+    } finally {
+      setSwapConfirmSubmitting(false);
+    }
+  }, [swapConfirm, performSwap, refreshSession]);
+
+  const cancelSwap = useCallback(() => {
+    setSwapConfirm(null);
+    // Ripristina l'anteprima ottimistica allo stato reale del server.
+    setMultiReloadToken((t) => t + 1);
+  }, []);
 
   const onTaskDragStart = (event: DragEvent<HTMLElement>, workItemId: number, sourceAssigneeId?: number | null) => {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", String(workItemId));
+    calendarCreateDragStartRef.current = null;
+    setCalendarCreatePreview(null);
+    setCalendarResizeState(null);
     setDraggingTaskId(workItemId);
     setDragSourceAssigneeId(sourceAssigneeId);
+  };
+
+  const clearDaySpring = () => {
+    if (daySpringTimerRef.current != null) {
+      window.clearTimeout(daySpringTimerRef.current);
+      daySpringTimerRef.current = null;
+    }
+    daySpringDayRef.current = null;
   };
 
   const onTaskDragEnd = () => {
@@ -862,7 +1371,12 @@ export function WorkloadPage() {
     setActiveDropTarget(null);
     setHotDropTarget(null);
     setCalendarDropPreviewMinutes(null);
+    calendarCreateDragStartRef.current = null;
+    setCalendarCreatePreview(null);
+    setCalendarResizeState(null);
     dropHoverRef.current = { key: null, sinceMs: 0 };
+    clearSwapPreview();
+    clearDaySpring();
   };
 
   const autoScrollCompleteCalendar = (clientX: number) => {
@@ -922,6 +1436,19 @@ export function WorkloadPage() {
     setCalendarDropPreviewMinutes(null);
     dropHoverRef.current = { key: null, sinceMs: 0 };
     if (!taskId) return;
+    const draggedCalendarItem = calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === taskId) ?? null;
+    const draggedTask = draggedCalendarItem ? resolveTimelineTask(draggedCalendarItem) : null;
+    if (
+      draggedTask?.is_deadline_locked &&
+      payload.work_date &&
+      draggedTask.deadline_date &&
+      payload.work_date > draggedTask.deadline_date
+    ) {
+      toast.error("Task non derogabile: non puoi spostarla oltre la scadenza");
+      setDraggingTaskId(null);
+      setDragSourceAssigneeId(undefined);
+      return;
+    }
     if (
       payload.assignee_id == null &&
       payload.assignee_ids == null &&
@@ -933,16 +1460,23 @@ export function WorkloadPage() {
       return;
     }
 
+    const previousCalendarData = calendarData;
     try {
       moveInFlightRef.current = true;
       setMovingTaskId(taskId);
-      await moveWorkItemApi(taskId, payload);
       patchCalendarTaskLocally(taskId, payload);
+      await moveWorkItemApi(taskId, payload);
       await loadMain({ silent: true });
       await reloadCalendar();
+      toast.success("Task spostata");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossibile spostare la task";
-      toast.error(message);
+      setCalendarData(previousCalendarData);
+      await reloadCalendar();
+      handleOverlapApiError(err, "Impossibile spostare la task", {
+        requestedDate: payload.work_date ?? null,
+        onPickSlot: (slot) =>
+          retryMoveToSlotRef.current?.(taskId, { ...payload, work_date: slot.date, start_time: slot.start_time }),
+      });
     } finally {
       moveInFlightRef.current = false;
       setMovingTaskId(null);
@@ -950,7 +1484,13 @@ export function WorkloadPage() {
       setDragSourceAssigneeId(undefined);
       setActiveDropTarget((current) => (current === dropTargetKey ? null : current));
     }
-  }, [loadMain, patchCalendarTaskLocally, reloadCalendar, toast]);
+  }, [calendarData, handleOverlapApiError, loadMain, patchCalendarTaskLocally, reloadCalendar, toast]);
+
+  const clearSwapPreview = useCallback(() => {
+    swapPreviewSeqRef.current += 1;
+    swapHoverKeyRef.current = null;
+    setSwapPreview(null);
+  }, []);
 
   const buildAccordionDayMovePayload = (day: string): MoveWorkItemPayload => {
     if (dragSourceAssigneeId === null) {
@@ -986,9 +1526,72 @@ export function WorkloadPage() {
       return "wl-acc-load--ok";
     };
 
+    // colore area della task: prima dal colore direttamente sulla work_area, poi dalla heatmap.
+    const areaColorById = new Map<number, string>();
+    (heatmap?.groups ?? []).forEach((g) => {
+      if (g.area_id != null && g.area_color) areaColorById.set(g.area_id, g.area_color);
+    });
+    const realAreaColor = (task: WorkloadTaskSummary): string | null => {
+      const direct = task.work_areas?.find((a) => a.color)?.color;
+      if (direct) return direct;
+      const aid = task.work_areas?.[0]?.id;
+      return (aid != null ? areaColorById.get(aid) : undefined) ?? null;
+    };
+    // Per la task: colore reale o grigio neutro (così badge orario e barra laterale restano VISIBILI).
+    const taskAreaColor = (task: WorkloadTaskSummary): string => realAreaColor(task) ?? "#8c8d87";
+    // Per la lane: colore reale o trasparente (spina invisibile se l'operatore non ha un'area dominante).
+    const laneAreaColor = (tasks: WorkloadTaskSummary[]): string => {
+      for (const t of tasks) {
+        const c = realAreaColor(t);
+        if (c) return c;
+      }
+      return "transparent";
+    };
+
+    const renderTaskCard = (
+      task: WorkloadTaskSummary,
+      sourceAssigneeId: number | null,
+      unassigned = false
+    ) => (
+      <button
+        key={task.work_item_id}
+        type="button"
+        draggable
+        style={{ ["--wl-area" as string]: unassigned ? "#f5b800" : taskAreaColor(task) }}
+        onDragStart={(event) => onTaskDragStart(event, task.work_item_id, sourceAssigneeId)}
+        onDragEnd={onTaskDragEnd}
+        onClick={() => void openEditWorkItemModal(task.work_item_id)}
+        className={`wl-acc-task${unassigned ? " wl-acc-task--unassigned" : ""}${
+          draggingTaskId === task.work_item_id ? " is-dragging" : ""
+        }`}
+      >
+        <div className="wl-acc-task__main">
+          <span className="wl-acc-task__title">{task.title}</span>
+          <span className="wl-acc-task__hours">{taskHoursLabel(task)}</span>
+        </div>
+        <div className="wl-acc-task__meta">
+          {formatTaskStartTime(task.start_time) && (
+            <span className="wl-acc-task__time">{formatTaskStartTime(task.start_time)}</span>
+          )}
+          <span className="wl-acc-task__client">{task.client_name || "Senza cliente"}</span>
+          <span className="wl-acc-task__status">{task.status}</span>
+        </div>
+      </button>
+    );
+
     return (
+      <div className={`wlfull-shell${calendarDensity === "compact" ? " wlfull-shell--compact" : ""}`}>
+        <div className="wlfull-sub">
+          <span className="wlfull-sub-title">Workload team per operatore</span>
+          <span className="wlfull-sub-hint">Carico nel periodo selezionato</span>
+          <button type="button" className="wl-acc-sort ml-auto self-center" onClick={onToggleSortByLoad}>
+            <Icon name="list" className="w-3.5 h-3.5" />
+            Ordina per carico {sortDir === "desc" ? "↓" : "↑"}
+          </button>
+        </div>
+        {renderWorkloadLegend()}
       <div
-        className="wl-acc-list"
+        className="wl-acc-scroll flex-1 min-h-0 overflow-y-auto"
         onDragOverCapture={(event) => {
           if (draggingTaskId == null) return;
           event.preventDefault();
@@ -998,10 +1601,21 @@ export function WorkloadPage() {
           if (activeDropTarget !== key) setActiveDropTarget(key);
         }}
       >
+        <div className={`wl-acc-list${calendarDensity === "compact" ? " wl-acc-list--compact" : ""}`}>
         {summary.map((item) => {
           const isOpen = !!expandedUsers[item.user_id];
           const isOperatorDropTarget = activeDropTarget === `acc-user-${item.user_id}`;
-          const tasks = sortTasksByStartTime((item.tasks || []).filter((task) => getTaskDay(task) === selectedDay));
+          // Tutte le task del periodo (giorno/settimana/mese), raggruppate per giorno.
+          const tasks = item.tasks ?? [];
+          const tasksByDay = new Map<string, WorkloadTaskSummary[]>();
+          for (const task of tasks) {
+            const day = getTaskDay(task);
+            if (!day) continue;
+            const bucket = tasksByDay.get(day);
+            if (bucket) bucket.push(task);
+            else tasksByDay.set(day, [task]);
+          }
+          const taskDays = [...tasksByDay.keys()].sort();
           const userDetail = companyUsers.find((u) => u.id === item.user_id);
           const avatarUrl = userDetail?.avatar_url ?? null;
           const userRoleIds = userDetail?.role_ids ?? [];
@@ -1022,10 +1636,9 @@ export function WorkloadPage() {
             <div
               key={item.user_id}
               data-acc-drop-key={`acc-user-${item.user_id}`}
+              style={{ ["--wl-area" as string]: laneAreaColor(tasks) }}
               className={`wl-acc-lane${isOpen ? " is-expanded" : ""} ${
-                isOperatorDropTarget
-                  ? "!border-amber-500 !border-2"
-                  : ""
+                isOperatorDropTarget ? "!border-amber-500 !border-2" : ""
               }`}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -1057,7 +1670,9 @@ export function WorkloadPage() {
                 {/* Progress bar */}
                 <div className="wl-acc-lane__bar-wrap">
                   <div className="wl-acc-lane__bar-head">
-                    <span className="wl-acc-lane__bar-label">{formatHours(item.occupied_capacity_hours)} / {formatHours(item.capacity_hours_in_range)} · {item.assigned_tasks_count} task</span>
+                    <span className="wl-acc-lane__bar-label">
+                      <strong>{formatHours(item.occupied_capacity_hours)}</strong> / {formatHours(item.capacity_hours_in_range)} · {item.assigned_tasks_count} task
+                    </span>
                     <span className={`wl-acc-load ${loadClass(item.workload_status)}`}>{item.utilization_percent.toFixed(0)}%</span>
                   </div>
                   <div className="wl-acc-bar-track">
@@ -1067,7 +1682,7 @@ export function WorkloadPage() {
 
                 {/* Badge */}
                 <div className="wl-acc-lane__badge">
-                  <Badge variant={statusBadgeVariant(item.workload_status)}>{statusLabel(item.workload_status)}</Badge>
+                  <span className={accBadgeClass(item.workload_status)}>{statusLabel(item.workload_status)}</span>
                 </div>
 
                 {/* Caret */}
@@ -1082,56 +1697,44 @@ export function WorkloadPage() {
               </div>
 
               {isOpen && (
-                <div className="px-0 pb-0 pt-3 mt-3 border-t border-line/70 dark:border-line-dark">
-                  <div className="text-[11px] uppercase tracking-wider font-semibold text-muted dark:text-muted-dark mb-2">
-                    Task del giorno {dateFromIso(selectedDay).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })}
-                  </div>
-                  {tasks.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-line dark:border-line-dark px-3 py-3 text-xs text-muted dark:text-muted-dark">
-                      Nessuna task su questo giorno.
-                    </div>
+                <>
+                  {taskDays.length === 0 ? (
+                    <div className="wl-acc-empty">Nessuna task nel periodo selezionato.</div>
                   ) : (
-                    <div className="space-y-2">
-                      {tasks.map((task) => (
-                        <button
-                          key={task.work_item_id}
-                          type="button"
-                          draggable
-                          onDragStart={(event) => onTaskDragStart(event, task.work_item_id, item.user_id)}
-                          onDragEnd={onTaskDragEnd}
-                          onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                          className={`w-full text-left rounded-md border border-line dark:border-line-dark bg-cream/40 dark:bg-ink-2 px-3 py-2 hover:border-ink/30 dark:hover:border-paper/30 transition-colors cursor-grab active:cursor-grabbing ${draggingTaskId === task.work_item_id ? "opacity-60" : ""}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-ink dark:text-paper">{task.title}</div>
-                            <div className="text-xs font-semibold text-muted dark:text-muted-dark">{taskHoursLabel(task)}</div>
-                          </div>
-                          {formatTaskStartTime(task.start_time) && (
-                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                              {formatTaskStartTime(task.start_time)}
-                            </div>
-                          )}
-                          <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            {task.client_name || "Senza cliente"} · {task.status}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                    taskDays.map((day) => (
+                      <Fragment key={day}>
+                        <div className="wl-acc-day-label">{formatAccDayLabel(day)}</div>
+                        <div className="wl-acc-tasks">
+                          {sortTasksByStartTime(tasksByDay.get(day) ?? []).map((task) => renderTaskCard(task, item.user_id))}
+                        </div>
+                      </Fragment>
+                    ))
                   )}
-                </div>
+                </>
               )}
             </div>
           );
         })}
-        {/* Unassigned tasks section */}
-        {hasUnassigned && (() => {
-          const unassigned = heatmap!.unassigned_tasks;
+
+        {/* Sezione task non assegnate — sempre presente come nel prototipo */}
+        {heatmap && (() => {
+          const unassigned = heatmap.unassigned_tasks;
           const isUnassignedDropTarget = activeDropTarget === "acc-unassigned";
-          const tasksForDay = unassigned.tasks.filter((t) => (t.work_date ?? "").slice(0, 10) === selectedDay);
+          // Task non assegnate del periodo, raggruppate per giorno.
+          const unassignedByDay = new Map<string, WorkloadTaskSummary[]>();
+          for (const t of unassigned.tasks) {
+            const day = getTaskDay(t);
+            if (!day) continue;
+            const bucket = unassignedByDay.get(day);
+            if (bucket) bucket.push(t);
+            else unassignedByDay.set(day, [t]);
+          }
+          const unassignedDays = [...unassignedByDay.keys()].sort();
           return (
             <div
               data-acc-drop-key="acc-unassigned"
-              className={`wl-acc-lane${unassignedOpen ? " is-expanded" : ""} ${isUnassignedDropTarget ? "!border-amber-500 !border-2" : ""}`}
+              style={{ ["--wl-area" as string]: "#f5b800" }}
+              className={`wl-acc-lane wl-acc-lane--unassigned${unassignedOpen ? " is-expanded" : ""} ${isUnassignedDropTarget ? "!border-amber-500 !border-2" : ""}`}
               onDragOver={(event) => {
                 event.preventDefault();
               }}
@@ -1145,7 +1748,9 @@ export function WorkloadPage() {
                 onKeyDown={(e) => e.key === "Enter" && setUnassignedOpen((v) => !v)}
               >
                 <div className="wl-acc-lane__op">
-                  <div className="wl-acc-avatar" style={{ background: "#f59e0b", color: "#fff", fontWeight: 700 }}>!</div>
+                  <div className="wl-acc-avatar wl-acc-avatar--un">
+                    <Icon name="alert-triangle" className="w-[15px] h-[15px]" />
+                  </div>
                   <div className="min-w-0">
                     <div className="wl-acc-lane__name">Non assegnate</div>
                     <div className="wl-acc-lane__role">Da distribuire</div>
@@ -1156,11 +1761,11 @@ export function WorkloadPage() {
                     <span className="wl-acc-lane__bar-label">{unassigned.total_tasks_count} task · {formatHours(unassigned.total_estimated_hours)} stimate (peso pieno)</span>
                   </div>
                   <div className="wl-acc-bar-track">
-                    <div className="wl-acc-bar wl-acc-bar--warning" style={{ width: "100%" }} />
+                    <div className="wl-acc-bar wl-acc-bar--warning" style={{ width: unassigned.total_tasks_count > 0 ? "100%" : "0%" }} />
                   </div>
                 </div>
                 <div className="wl-acc-lane__badge">
-                  <Badge variant="warning">{unassigned.total_tasks_count}</Badge>
+                  <span className={accBadgeClass("warning")}>{unassigned.total_tasks_count}</span>
                 </div>
                 <button
                   type="button"
@@ -1172,47 +1777,26 @@ export function WorkloadPage() {
                 </button>
               </div>
               {unassignedOpen && (
-                <div className="px-0 pb-0 pt-3 mt-3 border-t border-line/70 dark:border-line-dark">
-                  <div className="text-[11px] uppercase tracking-wider font-semibold text-muted dark:text-muted-dark mb-2">
-                    Task del giorno {dateFromIso(selectedDay).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })}
-                  </div>
-                  {tasksForDay.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-line dark:border-line-dark px-3 py-3 text-xs text-muted dark:text-muted-dark">
-                      Nessuna task non assegnata su questo giorno.
-                    </div>
+                <>
+                  {unassignedDays.length === 0 ? (
+                    <div className="wl-acc-empty">Nessuna task non assegnata nel periodo.</div>
                   ) : (
-                    <div className="space-y-2">
-                      {sortTasksByStartTime(tasksForDay).map((task) => (
-                        <button
-                          key={task.work_item_id}
-                          type="button"
-                          draggable
-                          onDragStart={(event) => onTaskDragStart(event, task.work_item_id, null)}
-                          onDragEnd={onTaskDragEnd}
-                          onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                          className={`w-full text-left rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 hover:border-amber-500 dark:hover:border-amber-500 transition-colors cursor-grab active:cursor-grabbing ${draggingTaskId === task.work_item_id ? "opacity-60" : ""}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-ink dark:text-paper">{task.title}</div>
-                            <div className="text-xs font-semibold text-muted dark:text-muted-dark">{taskHoursLabel(task)}</div>
-                          </div>
-                          {formatTaskStartTime(task.start_time) && (
-                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                              {formatTaskStartTime(task.start_time)}
-                            </div>
-                          )}
-                          <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            {task.client_name || "Senza cliente"} · {task.status}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                    unassignedDays.map((day) => (
+                      <Fragment key={day}>
+                        <div className="wl-acc-day-label">{formatAccDayLabel(day)}</div>
+                        <div className="wl-acc-tasks">
+                          {sortTasksByStartTime(unassignedByDay.get(day) ?? []).map((task) => renderTaskCard(task, null, true))}
+                        </div>
+                      </Fragment>
+                    ))
                   )}
-                </div>
+                </>
               )}
             </div>
           );
         })()}
+        </div>
+      </div>
       </div>
     );
   };
@@ -1227,12 +1811,57 @@ export function WorkloadPage() {
     }
 
     const today = getTodayDate();
+    const loadClass = (pct: number) => (pct >= 100 ? "is-over" : pct >= 80 ? "is-warn" : "is-ok");
+    const cellState = (key: string) =>
+      `wlfull-cell${activeDropTarget === key ? " is-drop" : ""}${hotDropTarget === key ? " is-drop-hot" : ""}`;
+
+    // Chip task (stile prototipo): colore = area, titolo + eventuale orario + durata.
+    const renderChip = (
+      task: WorkloadTaskSummary,
+      areaColor: string | null,
+      opts?: { unassigned?: boolean }
+    ) => {
+      const time = formatTaskStartTime(task.start_time);
+      return (
+        <button
+          key={task.work_item_id}
+          type="button"
+          draggable
+          onDragStart={(event) => onTaskDragStart(event, task.work_item_id)}
+          onDragEnd={onTaskDragEnd}
+          onClick={() => void openEditWorkItemModal(task.work_item_id)}
+          className={`wlfull-chip${opts?.unassigned ? " is-unassigned" : ""}${draggingTaskId === task.work_item_id ? " is-dragging" : ""}`}
+          style={!opts?.unassigned && areaColor ? ({ "--area": areaColor } as CSSProperties) : undefined}
+          title={task.title}
+        >
+          <span className="wlfull-chip-main">
+            <span className="wlfull-chip-t">{task.title}</span>
+            {time && <span className="wlfull-chip-time">{time}</span>}
+          </span>
+          <span className="wlfull-chip-h">{taskHoursLabel(task)}</span>
+        </button>
+      );
+    };
+
+    // In "mese": una colonna per settimana (carico aggregato), come nel prototipo. Altrimenti per giorno.
+    const isMonth = rangeMode === "month";
+    const columns = isMonth
+      ? groupDaysIntoWeeks(heatmap.days).map((w) => ({ key: w.key, days: w.days, label: w.label, single: false, dropDay: w.days[0] }))
+      : heatmap.days.map((d) => ({ key: d, days: [d], label: "", single: true, dropDay: d }));
+    const colSpanCount = columns.length;
 
     return (
-      <div className="rounded-md border border-line dark:border-line-dark overflow-hidden">
+      <div className={`wlfull-shell${calendarDensity === "compact" ? " wlfull-shell--compact" : ""}`}>
+        <div className="wlfull-sub">
+          <span className="wlfull-sub-title">Vista completa per area</span>
+          <span className="wlfull-sub-hint">
+            Carico per operatore · {isMonth ? `${columns.length} settimane` : `${heatmap.days.length} giorni`}
+          </span>
+        </div>
+        {renderWorkloadLegend()}
         <div
           ref={completeScrollRef}
-          className="overflow-x-auto"
+          className="wlfull"
           onDragOver={(event) => autoScrollCompleteCalendar(event.clientX)}
           onDrop={() => {
             setActiveDropTarget(null);
@@ -1240,34 +1869,32 @@ export function WorkloadPage() {
             dropHoverRef.current = { key: null, sinceMs: 0 };
           }}
         >
-          <table className="min-w-full text-[12px] border-collapse">
+          <table className="wlfull-tbl">
             <thead>
-              <tr className="border-b-2 border-line dark:border-line-dark bg-cream/80 dark:bg-ink-2">
-                <th className="sticky left-0 z-[2] bg-cream/80 dark:bg-ink-2 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark w-[140px] max-w-[140px] border-r border-line dark:border-line-dark">
-                  Operatore
-                </th>
-                {heatmap.days.map((day) => {
-                  const chip = formatDayChip(day);
-                  const isToday = day === today;
+              <tr>
+                <th className="wlfull-corner">Operatore</th>
+                {columns.map((col) => {
+                  const isToday = col.days.includes(today);
+                  if (col.single) {
+                    const chip = formatDayChip(col.days[0]);
+                    return (
+                      <th key={col.key} className={`wlfull-dh${isToday ? " is-today" : ""}`}>
+                        <span className="dow">{chip.weekday}</span>
+                        <span className="num">{chip.day}</span>
+                      </th>
+                    );
+                  }
                   return (
-                    <th
-                      key={day}
-                      className={`px-1.5 py-2 text-center min-w-[80px] border-r border-line/40 dark:border-line-dark/40 last:border-r-0 ${
-                        isToday ? "bg-ink/5 dark:bg-paper/10" : ""
-                      }`}
-                    >
-                      <div className="text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark">{chip.weekday}</div>
-                      <div className={`font-bold text-[14px] leading-none mt-0.5 ${
-                        isToday ? "text-ink dark:text-paper" : "text-muted dark:text-muted-dark"
-                      }`}>{chip.day}</div>
-                      <div className="text-[10px] text-muted/60 dark:text-muted-dark/60 mt-0.5">{chip.month}</div>
+                    <th key={col.key} className={`wlfull-dh${isToday ? " is-today" : ""}`}>
+                      <span className="dow">Sett.</span>
+                      <span className="num" style={{ fontSize: 13 }}>{col.label}</span>
                     </th>
                   );
                 })}
               </tr>
             </thead>
             <tbody>
-              {/* Unassigned tasks with NO area – global top row */}
+              {/* Task senza area – riga globale "Da distribuire" */}
               {(() => {
                 const noAreaTasks = heatmap.unassigned_tasks.tasks.filter((t) => !t.work_areas || t.work_areas.length === 0);
                 if (noAreaTasks.length === 0) return null;
@@ -1278,75 +1905,49 @@ export function WorkloadPage() {
                   tasksByDay.get(d)!.push(t);
                 });
                 return (
-                  <>
-                    <tr className="bg-amber-50/80 dark:bg-amber-900/10">
-                      <td className="sticky left-0 z-[2] px-4 py-2 border-b border-r border-amber-200 dark:border-amber-800 w-[140px] max-w-[140px]">
-                        <div className="flex items-center gap-1.5">
-                          <Icon name="alert-triangle" className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                          <span className="font-bold text-[11px] uppercase tracking-wider text-amber-600 dark:text-amber-400">Da distribuire</span>
-                          <span className="inline-flex items-center rounded-full border border-amber-300 dark:border-amber-700 px-1 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">{noAreaTasks.length}</span>
-                        </div>
-                      </td>
-                      <td colSpan={heatmap.days.length} className="border-b border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10" />
-                    </tr>
-                    <tr className="border-b border-amber-200/60 dark:border-amber-800/60 align-top">
-                      <td
-                        className={`sticky left-0 z-[1] bg-paper dark:bg-ink-soft px-3 py-2 border-r border-line dark:border-line-dark align-top w-[140px] max-w-[140px] ${activeDropTarget === "complete-no-area" ? "ring-1 ring-amber-400/60" : ""}`}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDragEnter={() => setActiveDropTarget("complete-no-area")}
-                        onDragLeave={() => setActiveDropTarget((current) => (current === "complete-no-area" ? null : current))}
-                        onDrop={(event) => void moveTaskByDrop(event, { work_area_ids: [] }, "complete-no-area")}
-                      >
-                        <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Senza area</div>
-                      </td>
-                      {heatmap.days.map((day) => {
-                        const tasks = tasksByDay.get(day) ?? [];
-                        const isToday = day === today;
-                        if (tasks.length === 0) {
-                          return (
-                            <td
-                              key={day}
-                              className={`px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 ${isToday ? "bg-ink/5 dark:bg-paper/5" : ""} ${activeDropTarget === `complete-no-area-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-no-area-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                              onDragOver={(event) => onCompleteDropHover(event, `complete-no-area-${day}`)}
-                              onDrop={(event) => void moveTaskByDrop(event, { work_area_ids: [], work_date: day }, `complete-no-area-${day}`)}
-                            >
-                              <div className="h-10" />
-                            </td>
-                          );
-                        }
-                        return (
-                          <td
-                            key={day}
-                            className={`px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 align-top ${isToday ? "bg-ink/5 dark:bg-paper/5" : ""} ${activeDropTarget === `complete-no-area-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-no-area-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                            onDragOver={(event) => onCompleteDropHover(event, `complete-no-area-${day}`)}
-                            onDrop={(event) => void moveTaskByDrop(event, { work_area_ids: [], work_date: day }, `complete-no-area-${day}`)}
-                          >
-                            <div className="space-y-1 min-w-[72px]">
-                              {tasks.map((task) => (
-                                <button
-                                  key={task.work_item_id}
-                                  type="button"
-                                  draggable
-                                  onDragStart={(event) => onTaskDragStart(event, task.work_item_id)}
-                                  onDragEnd={onTaskDragEnd}
-                                  onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                                  className={`w-full text-left rounded border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/20 px-1.5 py-1 hover:border-amber-500 dark:hover:border-amber-500 transition-colors cursor-grab active:cursor-grabbing ${draggingTaskId === task.work_item_id ? "opacity-60" : ""}`}
-                                >
-                                  <div className="text-[11px] font-semibold text-ink dark:text-paper leading-snug truncate" title={task.title}>{task.title}</div>
-                                  <div className="text-[10px] text-muted dark:text-muted-dark">{taskHoursLabel(task)}</div>
-                                </button>
-                              ))}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  </>
+                  <tr>
+                    <td
+                      className={`wlfull-op${activeDropTarget === "complete-no-area" ? " is-drop" : ""}`}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragEnter={() => setActiveDropTarget("complete-no-area")}
+                      onDragLeave={() => setActiveDropTarget((current) => (current === "complete-no-area" ? null : current))}
+                      onDrop={(event) => void moveTaskByDrop(event, { work_area_ids: [] }, "complete-no-area")}
+                    >
+                      <div className="wlfull-op-in">
+                        <span className="wlfull-area-dot" style={{ background: "#f59e0b" }} />
+                        <span className="wlfull-op-info">
+                          <b>Da distribuire</b>
+                          <span>Senza area · {noAreaTasks.length} task</span>
+                        </span>
+                      </div>
+                    </td>
+                    {columns.map((col) => {
+                      const tasks = sortTasksByStartTime(col.days.flatMap((d) => tasksByDay.get(d) ?? []));
+                      const key = `complete-no-area-${col.key}`;
+                      const isToday = col.days.includes(today);
+                      return (
+                        <td
+                          key={col.key}
+                          className={`${cellState(key)}${isToday ? " is-today" : ""}`}
+                          onDragOver={(event) => onCompleteDropHover(event, key)}
+                          onDrop={(event) => void moveTaskByDrop(event, { work_area_ids: [], work_date: col.dropDay }, key)}
+                        >
+                          <div className="wlfull-cellbox">
+                            {tasks.length > 0 && (
+                              <div className="wlfull-chips">
+                                {tasks.map((task) => renderChip(task, null, { unassigned: true }))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
                 );
               })()}
               {heatmap.groups.map((group, gIndex) => {
                 const areaKey = String(group.area_id ?? `none-${gIndex}`);
-                // Collect unassigned tasks for this area
+                const areaColor = group.area_color;
                 const areaUnassigned = heatmap.unassigned_tasks.tasks.filter(
                   (t) => t.work_areas && t.work_areas.some((a) => a.id === group.area_id)
                 );
@@ -1356,120 +1957,77 @@ export function WorkloadPage() {
                   if (!areaUnassignedByDay.has(d)) areaUnassignedByDay.set(d, []);
                   areaUnassignedByDay.get(d)!.push(t);
                 });
+                const areaStyle = areaColor ? ({ "--area": areaColor } as CSSProperties) : undefined;
                 return (
-                  <>
-                    {/* Area header row */}
-                    <tr key={`area-${areaKey}`}>
-                      {/* Sticky label cell */}
+                  <Fragment key={`area-${areaKey}`}>
+                    {/* Banda area */}
+                    <tr>
                       <td
-                        className={`sticky left-0 z-[2] px-4 py-2 border-b border-r border-line dark:border-line-dark w-[140px] max-w-[140px] ${activeDropTarget === `complete-area-${areaKey}` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
-                        style={group.area_color ? { backgroundColor: group.area_color + "22" } : undefined}
+                        className={`wlfull-area${activeDropTarget === `complete-area-${areaKey}` ? " is-drop" : ""}`}
+                        style={areaStyle}
                         onDragOver={(event) => event.preventDefault()}
                         onDragEnter={() => setActiveDropTarget(`complete-area-${areaKey}`)}
                         onDragLeave={() => setActiveDropTarget((current) => (current === `complete-area-${areaKey}` ? null : current))}
                         onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { work_area_id: group.area_id } : { work_area_ids: [] }, `complete-area-${areaKey}`)}
                       >
-                        <div className="flex items-center gap-2">
-                          {group.area_color && (
-                            <span
-                              className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: group.area_color }}
-                            />
-                          )}
-                          {group.area_icon ? (
-                            <span className="text-sm leading-none">{group.area_icon}</span>
-                          ) : (
-                            <Icon name="target" className="w-3.5 h-3.5 text-muted dark:text-muted-dark flex-shrink-0" />
-                          )}
-                          <span
-                            className="font-bold text-[11px] uppercase tracking-wider"
-                            style={group.area_color ? { color: group.area_color } : undefined}
-                          >
-                            {group.area_name || "Non assegnato"}
-                          </span>
-                          <span className="ml-1 inline-flex items-center rounded-full border border-line dark:border-line-dark px-1.5 py-0.5 text-[10px] font-semibold text-muted dark:text-muted-dark">
-                            {group.users.length}
-                          </span>
+                        <div className="wlfull-area-in">
+                          <span className="wlfull-area-dot" />
+                          <span className="wlfull-area-name">{group.area_name || "Non assegnato"}</span>
+                          <span className="wlfull-area-count">{group.users.length}</span>
                         </div>
                       </td>
-                      {/* Colored fill for the rest of the row */}
                       <td
-                        colSpan={heatmap.days.length}
-                        className={`border-b border-line dark:border-line-dark ${activeDropTarget === `complete-area-${areaKey}-fill` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
-                        style={group.area_color ? { backgroundColor: group.area_color + "22" } : { backgroundColor: "var(--color-cream, #f8f5f0)" }}
+                        colSpan={colSpanCount}
+                        className="wlfull-area-fill"
+                        style={areaStyle}
                         onDragOver={(event) => event.preventDefault()}
                         onDragEnter={() => setActiveDropTarget(`complete-area-${areaKey}-fill`)}
                         onDragLeave={() => setActiveDropTarget((current) => (current === `complete-area-${areaKey}-fill` ? null : current))}
                         onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { work_area_id: group.area_id } : { work_area_ids: [] }, `complete-area-${areaKey}-fill`)}
                       />
                     </tr>
-                    {/* Unassigned tasks for this area – first row after header */}
+                    {/* Task non assegnate dell'area */}
                     {areaUnassigned.length > 0 && (
-                      <tr className="border-b border-amber-200/60 dark:border-amber-800/60 align-top">
+                      <tr>
                         <td
-                          className={`sticky left-0 z-[1] bg-paper dark:bg-ink-soft px-3 py-2 border-r border-line dark:border-line-dark align-top w-[140px] max-w-[140px] ${activeDropTarget === `complete-area-unassigned-${areaKey}` ? "ring-1 ring-amber-400/60" : ""}`}
+                          className={`wlfull-op${activeDropTarget === `complete-area-unassigned-${areaKey}` ? " is-drop" : ""}`}
                           onDragOver={(event) => event.preventDefault()}
                           onDragEnter={() => setActiveDropTarget(`complete-area-unassigned-${areaKey}`)}
                           onDragLeave={() => setActiveDropTarget((current) => (current === `complete-area-unassigned-${areaKey}` ? null : current))}
                           onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_ids: [], work_area_id: group.area_id } : { assignee_ids: [], work_area_ids: [] }, `complete-area-unassigned-${areaKey}`)}
                         >
-                          <div className="flex items-center gap-1.5">
-                            <Icon name="alert-triangle" className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                            <div>
-                              <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Da distribuire</div>
-                              <div className="text-[10px] text-muted dark:text-muted-dark">{areaUnassigned.length} task</div>
-                            </div>
+                          <div className="wlfull-op-in">
+                            <span className="wlfull-area-dot" style={{ background: "#f59e0b" }} />
+                            <span className="wlfull-op-info">
+                              <b>Da distribuire</b>
+                              <span>{areaUnassigned.length} task</span>
+                            </span>
                           </div>
                         </td>
-                        {heatmap.days.map((day) => {
-                          const tasks = sortTasksByStartTime(areaUnassignedByDay.get(day) ?? []);
-                          const isToday = day === today;
-                          if (tasks.length === 0) {
-                            return (
-                              <td
-                                key={day}
-                                className={`px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 ${isToday ? "bg-ink/5 dark:bg-paper/5" : ""} ${activeDropTarget === `complete-area-unassigned-${areaKey}-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-area-unassigned-${areaKey}-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                                onDragOver={(event) => onCompleteDropHover(event, `complete-area-unassigned-${areaKey}-${day}`)}
-                                onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_ids: [], work_area_id: group.area_id, work_date: day } : { assignee_ids: [], work_area_ids: [], work_date: day }, `complete-area-unassigned-${areaKey}-${day}`)}
-                              >
-                                <div className="h-10" />
-                              </td>
-                            );
-                          }
+                        {columns.map((col) => {
+                          const tasks = sortTasksByStartTime(col.days.flatMap((d) => areaUnassignedByDay.get(d) ?? []));
+                          const key = `complete-area-unassigned-${areaKey}-${col.key}`;
+                          const isToday = col.days.includes(today);
                           return (
                             <td
-                              key={day}
-                              className={`px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 align-top ${isToday ? "bg-ink/5 dark:bg-paper/5" : ""} ${activeDropTarget === `complete-area-unassigned-${areaKey}-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-area-unassigned-${areaKey}-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                              onDragOver={(event) => onCompleteDropHover(event, `complete-area-unassigned-${areaKey}-${day}`)}
-                              onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_ids: [], work_area_id: group.area_id, work_date: day } : { assignee_ids: [], work_area_ids: [], work_date: day }, `complete-area-unassigned-${areaKey}-${day}`)}
+                              key={col.key}
+                              className={`${cellState(key)}${isToday ? " is-today" : ""}`}
+                              onDragOver={(event) => onCompleteDropHover(event, key)}
+                              onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_ids: [], work_area_id: group.area_id, work_date: col.dropDay } : { assignee_ids: [], work_area_ids: [], work_date: col.dropDay }, key)}
                             >
-                              <div className="space-y-1 min-w-[72px]">
-                                {tasks.map((task) => (
-                                  <button
-                                    key={task.work_item_id}
-                                    type="button"
-                                    draggable
-                                    onDragStart={(event) => onTaskDragStart(event, task.work_item_id)}
-                                    onDragEnd={onTaskDragEnd}
-                                    onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                                    className={`w-full text-left rounded border border-amber-300 dark:border-amber-700 bg-amber-50/80 dark:bg-amber-900/20 px-1.5 py-1 hover:border-amber-500 dark:hover:border-amber-500 transition-colors cursor-grab active:cursor-grabbing ${draggingTaskId === task.work_item_id ? "opacity-60" : ""}`}
-                                  >
-                                    <div className="text-[11px] font-semibold text-ink dark:text-paper leading-snug truncate" title={task.title}>{task.title}</div>
-                                    {formatTaskStartTime(task.start_time) && (
-                                      <div className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                                        {formatTaskStartTime(task.start_time)}
-                                      </div>
-                                    )}
-                                    <div className="text-[10px] text-muted dark:text-muted-dark">{taskHoursLabel(task)}</div>
-                                  </button>
-                                ))}
+                              <div className="wlfull-cellbox">
+                                {tasks.length > 0 && (
+                                  <div className="wlfull-chips">
+                                    {tasks.map((task) => renderChip(task, null, { unassigned: true }))}
+                                  </div>
+                                )}
                               </div>
                             </td>
                           );
                         })}
                       </tr>
                     )}
-                    {/* Operator rows */}
+                    {/* Righe operatori */}
                     {group.users.map((operator) => {
                       const byDate = new Map(operator.days.map((d) => [d.date, d]));
                       const avatarUrl = operator.avatar_url;
@@ -1479,65 +2037,84 @@ export function WorkloadPage() {
                         .map((w) => w[0]?.toUpperCase() ?? "")
                         .join("");
                       const roleLabel = operator.roles?.map((r) => r.name).join(", ") || null;
+                      const weekHours = operator.days.reduce((s, d) => s + (d.occupied_capacity_hours ?? 0), 0);
+                      const userKey = `complete-user-${operator.user_id}-${areaKey}`;
                       return (
-                        <tr
-                          key={`${areaKey}-${operator.user_id}`}
-                          className="border-b border-line/50 dark:border-line-dark/50 hover:bg-cream/20 dark:hover:bg-ink-soft/10 align-top"
-                        >
-                          {/* Operator name cell */}
+                        <tr key={`${areaKey}-${operator.user_id}`}>
+                          {/* Cella operatore */}
                           <td
-                            className={`sticky left-0 z-[1] bg-paper dark:bg-ink-soft px-3 py-2 border-r border-line dark:border-line-dark align-top w-[140px] max-w-[140px] ${activeDropTarget === `complete-user-${operator.user_id}-${areaKey}` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
+                            className={`wlfull-op${activeDropTarget === userKey ? " is-drop" : ""}`}
+                            style={areaStyle}
                             onDragOver={(event) => event.preventDefault()}
-                            onDragEnter={() => setActiveDropTarget(`complete-user-${operator.user_id}-${areaKey}`)}
-                            onDragLeave={() => setActiveDropTarget((current) => (current === `complete-user-${operator.user_id}-${areaKey}` ? null : current))}
-                            onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id } : { assignee_id: operator.user_id, work_area_ids: [] }, `complete-user-${operator.user_id}-${areaKey}`)}
+                            onDragEnter={() => setActiveDropTarget(userKey)}
+                            onDragLeave={() => setActiveDropTarget((current) => (current === userKey ? null : current))}
+                            onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id } : { assignee_id: operator.user_id, work_area_ids: [] }, userKey)}
                           >
-                            <div className="flex items-start gap-2.5 pt-0.5">
-                              {avatarUrl ? (
-                                <img
-                                  src={avatarUrl}
-                                  alt={operator.full_name || operator.username}
-                                  className="w-7 h-7 rounded-full object-cover flex-shrink-0"
-                                />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-ink/10 dark:bg-paper/10 flex items-center justify-center flex-shrink-0">
-                                  <span className="text-[10px] font-bold text-ink dark:text-paper">{initials}</span>
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <div className="font-semibold text-[13px] text-ink dark:text-paper truncate">
-                                  {operator.full_name || operator.username}
-                                </div>
-                                {roleLabel && (
-                                  <div className="text-[10px] text-muted dark:text-muted-dark truncate" title={roleLabel}>
-                                    {roleLabel}
-                                  </div>
-                                )}
-                                <div className="text-[10px] text-muted dark:text-muted-dark">
-                                  {operator.max_capacity_hours_day}h/g
-                                </div>
-                              </div>
+                            <div className="wlfull-op-in">
+                              <span className="wlfull-op-av" style={areaStyle}>
+                                {avatarUrl ? <img src={avatarUrl} alt={operator.full_name || operator.username} /> : initials}
+                              </span>
+                              <span className="wlfull-op-info">
+                                <b>{operator.full_name || operator.username}</b>
+                                {roleLabel && <span title={roleLabel}>{roleLabel}</span>}
+                              </span>
+                              <span className="wlfull-op-cap">{formatHours(weekHours)}</span>
                             </div>
                           </td>
-                          {/* Day cells */}
-                          {heatmap.days.map((day) => {
+                          {/* Celle giorno (o settimana aggregata in vista mese) */}
+                          {columns.map((col) => {
+                            const isToday = col.days.includes(today);
+                            const key = `complete-cell-${operator.user_id}-${areaKey}-${col.key}`;
+                            // Vista mese: cella aggregata per settimana (ore · % · task), senza chip.
+                            if (!col.single) {
+                              const weekCells = col.days.map((d) => byDate.get(d)).filter((c): c is NonNullable<typeof c> => !!c);
+                              const occupied = weekCells.reduce((s, c) => s + (c.occupied_capacity_hours ?? 0), 0);
+                              const taskCount = weekCells.reduce((s, c) => s + (c.assigned_tasks_count ?? 0), 0);
+                              const weekCap = operator.max_capacity_hours_week ?? operator.max_capacity_hours_day * 5;
+                              const util = weekCap > 0 ? (occupied / weekCap) * 100 : 0;
+                              return (
+                                <td
+                                  key={col.key}
+                                  className={`${cellState(key)}${isToday ? " is-today" : ""}`}
+                                  onDragOver={(event) => onCompleteDropHover(event, key)}
+                                  onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id, work_date: col.dropDay } : { assignee_id: operator.user_id, work_area_ids: [], work_date: col.dropDay }, key)}
+                                >
+                                  <div className="wlfull-cellbox items-center justify-center">
+                                    {taskCount > 0 ? (
+                                      <div className="flex flex-col items-center gap-0.5 py-2 text-center">
+                                        <span className="text-[15px] font-bold tabular-nums leading-none text-ink dark:text-paper">{formatHours(occupied)}</span>
+                                        <span className={`text-[12px] font-bold tabular-nums ${util >= 100 ? "text-danger" : util >= 80 ? "text-warning" : "text-success"}`}>{Math.round(util)}%</span>
+                                        <span className="text-[10px] text-muted dark:text-muted-dark">{taskCount} task · sett.</span>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setQuickAdd({ day: col.dropDay, userId: operator.user_id }); setNewWorkModalOpen(true); }}
+                                        className="wlfull-add-empty"
+                                        title="Aggiungi lavorazione"
+                                      >
+                                        <Icon name="plus" className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            }
+                            const day = col.days[0];
                             const cell = byDate.get(day);
-                            const isToday = day === today;
                             if (!cell || cell.workload_status === "empty") {
                               return (
                                 <td
                                   key={day}
-                                  className={`group/cell px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 align-top ${
-                                    isToday ? "bg-ink/5 dark:bg-paper/5" : ""
-                                  } ${activeDropTarget === `complete-cell-${operator.user_id}-${areaKey}-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-cell-${operator.user_id}-${areaKey}-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                                  onDragOver={(event) => onCompleteDropHover(event, `complete-cell-${operator.user_id}-${areaKey}-${day}`)}
-                                  onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id, work_date: day } : { assignee_id: operator.user_id, work_area_ids: [], work_date: day }, `complete-cell-${operator.user_id}-${areaKey}-${day}`)}
+                                  className={`${cellState(key)}${isToday ? " is-today" : ""}`}
+                                  onDragOver={(event) => onCompleteDropHover(event, key)}
+                                  onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id, work_date: day } : { assignee_id: operator.user_id, work_area_ids: [], work_date: day }, key)}
                                 >
-                                  <div className="flex items-center justify-center h-10">
+                                  <div className="wlfull-cellbox">
                                     <button
                                       type="button"
                                       onClick={() => { setQuickAdd({ day, userId: operator.user_id }); setNewWorkModalOpen(true); }}
-                                      className="opacity-0 group-hover/cell:opacity-100 transition-opacity w-6 h-6 rounded-full border border-dashed border-line dark:border-line-dark text-muted dark:text-muted-dark hover:border-ink hover:text-ink dark:hover:border-paper dark:hover:text-paper flex items-center justify-center"
+                                      className="wlfull-add-empty"
                                       title="Aggiungi lavorazione"
                                     >
                                       <Icon name="plus" className="w-3 h-3" />
@@ -1549,61 +2126,35 @@ export function WorkloadPage() {
                             return (
                               <td
                                 key={day}
-                                className={`group/cell px-1 py-1.5 border-r border-line/30 dark:border-line-dark/30 last:border-r-0 align-top ${
-                                  isToday ? "bg-ink/5 dark:bg-paper/5" : ""
-                                } ${activeDropTarget === `complete-cell-${operator.user_id}-${areaKey}-${day}` ? "bg-amber-50/70 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-400/70" : ""} ${hotDropTarget === `complete-cell-${operator.user_id}-${areaKey}-${day}` ? "bg-amber-100/70 dark:bg-amber-900/35 ring-2 ring-inset ring-amber-500" : ""}`}
-                                onDragOver={(event) => onCompleteDropHover(event, `complete-cell-${operator.user_id}-${areaKey}-${day}`)}
-                                onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id, work_date: day } : { assignee_id: operator.user_id, work_area_ids: [], work_date: day }, `complete-cell-${operator.user_id}-${areaKey}-${day}`)}
+                                className={`${cellState(key)}${isToday ? " is-today" : ""}`}
+                                onDragOver={(event) => onCompleteDropHover(event, key)}
+                                onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id, work_date: day } : { assignee_id: operator.user_id, work_area_ids: [], work_date: day }, key)}
                               >
-                                <div className="relative space-y-1 min-w-[72px]">
-                                  {/* Expanded task list */}
+                                <div className="wlfull-cellbox">
                                   {cell.tasks.length > 0 ? (
-                                    sortTasksByStartTime(cell.tasks).map((task) => (
-                                      <button
-                                        key={task.work_item_id}
-                                        type="button"
-                                        draggable
-                                        onDragStart={(event) => onTaskDragStart(event, task.work_item_id)}
-                                        onDragEnd={onTaskDragEnd}
-                                        onClick={() => void openEditWorkItemModal(task.work_item_id)}
-                                        className={`w-full text-left rounded border px-1.5 py-1 hover:ring-1 hover:ring-ink/20 dark:hover:ring-paper/20 transition-colors cursor-grab active:cursor-grabbing ${heatClass(cell.workload_status)} ${draggingTaskId === task.work_item_id ? "opacity-60" : ""}`}
-                                      >
-                                        <div className="text-[11px] font-semibold text-ink dark:text-paper leading-snug truncate" title={task.title}>
-                                          {task.title}
-                                        </div>
-                                        {formatTaskStartTime(task.start_time) && (
-                                          <div className="text-[10px] text-muted dark:text-muted-dark leading-none mt-0.5">
-                                            {formatTaskStartTime(task.start_time)}
-                                          </div>
-                                        )}
-                                        <div className="text-[10px] text-muted dark:text-muted-dark leading-none mt-0.5">
-                                          {taskHoursLabel(task)}
-                                        </div>
-                                      </button>
-                                    ))
+                                    <div className="wlfull-chips">
+                                      {sortTasksByStartTime(cell.tasks).map((task) => renderChip(task, areaColor))}
+                                    </div>
                                   ) : (
-                                    /* tasks[] empty means include_task_details=false — fallback summary */
-                                    <div className={`rounded-md border px-1.5 py-1.5 text-center ${heatClass(cell.workload_status)}`}>
-                                      <div className="font-bold text-[12px] text-ink dark:text-paper leading-none">
-                                        {formatHours(cell.occupied_capacity_hours)}
+                                    <div className="wlfull-chips">
+                                      <div className="wlfull-chip" style={areaStyle}>
+                                        <span className="wlfull-chip-main">
+                                          <span className="wlfull-chip-t">{cell.assigned_tasks_count} task</span>
+                                        </span>
+                                        <span className="wlfull-chip-h">{formatHours(cell.occupied_capacity_hours)}</span>
                                       </div>
-                                      {cell.assigned_tasks_count > 0 && (
-                                        <div className="text-[10px] text-muted dark:text-muted-dark mt-0.5 leading-none">
-                                          {cell.assigned_tasks_count} task
-                                        </div>
-                                      )}
                                     </div>
                                   )}
-                                  {/* Footer: total hours + utilization */}
-                                  <div className="flex items-center justify-between gap-1 px-0.5 pt-0.5">
-                                    <span className="text-[10px] text-muted dark:text-muted-dark">{formatHours(cell.occupied_capacity_hours)}</span>
-                                    <span className="text-[10px] text-muted dark:text-muted-dark">{cell.utilization_percent.toFixed(0)}%</span>
+                                  <div className="wlfull-foot">
+                                    <span className="wlfull-foot-h">{formatHours(cell.occupied_capacity_hours)}</span>
+                                    <span className={`wlfull-foot-load ${loadClass(cell.utilization_percent)}`}>
+                                      {cell.utilization_percent.toFixed(0)}%
+                                    </span>
                                   </div>
-                                  {/* Quick-add button */}
                                   <button
                                     type="button"
                                     onClick={() => { setQuickAdd({ day, userId: operator.user_id }); setNewWorkModalOpen(true); }}
-                                    className="absolute -top-1.5 -right-1.5 opacity-0 group-hover/cell:opacity-100 transition-opacity w-5 h-5 rounded-full bg-ink dark:bg-paper text-paper dark:text-ink flex items-center justify-center shadow-sm z-[1]"
+                                    className="wlfull-add"
                                     title="Aggiungi lavorazione"
                                   >
                                     <Icon name="plus" className="w-2.5 h-2.5" />
@@ -1615,7 +2166,7 @@ export function WorkloadPage() {
                         </tr>
                       );
                     })}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -1634,557 +2185,162 @@ export function WorkloadPage() {
       );
     }
 
-    return (
-      <div className="space-y-3">
-        {heatmap.groups.map((group, index) => {
-          const key = String(group.area_id ?? `none-${index}`);
-          const isOpen = !!expandedAreas[key];
-          return (
-            <div key={key} className="rounded-md border border-line dark:border-line-dark overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setExpandedAreas((current) => ({ ...current, [key]: !isOpen }))}
-                className={`w-full px-4 py-3 flex items-center justify-between gap-3 bg-cream/70 dark:bg-ink-2 ${activeDropTarget === `heat-area-${key}` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
-                onDragOver={(event) => event.preventDefault()}
-                onDragEnter={() => setActiveDropTarget(`heat-area-${key}`)}
-                onDragLeave={() => setActiveDropTarget((current) => (current === `heat-area-${key}` ? null : current))}
-                onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { work_area_id: group.area_id } : { work_area_ids: [] }, `heat-area-${key}`)}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  {group.area_icon ? <span className="text-base">{group.area_icon}</span> : <Icon name="target" className="w-4 h-4 text-muted" />}
-                  <span className="font-semibold text-sm text-ink dark:text-paper truncate">{group.area_name || "Non assegnato"}</span>
-                  <Badge variant="default">{group.users.length} utenti</Badge>
-                </div>
-                <Icon name="chevron-down" className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-              </button>
+    const today = getTodayDate();
+    // Classe di "calore" della cella in base alla % di carico (come il prototipo).
+    const heatCls = (cell?: { utilization_percent: number; workload_status: WorkloadComputedStatus }) => {
+      if (!cell || cell.workload_status === "empty" || cell.utilization_percent <= 0) return "is-empty";
+      if (cell.utilization_percent >= 100) return "is-over";
+      if (cell.utilization_percent >= 80) return "is-warn";
+      return "is-ok";
+    };
 
-              {isOpen && (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-[12px]">
-                    <thead>
-                      <tr className="border-b border-line dark:border-line-dark bg-paper dark:bg-ink-soft">
-                        <th className="sticky left-0 z-[1] bg-paper dark:bg-ink-soft px-3 py-2 text-left text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark w-[140px] max-w-[140px]">Operatore</th>
-                        {heatmap.days.map((day) => (
-                          <th key={day} className="px-2 py-2 text-center text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark min-w-[88px]">
-                            {formatDayChip(day).weekday} {formatDayChip(day).day}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.users.map((operator) => (
-                        <tr key={operator.user_id} className="border-b border-line/60 dark:border-line-dark/70">
-                          <td
-                            className={`sticky left-0 z-[1] bg-paper dark:bg-ink-soft px-3 py-2 align-top ${activeDropTarget === `heat-user-${operator.user_id}-${key}` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDragEnter={() => setActiveDropTarget(`heat-user-${operator.user_id}-${key}`)}
-                            onDragLeave={() => setActiveDropTarget((current) => (current === `heat-user-${operator.user_id}-${key}` ? null : current))}
-                            onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id } : { assignee_id: operator.user_id, work_area_ids: [] }, `heat-user-${operator.user_id}-${key}`)}
-                          >
-                            <div className="font-semibold text-ink dark:text-paper">{operator.full_name || operator.username}</div>
-                            <div className="mt-1 text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark">
-                              cap {operator.max_capacity_hours_day}h / giorno
+    return (
+      <div className={`wlfull-shell${calendarDensity === "compact" ? " wlfull-shell--compact" : ""}`}>
+        <div className="wlfull-sub">
+          <span className="wlfull-sub-title">Heatmap carico per area</span>
+          <span className="wlfull-sub-hint">{heatmap.days.length} giorni · % su capacità</span>
+        </div>
+        {renderWorkloadLegend()}
+        <div className="wlfull">
+          <table className="wlfull-tbl wlfull-tbl--heat">
+            <thead>
+              <tr>
+                <th className="wlfull-corner">Operatore</th>
+                {heatmap.days.map((day) => {
+                  const chip = formatDayChip(day);
+                  const isToday = day === today;
+                  return (
+                    <th key={day} className={`wlfull-dh${isToday ? " is-today" : ""}`}>
+                      <span className="dow">{chip.weekday}</span>
+                      <span className="num">{chip.day}</span>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {heatmap.groups.map((group, index) => {
+                const areaKey = String(group.area_id ?? `none-${index}`);
+                const areaColor = group.area_color ?? "#9ca3af";
+                const areaStyle = { ["--area" as string]: areaColor } as CSSProperties;
+                return (
+                  <Fragment key={areaKey}>
+                    {/* Banda area */}
+                    <tr>
+                      <td className="wlfull-area" style={areaStyle}>
+                        <div className="wlfull-area-in">
+                          <span className="wlfull-area-dot" />
+                          <span className="wlfull-area-name">{group.area_name || "Non assegnato"}</span>
+                          <span className="wlfull-area-count">{group.users.length}</span>
+                        </div>
+                      </td>
+                      <td colSpan={heatmap.days.length} className="wlfull-area-fill" style={areaStyle} />
+                    </tr>
+                    {/* Righe operatori */}
+                    {group.users.map((operator) => {
+                      const byDate = new Map(operator.days.map((d) => [d.date, d]));
+                      const avatarUrl = operator.avatar_url;
+                      const initials = (operator.full_name || operator.username)
+                        .split(" ")
+                        .slice(0, 2)
+                        .map((w) => w[0]?.toUpperCase() ?? "")
+                        .join("");
+                      const roleLabel = operator.roles?.map((r) => r.name).join(", ") || null;
+                      return (
+                        <tr key={`${areaKey}-${operator.user_id}`}>
+                          <td className="wlfull-op" style={areaStyle}>
+                            <div className="wlfull-op-in">
+                              <span className="wlfull-op-av" style={areaStyle}>
+                                {avatarUrl ? <img src={avatarUrl} alt={operator.full_name || operator.username} /> : initials}
+                              </span>
+                              <span className="wlfull-op-info">
+                                <b>{operator.full_name || operator.username}</b>
+                                {roleLabel && <span title={roleLabel}>{roleLabel}</span>}
+                              </span>
+                              <span className="wlfull-op-cap">{operator.max_capacity_hours_day}h</span>
                             </div>
                           </td>
-                          {operator.days.map((cell) => (
-                            <td
-                              key={`${operator.user_id}-${cell.date}`}
-                              className={`px-2 py-2 align-top ${activeDropTarget === `heat-cell-${operator.user_id}-${key}-${cell.date}` ? "ring-1 ring-ink/25 dark:ring-paper/25" : ""}`}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDragEnter={() => setActiveDropTarget(`heat-cell-${operator.user_id}-${key}-${cell.date}`)}
-                              onDragLeave={() => setActiveDropTarget((current) => (current === `heat-cell-${operator.user_id}-${key}-${cell.date}` ? null : current))}
-                              onDrop={(event) => void moveTaskByDrop(event, group.area_id != null ? { assignee_id: operator.user_id, work_area_id: group.area_id } : { assignee_id: operator.user_id, work_area_ids: [] }, `heat-cell-${operator.user_id}-${key}-${cell.date}`)}
-                            >
-                              <div>
+                          {heatmap.days.map((day) => {
+                            const cell = byDate.get(day);
+                            const isToday = day === today;
+                            const filled = !!cell && cell.workload_status !== "empty" && cell.utilization_percent > 0;
+                            const dropKey = `heat-cell-${operator.user_id}-${day}`;
+                            return (
+                              <td
+                                key={day}
+                                className={`wlfull-heatcell${isToday ? " is-today" : ""}${activeDropTarget === dropKey ? " is-drop" : ""}`}
+                                onDragOver={(event) => { if (draggingTaskId != null) event.preventDefault(); }}
+                                onDragEnter={() => { if (draggingTaskId != null) setActiveDropTarget(dropKey); }}
+                                onDragLeave={() => setActiveDropTarget((current) => (current === dropKey ? null : current))}
+                                onDrop={(event) => void moveTaskByDrop(event, { assignee_id: operator.user_id, work_date: day }, dropKey)}
+                              >
                                 <button
                                   type="button"
-                                  className={`w-full rounded-md border px-1.5 py-1 text-center ${heatmapLoadClass(cell.utilization_percent, cell.workload_status)} ${selectedDay === cell.date ? "ring-1 ring-ink dark:ring-paper" : ""}`}
-                                  onClick={() => setSelectedDay(cell.date)}
+                                  className={`wlfull-heat ${heatCls(cell)}${selectedDay === day ? " is-sel" : ""}`}
+                                  onClick={() => setSelectedDay(day)}
+                                  title={`${operator.full_name || operator.username} · ${formatDayChip(day).weekday} ${formatDayChip(day).day}`}
                                 >
-                                  <div className="text-[11px] font-semibold text-ink dark:text-paper">{formatHours(cell.occupied_capacity_hours)}</div>
-                                  <div className="text-[10px] text-muted dark:text-muted-dark">{cell.utilization_percent.toFixed(0)}%</div>
-                                  <div className="text-[10px] text-muted dark:text-muted-dark">{cell.assigned_tasks_count} task</div>
+                                  {filled ? (
+                                    <>
+                                      <span className="wlfull-heat-h">{formatHours(cell!.occupied_capacity_hours)}</span>
+                                      <span className="wlfull-heat-pct">{cell!.utilization_percent.toFixed(0)}%</span>
+                                      <span className="wlfull-heat-tasks">{cell!.assigned_tasks_count} task</span>
+                                    </>
+                                  ) : (
+                                    <span className="wlfull-heat-we">—</span>
+                                  )}
                                 </button>
-                              </div>
-                            </td>
-                          ))}
+                              </td>
+                            );
+                          })}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // ── Allocation Grid helpers ────────────────────────────────────────────────
-
-  const loadAllocationGrid = useCallback(async (runId?: string | null) => {
-    if (!selectedCompanyId) return;
-    const { planningStart, planningEnd } = resolvePlanningRange();
-    setAllocationGridLoading(true);
-    setAllocationGridError(null);
-    try {
-      const grid = await getWorkloadAllocationGridApi({
-        company_id: selectedCompanyId,
-        from_date: planningStart,
-        to_date: planningEnd,
-        run_id: runId ?? undefined,
-      });
-      setAllocationGrid(grid);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Errore griglia allocazioni";
-      setAllocationGridError(msg);
-      toast.error(msg);
-    } finally {
-      setAllocationGridLoading(false);
-    }
-  }, [resolvePlanningRange, selectedCompanyId, toast]);
-
-  // Auto-load when switching to griglia view
-  useEffect(() => {
-    if (viewMode === "griglia" && selectedCompanyId) {
-      void loadAllocationGrid(allocationGrid?.last_run_id);
-    }
-  }, [viewMode, selectedCompanyId, rangeMode]);
-
-  const dayStatusLabel = (status: WorkloadDayStatus) => {
-    if (status === "empty") return "text-muted dark:text-muted-dark";
-    if (status === "ok") return "text-green dark:text-green-light";
-    if (status === "warning") return "text-warning dark:text-warning-light";
-    return "text-danger dark:text-danger-light";
-  };
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // ALLOCATION GRID VIEWS
-  // ────────────────────────────────────────────────────────────────────────────
-
-  const renderAllocationGridGlobale = () => {
-    if (!allocationGrid) return null;
-
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return {
-        bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]",
-        border: "border-[#3b6d11] dark:border-[#5a9e22]",
-        text: "text-[#3b6d11] dark:text-[#8ed44f]",
-      };
-      if (status === "at_limit") return {
-        bg: "bg-[#faeeda] dark:bg-[#3d2e10]",
-        border: "border-[#854f0b] dark:border-[#c47a1a]",
-        text: "text-[#854f0b] dark:text-[#efb44a]",
-      };
-      return {
-        bg: "bg-[#fceaeb] dark:bg-[#3d1212]",
-        border: "border-[#a32d2d] dark:border-[#cc4444]",
-        text: "text-[#a32d2d] dark:text-[#f47070]",
-      };
-    };
-
-    return (
-      <div className="overflow-x-auto pb-3">
-        <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(allocationGrid.days.length * 150, 600)}px` }}>
-          <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-            <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-          </div>
-
-          {allocationGrid.days.map((day) => {
-            const chip = formatDayChip(day.date);
-            const isToday = day.date === today;
-            let cumulativeHours = 0;
-
-            return (
-              <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                  {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                </div>
-
-                <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                  <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                  <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                  {day.day_status === "empty" && (
-                    <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                  )}
-
-                  {day.allocations.map((alloc) => {
-                    const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                    const bottomPx = hoursToY(cumulativeHours);
-                    cumulativeHours += alloc.planned_hours;
-                    const c = allocColor(alloc.allocation_status);
-
-                    return (
-                      <button
-                        key={alloc.work_item_id}
-                        type="button"
-                        onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                        title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}${alloc.conflict_code ? `\nConflitto: ${alloc.conflict_code}` : ""}`}
-                        className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                        style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                      >
-                        <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                          <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                          <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                        </div>
-                        {alloc.overload_hours > 0 && (
-                          <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                  <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                  <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                  <span className="text-[10px] tabular-nums">
-                    {day.total_planned_hours.toFixed(1)}h
-                    {day.total_overload_hours > 0 && (
-                      <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                    )}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     );
   };
 
-  const renderAllocationGridOperatore = () => {
-    if (!allocationGrid) return null;
 
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return { bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]", border: "border-[#3b6d11] dark:border-[#5a9e22]", text: "text-[#3b6d11] dark:text-[#8ed44f]" };
-      if (status === "at_limit") return { bg: "bg-[#faeeda] dark:bg-[#3d2e10]", border: "border-[#854f0b] dark:border-[#c47a1a]", text: "text-[#854f0b] dark:text-[#efb44a]" };
-      return { bg: "bg-[#fceaeb] dark:bg-[#3d1212]", border: "border-[#a32d2d] dark:border-[#cc4444]", text: "text-[#a32d2d] dark:text-[#f47070]" };
-    };
-
+  // Striscia info operatore selezionato (come `.op` del prototipo).
+  const renderOperatorStrip = () => {
+    const op = calendarOperatorId != null ? calendarOperators.find((o) => o.user_id === calendarOperatorId) : null;
+    if (!op) return null;
+    const name = op.full_name || op.username;
+    const role = op.roles?.map((r) => r.name).join(", ");
+    const initials = (name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("")) || "?";
+    const dayStat = calendarDayStats.get(selectedDay);
+    const status = summaryByUserId.get(op.user_id)?.workload_status;
+    const statusCls = status === "overload" ? "is-over" : status === "warning" ? "is-warn" : "is-neutral";
+    const dayMeta = dateFromIso(selectedDay).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" });
+    const conflicts = calendarData?.conflicts?.length ?? 0;
     return (
-      <div className="flex flex-col gap-3">
-        {allocationGrid.operators.map((op) => (
-          <div key={op.user_id} className="rounded-lg border border-line dark:border-line-dark overflow-hidden">
-            <div className="flex items-center justify-between gap-3 bg-cream/40 dark:bg-[#2a2a30] px-4 py-2.5 border-b border-line dark:border-line-dark">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex flex-col min-w-0">
-                  <span className="font-semibold text-sm text-ink dark:text-paper">{op.full_name || op.username}</span>
-                  <span className="text-[11px] text-muted dark:text-muted-dark">@{op.username}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-right">
-                <span className="text-[11px]">
-                  <span className="font-semibold text-ink dark:text-paper">{op.total_planned_hours.toFixed(1)}h</span>
-                  <span className="text-muted dark:text-muted-dark"> pianificate</span>
-                </span>
-                {op.total_overload_hours > 0 && (
-                  <span className="text-[11px] text-danger">
-                    <span className="font-semibold">+{op.total_overload_hours.toFixed(1)}h</span>
-                    <span> overload</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto p-3">
-              <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(op.days.length * 150, 600)}px` }}>
-                <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-                </div>
-
-                {op.days.map((day) => {
-                  const chip = formatDayChip(day.date);
-                  const isToday = day.date === today;
-                  let cumulativeHours = 0;
-
-                  return (
-                    <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                      <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                        {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                      </div>
-
-                      <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                        <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                        <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                        {day.day_status === "empty" && (
-                          <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                        )}
-
-                        {day.allocations.map((alloc) => {
-                          const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                          const bottomPx = hoursToY(cumulativeHours);
-                          cumulativeHours += alloc.planned_hours;
-                          const c = allocColor(alloc.allocation_status);
-
-                          return (
-                            <button
-                              key={alloc.work_item_id}
-                              type="button"
-                              onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                              title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}`}
-                              className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                              style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                            >
-                              <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                                <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                                <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                              </div>
-                              {alloc.overload_hours > 0 && (
-                                <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                        <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                        <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                        <span className="text-[10px] tabular-nums">
-                          {day.total_planned_hours.toFixed(1)}h
-                          {day.total_overload_hours > 0 && (
-                            <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderAllocationGridArea = () => {
-    if (!allocationGrid) return null;
-
-    const today = getTodayDate();
-    const cap = allocationGrid.daily_capacity_hours;
-    const maxHours = cap * 1.6;
-    const BAR_PX = 300;
-    const hoursToY = (h: number) => Math.round((h / maxHours) * BAR_PX);
-    const capLineFromTop = BAR_PX - hoursToY(cap);
-
-    const allocColor = (status: "ok" | "at_limit" | "overload") => {
-      if (status === "ok") return { bg: "bg-[#eaf3de] dark:bg-[#2a3d1a]", border: "border-[#3b6d11] dark:border-[#5a9e22]", text: "text-[#3b6d11] dark:text-[#8ed44f]" };
-      if (status === "at_limit") return { bg: "bg-[#faeeda] dark:bg-[#3d2e10]", border: "border-[#854f0b] dark:border-[#c47a1a]", text: "text-[#854f0b] dark:text-[#efb44a]" };
-      return { bg: "bg-[#fceaeb] dark:bg-[#3d1212]", border: "border-[#a32d2d] dark:border-[#cc4444]", text: "text-[#a32d2d] dark:text-[#f47070]" };
-    };
-
-    return (
-      <div className="flex flex-col gap-3">
-        {allocationGrid.work_areas.map((area) => (
-          <div key={area.area_id} className="rounded-lg border border-line dark:border-line-dark overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-line dark:border-line-dark" style={{ backgroundColor: area.area_color ? `${area.area_color}15` : undefined }}>
-              <div className="flex items-center gap-2.5 min-w-0">
-                {area.area_icon && <span className="text-lg shrink-0">{area.area_icon}</span>}
-                <div className="flex flex-col min-w-0">
-                  <span className="font-semibold text-sm text-ink dark:text-paper">{area.area_name}</span>
-                  {area.area_slug && <span className="text-[11px] text-muted dark:text-muted-dark">#{area.area_slug}</span>}
-                </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 text-right">
-                <span className="text-[11px]">
-                  <span className="font-semibold text-ink dark:text-paper">{area.total_planned_hours.toFixed(1)}h</span>
-                  <span className="text-muted dark:text-muted-dark"> pianificate</span>
-                </span>
-                {area.total_overload_hours > 0 && (
-                  <span className="text-[11px] text-danger">
-                    <span className="font-semibold">+{area.total_overload_hours.toFixed(1)}h</span>
-                    <span> overload</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto p-3">
-              <div className="flex items-end gap-2" style={{ minWidth: `${Math.max(area.days.length * 150, 600)}px` }}>
-                <div className="flex flex-col items-end justify-between shrink-0 pb-6" style={{ height: `${BAR_PX + 24}px` }}>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{maxHours.toFixed(1)}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">{cap}h</span>
-                  <span className="text-[10px] text-muted dark:text-muted-dark tabular-nums">0h</span>
-                </div>
-
-                {area.days.map((day) => {
-                  const chip = formatDayChip(day.date);
-                  const isToday = day.date === today;
-                  let cumulativeHours = 0;
-
-                  return (
-                    <div key={day.date} className="flex flex-1 flex-col items-center gap-1" style={{ minWidth: "130px" }}>
-                      <div className={`text-[11px] font-semibold tabular-nums ${dayStatusLabel(day.day_status)}`}>
-                        {day.day_status === "empty" ? "—" : `${day.utilization_percent.toFixed(0)}%`}
-                      </div>
-
-                      <div className="relative w-full overflow-hidden rounded-sm" style={{ height: `${BAR_PX}px` }}>
-                        <div className="absolute bottom-0 left-0 right-0 h-px bg-line dark:bg-line-dark" />
-                        <div className="absolute left-0 right-0 z-10 border-t border-dashed" style={{ top: `${capLineFromTop}px`, borderColor: "rgba(115,114,108,0.7)" }} />
-                        {day.day_status === "empty" && (
-                          <div className="absolute inset-0 rounded border border-dashed border-line dark:border-line-dark" />
-                        )}
-
-                        {day.allocations.map((alloc) => {
-                          const blockH = Math.max(hoursToY(alloc.planned_hours), 18);
-                          const bottomPx = hoursToY(cumulativeHours);
-                          cumulativeHours += alloc.planned_hours;
-                          const c = allocColor(alloc.allocation_status);
-
-                          return (
-                            <button
-                              key={alloc.work_item_id}
-                              type="button"
-                              onClick={() => void openEditWorkItemModal(alloc.work_item_id)}
-                              title={`${alloc.title}\n${alloc.planned_hours.toFixed(1)}h${alloc.client_name ? `\n${alloc.client_name}` : ""}`}
-                              className={`absolute left-0 right-0 rounded-[3px] border ${c.bg} ${c.border} overflow-hidden hover:brightness-95 dark:hover:brightness-110 transition-all`}
-                              style={{ height: `${blockH}px`, bottom: `${bottomPx}px` }}
-                            >
-                              <div className={`flex h-full items-center justify-between gap-1 px-1.5 ${c.text}`}>
-                                <span className="min-w-0 truncate text-[11px] font-medium leading-tight">{alloc.title}</span>
-                                <span className="shrink-0 text-[11px] font-semibold tabular-nums">{alloc.planned_hours.toFixed(1)}h</span>
-                              </div>
-                              {alloc.overload_hours > 0 && (
-                                <div className="absolute left-0 right-0 top-0 rounded-t-[3px] bg-[#a32d2d]/20" style={{ height: `${hoursToY(alloc.overload_hours)}px` }} />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className={`flex flex-col items-center gap-0.5 ${isToday ? "font-bold text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
-                        <span className="text-[10px] uppercase tracking-wider">{chip.weekday}</span>
-                        <span className="text-sm font-semibold leading-none">{chip.day} {chip.month}</span>
-                        <span className="text-[10px] tabular-nums">
-                          {day.total_planned_hours.toFixed(1)}h
-                          {day.total_overload_hours > 0 && (
-                            <span className="text-danger font-semibold"> +{day.total_overload_hours.toFixed(1)}</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderGridView = () => {
-    if (allocationGridLoading) {
-      return <div className="flex items-center justify-center py-12"><Spinner size="md" /></div>;
-    }
-
-    if (allocationGridError) {
-      return (
-        <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-3 text-sm text-danger">
-          {allocationGridError}
-          <button type="button" className="ml-3 underline text-xs" onClick={() => void loadAllocationGrid()}>
-            Riprova
-          </button>
+      <div className="wlcal-op">
+        {op.avatar_url ? (
+          <img src={op.avatar_url} alt={name} className="wlcal-op-av wlcal-op-av--img" />
+        ) : (
+          <div className="wlcal-op-av">{initials}</div>
+        )}
+        <div className="wlcal-op-who">
+          <b>{name}</b>
+          <span>{role || "Operatore"} · {dayMeta}</span>
         </div>
-      );
-    }
-
-    if (!allocationGrid) {
-      return (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-sm text-muted dark:text-muted-dark">
-          <p>Nessuna griglia allocazioni disponibile.</p>
-          <p className="text-xs">Esegui <strong>Simula workload</strong> e poi <strong>Applica</strong> per vedere la distribuzione delle ore per giorno.</p>
-          <Button size="sm" variant="secondary" onClick={() => void loadAllocationGrid()}>
-            Carica griglia
-          </Button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col gap-5">
-
-        {/* ── Summary bar ─────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-cream/60 px-4 py-3 dark:border-line-dark dark:bg-[#1c1c20]">
-          <div className="flex items-center gap-1.5">
-            <Icon name="activity" className="h-3.5 w-3.5 text-muted dark:text-muted-dark" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Strategia</span>
-            <span className="text-xs text-ink dark:text-paper">{allocationGrid.strategy}</span>
-          </div>
-          <span className="text-muted/40">·</span>
-          <span className="text-xs text-muted dark:text-muted-dark">Capacità <strong className="text-ink dark:text-paper">{allocationGrid.daily_capacity_hours}h</strong>/giorno</span>
-          <span className="text-muted/40">·</span>
-          <span className="text-xs text-muted dark:text-muted-dark">Task <strong className="text-ink dark:text-paper">{allocationGrid.total_tasks}</strong></span>
-          {allocationGrid.total_overload_hours > 0 && (
-            <>
-              <span className="text-muted/40">·</span>
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-danger">
-                <Icon name="alert-triangle" className="h-3.5 w-3.5" />
-                {allocationGrid.total_overload_hours.toFixed(1)}h overload totale
-              </span>
-            </>
+        <div className="wlcal-op-stats">
+          {status && <span className={`wlcal-badge ${statusCls}`}>{statusLabel(status)}</span>}
+          {dayStat && (
+            <span className="wlcal-badge is-neutral">{formatHours(dayStat.hours)} · {dayStat.tasks} task</span>
           )}
-          {allocationGrid.last_run_id && (
-            <span className="ml-auto text-[10px] font-mono text-muted dark:text-muted-dark">
-              run: {allocationGrid.last_run_id.slice(0, 8)}…
-            </span>
-          )}
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-            onClick={() => void loadAllocationGrid(allocationGrid.last_run_id)}
-          >
-            <Icon name="refresh-cw" className="h-3 w-3" />
-            Aggiorna
-          </button>
-        </div>
-
-        {/* ── View switcher tabs ──────────────────────────────── */}
-        <div className="flex gap-2">
-          {(["globale", "operatore", "area"] as const).map((viewType) => (
-            <button
-              key={viewType}
-              type="button"
-              onClick={() => setAllocationGridView(viewType)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
-                allocationGridView === viewType
-                  ? "bg-ink text-paper dark:bg-paper dark:text-ink"
-                  : "bg-cream/40 text-ink hover:bg-cream/60 dark:bg-[#2a2a30] dark:text-paper dark:hover:bg-[#3a3a40]"
-              }`}
-            >
-              {viewType === "globale" && "Globale"}
-              {viewType === "operatore" && "Per Operatore"}
-              {viewType === "area" && "Per Area"}
+          {conflicts > 0 && (
+            <button type="button" className="wlcal-badge is-conf" onClick={() => setCalendarConflictsModalOpen(true)}>
+              Conflitti <span className="n">{conflicts}</span>
             </button>
-          ))}
+          )}
         </div>
-
-        {/* ── Content based on selected view ──────────────────── */}
-        {allocationGridView === "globale" && renderAllocationGridGlobale()}
-        {allocationGridView === "operatore" && renderAllocationGridOperatore()}
-        {allocationGridView === "area" && renderAllocationGridArea()}
-
       </div>
     );
   };
@@ -2206,6 +2362,27 @@ export function WorkloadPage() {
       );
     }
 
+    // Vista MESE: griglia mensile (dati per-giorno dalla heatmap), niente timeline/tray.
+    if (rangeMode === "month") {
+      const monthCapacity = (calendarOperatorId != null ? summaryByUserId.get(calendarOperatorId)?.max_capacity_hours_day : null) ?? 8;
+      return (
+        <div className="wlcal-area">
+          {renderOperatorStrip()}
+          <WorkloadMonthGrid
+            anchorDate={anchorDate}
+            stats={calendarDayStats}
+            capacityHours={monthCapacity}
+            today={getTodayDate()}
+            onOpenDay={(iso) => {
+              setRangeMode("day");
+              setAnchorDate(iso);
+              setSelectedDay(iso);
+            }}
+          />
+        </div>
+      );
+    }
+
     if (calendarLoading && !calendarData) {
       return <div className="py-8 flex items-center justify-center"><Spinner size="md" /></div>;
     }
@@ -2218,330 +2395,228 @@ export function WorkloadPage() {
       );
     }
 
-    const selectedSummary = summaryByUserId.get(calendarData.user_id);
-    const roleLabel = calendarData.roles.map((role) => role.name).join(", ");
-    const displayName = calendarData.full_name || calendarData.username;
-    const avatarInitials = displayName
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((chunk) => chunk[0]?.toUpperCase() ?? "")
-      .join("") || "?";
-
-    const allDayItems = calendarData.timeline.filter((item) => item.is_all_day || !item.start_time || !item.end_time);
-    const timedItems = calendarData.timeline.filter((item) => !item.is_all_day && !!item.start_time && !!item.end_time);
-
-    const timelineBlocks = timedItems.map((item) => {
-      const start = hhmmToMinutes(item.start_time) ?? 0;
-      const end = hhmmToMinutes(item.end_time) ?? start + Math.max(30, Math.round(((item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0)) * 60));
-      const safe = clampTimeline(start, end);
-      return { item, start: safe.start, end: safe.end };
-    });
-
-    const totalTaskHours = calendarData.timeline
-      .filter((item) => item.kind === "task")
-      .reduce((acc, item) => {
-        const start = hhmmToMinutes(item.start_time);
-        const end = hhmmToMinutes(item.end_time);
-        if (start != null && end != null && end > start) {
-          return acc + (end - start) / 60;
-        }
-        return acc + (item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0);
-      }, 0);
-
-    const dayMeta = dateFromIso(calendarData.selected_date).toLocaleDateString("it-IT", {
-      weekday: "long",
-      day: "2-digit",
-      month: "short",
-    });
-    const previewTopPx =
-      calendarDropPreviewMinutes != null
-        ? (calendarDropPreviewMinutes / 60) * 64
-        : null;
-    const previewHeightPx = (CALENDAR_SLOT_MINUTES / 60) * 64;
-
+    const operatorSummary = summaryByUserId.get(calendarData.user_id);
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2">
-              <button type="button" className="wl-nav-btn" onClick={() => shiftCalendarOperator(-1)} aria-label="Operatore precedente">
-                <Icon name="chevron-right" className="w-4 h-4 rotate-180" />
-              </button>
-              {calendarData.avatar_url ? (
-                <img
-                  src={calendarData.avatar_url}
-                  alt={displayName}
-                  className="h-9 w-9 rounded-full object-cover border border-line dark:border-line-dark"
-                />
-              ) : (
-                <div className="h-9 w-9 rounded-full border border-line dark:border-line-dark bg-cream dark:bg-ink-2 text-[11px] font-semibold text-ink dark:text-paper flex items-center justify-center">
-                  {avatarInitials}
-                </div>
-              )}
-              <div>
-                <div className="text-sm font-semibold text-ink dark:text-paper">{displayName}</div>
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  {roleLabel || "Nessun ruolo"} · {dayMeta}
-                </div>
-              </div>
-              <button type="button" className="wl-nav-btn" onClick={() => shiftCalendarOperator(1)} aria-label="Operatore successivo">
-                <Icon name="chevron-right" className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant={selectedSummary ? statusBadgeVariant(selectedSummary.workload_status) : "default"}>
-                {selectedSummary ? statusLabel(selectedSummary.workload_status) : "N/D"}
-              </Badge>
-              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-                {totalTaskHours > 0 ? `${formatHours(totalTaskHours)} task` : "Libero"}
-              </span>
-              <span className="rounded-md border border-line dark:border-line-dark px-2 py-1 text-muted dark:text-muted-dark">
-                {calendarData.timeline.filter((item) => item.kind === "task").length} task · {calendarData.timeline.length} eventi
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {allDayItems.length > 0 && (
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-3">
-            <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Tutto il giorno</div>
-            <div
-              className={`flex flex-wrap gap-2 rounded-md ${activeDropTarget === "cal-all-day" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/50 dark:bg-amber-900/20" : ""}`}
-              onDragOver={(event) => {
-                if (draggingTaskId == null) return;
-                event.preventDefault();
-                setActiveDropTarget("cal-all-day");
-              }}
-              onDragLeave={() => {
-                setActiveDropTarget((current) => (current === "cal-all-day" ? null : current));
-              }}
-              onDrop={(event) => {
-                void moveTaskByDrop(event, buildCalendarDayMovePayload(calendarData.selected_date), "cal-all-day");
-              }}
-            >
-              {allDayItems.map((item, idx) => (
-                <div
-                  key={`${item.kind}-${item.source_id ?? idx}`}
-                  className={`px-2 py-1 text-xs ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)}`}
-                  style={timelineItemStyle(item)}
-                  draggable={item.kind === "task" && !!item.work_item_id}
-                  onDragStart={(event) => {
-                    if (item.kind !== "task" || !item.work_item_id) return;
-                    onTaskDragStart(event, item.work_item_id, calendarData.user_id);
-                  }}
-                  onDragEnd={onTaskDragEnd}
-                  onClick={() => {
-                    if (item.kind === "task" && item.work_item_id) {
-                      void openEditWorkItemModal(item.work_item_id);
-                    }
-                  }}
-                >
-                  <div className="font-semibold">{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
-                  {item.description && <div className="text-[11px] opacity-80">{item.description}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-          <div className="grid grid-cols-[68px_1fr]">
-            <div className="border-r border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2">
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={hour} className="h-16 px-2 py-1 text-[10px] text-muted dark:text-muted-dark border-b border-line/50 dark:border-line-dark/60">
-                  {String(hour).padStart(2, "0")}:00
-                </div>
-              ))}
-            </div>
-
-            <div
-              className={`relative ${activeDropTarget === "cal-time-grid" ? "ring-1 ring-inset ring-amber-500 bg-amber-50/30 dark:bg-amber-900/15" : ""}`}
-              style={{ height: `${24 * 64}px` }}
-              onDragOver={(event) => {
-                if (draggingTaskId == null) return;
-                event.preventDefault();
-                setActiveDropTarget("cal-time-grid");
-
-                const container = event.currentTarget;
-                const rect = container.getBoundingClientRect();
-                const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / 64) * 60;
-                setCalendarDropPreviewMinutes(snapMinutesToSlot(rawMinutes));
-              }}
-              onDragLeave={() => {
-                setActiveDropTarget((current) => (current === "cal-time-grid" ? null : current));
-                setCalendarDropPreviewMinutes(null);
-              }}
-              onDrop={(event) => {
-                const container = event.currentTarget;
-                const rect = container.getBoundingClientRect();
-                const relativeY = Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top));
-                const rawMinutes = (relativeY / 64) * 60;
-                const minutes = calendarDropPreviewMinutes ?? snapMinutesToSlot(rawMinutes);
-                const payload: MoveWorkItemPayload = {
-                  ...buildCalendarDayMovePayload(calendarData.selected_date),
-                  start_time: minutesToHHMM(minutes),
-                };
-                void moveTaskByDrop(event, payload, "cal-time-grid");
-              }}
-            >
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={hour} className="absolute left-0 right-0 border-b border-line/40 dark:border-line-dark/50" style={{ top: `${hour * 64}px` }} />
-              ))}
-              {Array.from({ length: 24 }, (_, hour) => (
-                <div key={`half-${hour}`} className="absolute left-0 right-0 border-b border-dashed border-line/30 dark:border-line-dark/40" style={{ top: `${hour * 64 + 32}px` }} />
-              ))}
-
-              {draggingTaskId != null && previewTopPx != null && (
-                <div
-                  className="pointer-events-none absolute left-2 right-2 rounded-md border border-amber-500 bg-amber-200/45 dark:bg-amber-800/35"
-                  style={{ top: `${previewTopPx}px`, height: `${previewHeightPx}px` }}
-                >
-                  <div className="px-2 py-1 text-[10px] font-semibold text-amber-900 dark:text-amber-100">
-                    {minutesToHHMM(calendarDropPreviewMinutes ?? 0)}
-                  </div>
-                </div>
-              )}
-
-              {timelineBlocks.map(({ item, start, end }, idx) => {
-                const top = (start / 60) * 64;
-                const height = Math.max(28, ((end - start) / 60) * 64);
-                const itemKey = `${item.kind}-${item.source_id ?? idx}-${start}`;
-                return (
-                  <div
-                    key={itemKey}
-                    className={`absolute left-2 right-2 px-2 py-1 text-xs shadow-sm ${item.kind === "break" ? "rounded-none border-0" : "rounded-md border"} ${timelineItemClass(item.kind)} ${item.kind === "task" && item.work_item_id ? "cursor-grab active:cursor-grabbing" : ""}`}
-                    style={{
-                      top: `${top}px`,
-                      height: `${height}px`,
-                      ...timelineItemStyle(item),
-                    }}
-                    draggable={item.kind === "task" && !!item.work_item_id}
-                    onDragStart={(event) => {
-                      if (item.kind !== "task" || !item.work_item_id) return;
-                      onTaskDragStart(event, item.work_item_id, calendarData.user_id);
-                    }}
-                    onDragEnd={onTaskDragEnd}
-                    onClick={() => {
-                      if (item.kind === "task" && item.work_item_id) {
-                        void openEditWorkItemModal(item.work_item_id);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold truncate">{item.emoji ? `${item.emoji} ` : ""}{item.title}</div>
-                      <div className="text-[10px] opacity-80">{item.start_time} - {item.end_time}</div>
-                    </div>
-
-                    {item.kind === "task" && (
-                      <div className="mt-1 text-[11px] opacity-90">
-                        {item.client_name || "Senza cliente"}
-                        {item.status ? ` · ${item.status}` : ""}
-                        {(item.effective_load_hours != null || item.estimated_hours != null) ? ` · ${formatHours(item.affects_daily_load === false ? 0 : item.effective_load_hours ?? item.estimated_hours ?? 0)} eff${item.estimated_hours != null ? ` · ${formatHours(item.estimated_hours)} st` : ""}` : ""}
-                      </div>
-                    )}
-
-                    {item.kind === "task" && item.work_item_id && <div className="mt-1 text-[10px] underline underline-offset-2">Apri task</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+      <div className="wlcal-area">
+        {renderOperatorStrip()}
+        {renderWorkloadLegend()}
+        <WorkloadCalendar
+          ref={calendarRef}
+          userId={calendarData.user_id}
+          companyId={selectedCompanyId}
+          visibleDays={visibleDays}
+          selectedDate={calendarData.selected_date}
+          bounds={calendarBounds}
+          nowMinutes={nowMinutes}
+          density={calendarDensity}
+          showReview={showReviewTasks}
+          maxCapacityHours={operatorSummary?.max_capacity_hours_day ?? null}
+          reloadToken={multiReloadToken}
+          onOpenEdit={(id) => { void openEditWorkItemModal(id); }}
+          onToggleComplete={(item) => { void toggleCalendarTaskCompleted(item); }}
+          onMove={(taskId, day, startTime) => { void moveCalendarTaskToDaySlot(taskId, day, startTime); }}
+          onSwap={(sourceId, targetId, positions) => { void swapCalendarTasks(sourceId, targetId, positions); }}
+          onCreateByDrag={({ day, startTime, estimatedHours }) => {
+            setEditingItem(null);
+            setQuickAdd({ day, userId: calendarData.user_id, startTime, estimatedHours });
+            setNewWorkModalOpen(true);
+          }}
+          onRequestPage={(dir) => onShiftPeriod(dir)}
+        />
       </div>
     );
   };
 
+  const renderMultiOperatorCalendar = () => {
+    const operatorMetas: MultiOperatorMeta[] = calendarOperatorIds
+      .map((id) => calendarOperators.find((op) => op.user_id === id))
+      .filter((op): op is NonNullable<typeof op> => !!op)
+      .map((op) => ({ id: op.user_id, name: op.full_name || op.username, avatarUrl: op.avatar_url ?? null }));
+    if (!selectedCompanyId || operatorMetas.length === 0) return null;
+    return (
+      <MultiOperatorCalendar
+        operators={operatorMetas}
+        selectedDate={selectedDay}
+        companyId={selectedCompanyId}
+        bounds={calendarBounds}
+        nowMinutes={nowMinutes}
+        showReview={showReviewTasks}
+        onOpenTask={(id) => { void openEditWorkItemModal(id); }}
+        onCreateTask={({ day, userId, startTime, estimatedHours }) => {
+          setEditingItem(null);
+          setQuickAdd({ day, userId, startTime, estimatedHours });
+          setNewWorkModalOpen(true);
+        }}
+        onAfterChange={() => { void loadMain({ silent: true }); }}
+        reloadToken={multiReloadToken}
+      />
+    );
+  };
+
   const renderMainView = () => {
-    if (loading) {
+    // Spinner a tutta pagina solo al PRIMO caricamento (nessun dato ancora). Durante i reload
+    // — incluso il paging mentre trascini una task — la vista resta montata, così il calendario
+    // (e il fantasma del drag) non si smontano e il drop sul nuovo periodo continua a funzionare.
+    if (loading && summary.length === 0 && !heatmap && !calendarData) {
       return <div className="py-8 flex items-center justify-center"><Spinner size="md" /></div>;
     }
 
     if (viewMode === "accordion") return renderAccordionView();
     if (viewMode === "complete") return renderCompleteView();
     if (viewMode === "heatmap") return renderHeatmapView();
-    if (viewMode === "griglia") return renderGridView();
+    // Più operatori selezionati → vista a colonne affiancate (solo admin/PM).
+    if (!isOperatorView && calendarOperatorIds.length > 1) return renderMultiOperatorCalendar();
     return renderCalendarView();
   };
 
   const renderWorkloadLegend = () => (
-    <div className="mb-3 rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-3 py-2">
+    <div className="shrink-0 px-[22px] py-1.5 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
       <div className="flex flex-wrap items-center gap-3 text-[11px]">
-        <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Legenda carico</span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-success/30 border border-success/40" />
-          Basso/OK (&lt; 80%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-warning/30 border border-warning/40" />
-          Attenzione (80-99%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-danger/30 border border-danger/40" />
-          Overload (&gt;= 100%)
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-line dark:bg-line-dark border border-line dark:border-line-dark" />
-          Vuoto
-        </span>
+        <button
+          type="button"
+          onClick={() => setLegendOpen((open) => !open)}
+          aria-expanded={legendOpen}
+          className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-wider text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+        >
+          <Icon name="chevron-down" className={`h-3.5 w-3.5 transition-transform ${legendOpen ? "rotate-180" : ""}`} />
+          Legenda
+        </button>
+
+        {legendOpen && (
+          <>
+            {legendAreas.length > 0 && (
+              <>
+                <span className="mx-1 h-3 w-px bg-line dark:bg-line-dark" />
+                <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Aree</span>
+                {legendAreas.map((area) => (
+                  <span key={area.id} className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: area.color }} />
+                    {area.name}
+                  </span>
+                ))}
+              </>
+            )}
+            <span className="mx-1 h-3 w-px bg-line dark:bg-line-dark" />
+            <span className="font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Carico</span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-success/30 border border-success/40" />
+              Basso/OK (&lt; 80%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-warning/30 border border-warning/40" />
+              Attenzione (80-99%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-danger/30 border border-danger/40" />
+              Overload (&gt;= 100%)
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-line dark:bg-line-dark border border-line dark:border-line-dark" />
+              Vuoto
+            </span>
+          </>
+        )}
       </div>
     </div>
   );
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1600px] mx-auto w-full animate-fadeIn">
-      <div className="mb-8">
+    <div className={`px-6 mx-auto w-full animate-fadeIn ${isFillView ? "max-w-none pt-4 h-full flex flex-col overflow-hidden" : "py-8 pb-20"}`}>
+      <div className={isFillView ? "mb-1" : "mb-8"}>
         <div className="section-eyebrow">
           <Icon name="activity" className="w-3.5 h-3.5" />
           Produzione
         </div>
         <h1 className="section-title">Workload</h1>
-        <p className="section-lead">Timeline operativa con filtri dinamici, viste multiple e controllo carico per operatore.</p>
+        {!isFillView && (
+          <p className="section-lead">Timeline operativa con filtri dinamici, viste multiple e controllo carico per operatore.</p>
+        )}
       </div>
 
-      <div className="wl-toolbar-shell mb-5">
-        <div className="wl-toolbar-row wl-toolbar-row--left">
-          <div className="wl-segmented wl-segmented--range">
-          {RANGE_MODE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setRangeMode(option.value)}
-              className={`wl-segmented-btn wl-segmented-btn--range ${rangeMode === option.value ? "is-active" : ""}`}
-            >
-              {option.label}
+      <div className={`wl-toolbar-shell ${isFillView ? "mb-0" : "mb-5"}`}>
+        {/* RIGA 1 — sinistra: data, Oggi, giorno/settimana/mese · destra: cerca + operatore | team + nuova */}
+        <div className="wl-toolbar-row wl-toolbar-bar">
+          <div className="wl-toolbar-group">
+            <WorkloadDateNav
+              label={currentRangeLabel}
+              onPrev={() => onShiftPeriod(-1)}
+              onNext={() => onShiftPeriod(1)}
+            />
+
+            <button type="button" className="wl-outline-btn" onClick={onGoToday}>
+              <Icon name="calendar" className="w-3.5 h-3.5" />
+              Oggi
             </button>
-          ))}
+
+            <div className="wl-segmented wl-segmented--range">
+              {RANGE_MODE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setRangeMode(option.value)}
+                  className={`wl-segmented-btn wl-segmented-btn--range ${rangeMode === option.value ? "is-active" : ""}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              className="wl-outline-btn wl-outline-btn--icon"
+              onClick={() => { void loadMain(); }}
+              title="Aggiorna"
+              aria-label="Aggiorna"
+            >
+              <Icon name="refresh-cw" className="w-4 h-4" />
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onShiftPeriod(-1)}
-            className="wl-nav-btn"
-            aria-label="Periodo precedente"
-          >
-            <Icon name="chevron-right" className="h-4 w-4 rotate-180" />
-          </button>
-          <div className="wl-range-label">{currentRangeLabel}</div>
-          <button
-            type="button"
-            onClick={() => onShiftPeriod(1)}
-            className="wl-nav-btn"
-            aria-label="Periodo successivo"
-          >
-            <Icon name="chevron-right" className="h-4 w-4" />
-          </button>
+          <div className="wl-toolbar-group">
+            <label className="wl-search-field wl-search-field--compact" aria-label="Cerca task cliente operatore">
+              <Icon name="search" className="w-3.5 h-3.5" />
+              <input
+                type="text"
+                placeholder="Cerca..."
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+              />
+            </label>
 
-          <button type="button" className="wl-today-btn" onClick={onGoToday}>
-            Oggi
-          </button>
+            {!isOperatorView && viewMode === "calendar" && (
+              <div className="min-w-[200px]">
+                <MultiSelect
+                  value={calendarOperatorIds}
+                  onChange={setCalendarOperatorIds}
+                  options={calendarOperators.map((op) => ({ id: op.user_id, label: op.full_name || op.username }))}
+                  placeholder="Operatori in calendario..."
+                  searchPlaceholder="Cerca operatore..."
+                />
+              </div>
+            )}
 
-          <button type="button" className="wl-ghost-btn" onClick={() => { void loadMain(); }}>
-            <Icon name="refresh-cw" className="w-3.5 h-3.5" />
-            Aggiorna
-          </button>
+            <span className="wl-toolbar-divider" />
+
+            {!isOperatorView && (
+              <button
+                type="button"
+                className="wl-outline-btn"
+                onClick={() => setTeamModalOpen(true)}
+              >
+                <Icon name="users" className="w-3.5 h-3.5" />
+                Team e capacità
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="wl-new-task-btn"
+              onClick={openNewWorkModal}
+            >
+              <Icon name="plus" className="w-3.5 h-3.5" />
+              Nuova lavorazione
+            </button>
+          </div>
         </div>
 
         {rangeMode === "custom" && (
@@ -2561,81 +2636,87 @@ export function WorkloadPage() {
           </div>
         )}
 
-        <div className="wl-toolbar-row wl-toolbar-row--controls wl-toolbar-row--left">
-          <label className="wl-search-field wl-search-field--compact" aria-label="Cerca task cliente operatore">
-            <Icon name="search" className="w-3.5 h-3.5" />
-            <input
-              type="text"
-              placeholder="Cerca..."
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-            />
-          </label>
-
-          <div className="wl-segmented wl-segmented--view">
-            {VIEW_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setViewMode(option.value)}
-                className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === option.value ? "is-active" : ""}`}
-              >
-                <Icon name={option.icon} className="w-3.5 h-3.5" />
-                {option.label}
-              </button>
-            ))}
+        {/* RIGA 2 — sinistra: viste · destra: densità + tray */}
+        <div className="wl-toolbar-row wl-toolbar-bar">
+          <div className="wl-toolbar-group">
+            {!isOperatorView && (
+              <div className="wl-vchips">
+                {VIEW_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setViewMode(option.value)}
+                    className={`wl-vchip ${viewMode === option.value ? "is-active" : ""}`}
+                  >
+                    <Icon name={option.icon} className="w-3.5 h-3.5" />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <button
-            type="button"
-            className="wl-new-task-btn"
-            onClick={openNewWorkModal}
-          >
-            <Icon name="plus" className="w-3.5 h-3.5" />
-            Nuova lavorazione
-          </button>
-          <button
-            type="button"
-            className="wl-new-task-btn"
-            onClick={() => setTeamModalOpen(true)}
-          >
-            <Icon name="users" className="w-3.5 h-3.5" />
-            Team e capacità
-          </button>
+          <div className="wl-toolbar-group">
+            {/* Densità comodo/compatto — disponibile in tutte le view */}
+            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Densità">
+              {([
+                { value: "comfortable", icon: "grid", label: "Comodo" },
+                { value: "compact", icon: "grid-compact", label: "Compatto" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCalendarDensity(option.value)}
+                  title={`Densità: ${option.label}`}
+                  aria-label={`Densità: ${option.label}`}
+                  aria-pressed={calendarDensity === option.value}
+                  className={`wl-segmented-btn wl-segmented-btn--view wl-icon-btn ${calendarDensity === option.value ? "is-active" : ""}`}
+                >
+                  <Icon name={option.icon} className="w-4 h-4" />
+                </button>
+              ))}
+            </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-cream p-2 dark:border-line-dark dark:bg-[#1c1c20]">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void handlePreviewWorkload()}
-              loading={engineRunning}
-              disabled={!selectedCompanyId}
-            >
-              <Icon name="eye" className="h-3.5 w-3.5" />
-              Simula workload
-            </Button>
-            {canManageProfiles && (
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => void handleApplyWorkload()}
-                loading={engineRunning}
-                disabled={!selectedCompanyId}
+            {/* Mostra/nascondi task in revisione */}
+            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Task in revisione">
+              <button
+                type="button"
+                onClick={() => setShowReviewTasks((v) => !v)}
+                title={showReviewTasks ? "Nascondi dal calendario le task in revisione" : "Mostra sul calendario le task in revisione"}
+                aria-label={showReviewTasks ? "Nascondi task in revisione" : "Mostra task in revisione"}
+                aria-pressed={showReviewTasks}
+                className={`wl-segmented-btn wl-segmented-btn--view inline-flex items-center gap-1.5 ${showReviewTasks ? "is-active" : ""}`}
               >
-                <Icon name="check" className="h-3.5 w-3.5" />
-                Applica workload
-              </Button>
-            )}
+                <Icon name={showReviewTasks ? "eye" : "eye-off"} className="w-4 h-4" />
+                In revisione
+              </button>
+            </div>
+
+            {/* Tray "Da pianificare": Sidebar (colonna) o Dock (pannello a scomparsa) */}
+            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Tray Da pianificare">
+              {([
+                { value: "sidebar", label: "Sidebar" },
+                { value: "dock", label: "Dock" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => { setTrayLayout(option.value); if (option.value === "dock") setTrayDockOpen(false); }}
+                  aria-pressed={trayLayout === option.value}
+                  className={`wl-segmented-btn wl-segmented-btn--view ${trayLayout === option.value ? "is-active" : ""}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
+        {!isFillView && (
         <div className="wl-day-row">
           <div className="wl-view-label">
             {viewMode === "accordion" && "Workload team - vista ibrida"}
-            {viewMode === "complete" && "Vista completa per area"}
             {viewMode === "heatmap" && "Heatmap per area e giorno"}
-            {viewMode === "calendar" && "Calendario workload"}
-            {viewMode === "griglia" && "Griglia allocazioni per giorno"}
             {viewMode === "accordion" && (
               <div className="mt-1 text-[11px] normal-case tracking-normal font-normal text-muted dark:text-muted-dark">
                 La percentuale di carico indica le ore occupate rispetto alla capacità nel periodo selezionato: giorno, settimana o mese.
@@ -2644,60 +2725,35 @@ export function WorkloadPage() {
           </div>
 
           <div className="wl-day-strip">
-            {(viewMode === "calendar" && calendarData ? calendarData.days.map((d) => d.date) : visibleDays).map((day) => {
+            {visibleDays.map((day) => {
               const meta = formatDayChip(day);
               const isActive = selectedDay === day;
-              const calendarDay = viewMode === "calendar" ? calendarData?.days.find((d) => d.date === day) : undefined;
               return (
                 <button
                   key={day}
                   type="button"
                   onClick={() => {
                     setSelectedDay(day);
-                    if (rangeMode === "day") {
-                      setAnchorDate(day);
-                    }
+                    if (rangeMode === "day") setAnchorDate(day);
                   }}
                   onDragOver={(event) => {
-                    if (draggingTaskId == null) return;
+                    if (draggingTaskId == null || viewMode !== "accordion") return;
                     event.preventDefault();
-                    if (viewMode === "accordion") {
-                      setActiveDropTarget(`acc-day-${day}`);
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      setActiveDropTarget(`cal-day-${day}`);
-                    }
+                    setActiveDropTarget(`acc-day-${day}`);
                   }}
                   onDragLeave={() => {
-                    if (viewMode === "accordion") {
-                      setActiveDropTarget((current) => (current === `acc-day-${day}` ? null : current));
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      setActiveDropTarget((current) => (current === `cal-day-${day}` ? null : current));
-                    }
+                    if (viewMode !== "accordion") return;
+                    setActiveDropTarget((current) => (current === `acc-day-${day}` ? null : current));
                   }}
                   onDrop={(event) => {
-                    if (viewMode === "accordion") {
-                      setSelectedDay(day);
-                      void moveTaskByDrop(event, buildAccordionDayMovePayload(day), `acc-day-${day}`);
-                      return;
-                    }
-                    if (viewMode === "calendar") {
-                      setSelectedDay(day);
-                      void moveTaskByDrop(event, buildCalendarDayMovePayload(day), `cal-day-${day}`);
-                    }
+                    if (viewMode !== "accordion") return;
+                    setSelectedDay(day);
+                    void moveTaskByDrop(event, buildAccordionDayMovePayload(day), `acc-day-${day}`);
                   }}
-                  className={`wl-day-chip ${isActive ? "is-active" : ""} ${(viewMode === "accordion" && activeDropTarget === `acc-day-${day}`) || (viewMode === "calendar" && activeDropTarget === `cal-day-${day}`) ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
+                  className={`wl-day-chip ${isActive ? "is-active" : ""} ${viewMode === "accordion" && activeDropTarget === `acc-day-${day}` ? "ring-2 ring-inset ring-amber-500 bg-amber-50/70 dark:bg-amber-900/35" : ""}`}
                 >
                   <div className="text-[10px] uppercase tracking-wider">{meta.weekday}</div>
                   <div className="text-xs font-semibold">{meta.day}</div>
-                  {calendarDay && (
-                    <div className="text-[10px] text-muted dark:text-muted-dark">
-                      {calendarDay.tasks_count}t · {calendarDay.schedule_windows_count}r
-                    </div>
-                  )}
                 </button>
               );
             })}
@@ -2708,6 +2764,7 @@ export function WorkloadPage() {
             Ordina per carico {sortDir === "desc" ? "↓" : "↑"}
           </button>
         </div>
+        )}
 
       </div>
 
@@ -2715,16 +2772,41 @@ export function WorkloadPage() {
         <div className="mb-4 rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</div>
       )}
 
-      <div className="mb-6">
-        {loading && (
-          <div className="flex items-center justify-end mb-3">
-            <Spinner size="sm" />
-          </div>
-        )}
+      <div className="-mx-6 flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col px-6">
+          {loading && (
+            <div className="flex items-center justify-end mb-3">
+              <Spinner size="sm" />
+            </div>
+          )}
 
-        {renderWorkloadLegend()}
+          {renderMainView()}
+        </div>
 
-        {renderMainView()}
+        {/* Tray "Da pianificare" condivisa a livello pagina: stessa posizione/comportamento in
+            tutte le view. Nel calendario le schede sono trascinabili (drag pointer-based via handle). */}
+        <WorkloadTray
+          groups={displayTrayGroups}
+          unassignedItems={trayUnassignedItems}
+          layout={trayLayout}
+          open={trayDockOpen}
+          onOpenChange={setTrayDockOpen}
+          tab={trayTab}
+          onTab={setTrayTab}
+          onCardClick={(id) => void openEditWorkItemModal(id)}
+          onCardPointerDown={viewMode === "calendar" ? (event, item) => calendarRef.current?.startTrayDrag(event, item) : undefined}
+          onCardDragStart={viewMode === "calendar" ? undefined : (event, item) => onTaskDragStart(event, item.id, null)}
+          onCardDragEnd={viewMode === "calendar" ? undefined : onTaskDragEnd}
+          draggingId={draggingTaskId}
+          onlyMine={trayOnlyMine}
+          onOnlyMineChange={isOperatorView ? undefined : setTrayOnlyMine}
+          allOperators={trayAllOperators}
+          onAllOperatorsChange={isOperatorView ? undefined : setTrayAllOperators}
+          priorityTabs={isOperatorView ? ["overdue", "review"] : ["reassign", "unassigned"]}
+          hint={viewMode === "calendar"
+            ? "Trascina una scheda su un giorno per assegnarle l'orario."
+            : "Trascina una scheda su un operatore/cella per assegnarla."}
+        />
       </div>
 
       <WorkloadTeamModal
@@ -2734,111 +2816,209 @@ export function WorkloadPage() {
         canManage={canManageProfiles}
       />
 
-      {engineModalOpen && engineResult && (
-        <Modal
-          open={engineModalOpen}
-          onClose={() => setEngineModalOpen(false)}
-          title="Risultati Workload Engine"
-          size="lg"
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setEngineModalOpen(false)}>
-                Chiudi
-              </Button>
-              {canManageProfiles && (
-                <Button
-                  variant="primary"
-                  onClick={() => void handleApplyWorkload()}
-                  loading={engineRunning}
-                >
-                  Applica allocazioni
-                </Button>
-              )}
-            </>
-          }
-        >
-          <div className="flex flex-col gap-4">
-            {engineError && (
-              <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
-                {engineError}
-              </div>
-            )}
+      <SwapConfirmModal
+        open={swapConfirm != null}
+        preview={swapConfirm?.preview ?? null}
+        submitting={swapConfirmSubmitting}
+        onConfirm={(dontShowAgain) => { void confirmSwap(dontShowAgain); }}
+        onCancel={cancelSwap}
+      />
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Totali</p>
-                <p className="mt-1 text-lg font-bold text-ink dark:text-paper">{engineResult.total_tasks}</p>
-              </div>
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Allocate</p>
-                <p className="mt-1 text-lg font-bold text-success">{engineResult.allocated_tasks}</p>
-              </div>
-              <div className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Ore totali</p>
-                <p className="mt-1 text-lg font-bold text-ink dark:text-paper">{engineResult.total_effective_hours.toFixed(1)}h</p>
-              </div>
-              <div
-                className={`rounded-lg border p-3 ${
-                  engineResult.total_overload_hours > 0
-                    ? "border-danger/30 bg-danger/5"
-                    : "border-success/30 bg-success/5"
-                }`}
-              >
-                <p className="text-xs font-semibold text-muted dark:text-muted-dark">Overload</p>
-                <p
-                  className={`mt-1 text-lg font-bold ${
-                    engineResult.total_overload_hours > 0 ? "text-danger" : "text-success"
-                  }`}
-                >
-                  {engineResult.total_overload_hours.toFixed(1)}h
-                </p>
-              </div>
+      <Modal
+        open={calendarConflictsModalOpen}
+        onClose={() => {
+          setCalendarConflictsModalOpen(false);
+          setConflictsModalTab("conflitti");
+        }}
+        title={conflictsModalTab === "conflitti" ? "Conflitti rilevati" : "Task arretrate"}
+        description={
+          conflictsModalTab === "conflitti"
+            ? "Elenco dei problemi individuati nel giorno selezionato."
+            : "Attività in ritardo per l'operatore selezionato (ultimi 7 giorni)."
+        }
+        size="lg"
+        footer={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setCalendarConflictsModalOpen(false);
+              setConflictsModalTab("conflitti");
+            }}
+          >
+            Chiudi
+          </Button>
+        }
+      >
+        <div className="mb-3 flex items-center gap-1 border-b border-line dark:border-line-dark">
+          <button
+            type="button"
+            onClick={() => setConflictsModalTab("conflitti")}
+            className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              conflictsModalTab === "conflitti"
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            }`}
+          >
+            Conflitti ({(calendarData?.conflicts ?? []).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setConflictsModalTab("arretrate")}
+            className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              conflictsModalTab === "arretrate"
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            }`}
+          >
+            Arretrate ({overdueData?.total_tasks_count ?? 0})
+          </button>
+        </div>
+
+        {conflictsModalTab === "conflitti" && (
+        <div className="flex flex-col gap-3">
+          {(calendarData?.conflicts ?? []).length === 0 ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Nessun conflitto rilevato.
             </div>
-
-            <div className="rounded-md border border-line bg-cream/60 px-3 py-2 dark:border-line-dark dark:bg-[#1c1c20]">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Strategia</p>
-              <p className="mt-1 text-sm text-ink dark:text-paper">
-                {engineResult.strategy} {engineResult.strategy_version && `(${engineResult.strategy_version})`}
-              </p>
-              <p className="text-xs text-muted dark:text-muted-dark">
-                Capacità giornaliera: {engineResult.daily_capacity_hours}h
-              </p>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Allocazioni task ({engineResult.tasks.length})
-              </p>
-              <div className="flex flex-col gap-2">
-                {engineResult.tasks.map((task) => (
-                  <div
-                    key={task.task_id}
-                    className={`rounded-md border p-2.5 text-xs ${
-                      task.conflict_code
-                        ? "border-danger/30 bg-danger/5"
-                        : "border-success/30 bg-success/5"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-ink dark:text-paper">#{task.task_id} {task.title}</p>
-                        <p className="mt-1 text-[11px] text-muted dark:text-muted-dark">
-                          {task.start_date} → {task.end_date} · {task.estimated_hours}h stimate · {task.effective_hours.toFixed(1)}h effettive
-                        </p>
+          ) : (
+            (calendarData?.conflicts ?? []).map((conflict, index) => {
+              const primaryTaskId = conflict.work_item_ids[0] ?? conflict.tasks[0]?.id ?? null;
+              const primaryTask = primaryTaskId != null
+                ? conflict.tasks.find((task) => task.id === primaryTaskId) ??
+                  calendarData?.timeline.find((item) => item.kind === "task" && item.work_item_id === primaryTaskId)?.task ??
+                  calendarData?.over_capacity?.tasks.find((task) => task.work_item_id === primaryTaskId)?.task ??
+                  null
+                : null;
+              const canReschedule = primaryTaskId != null && conflict.conflict_type !== "severe_delay" && !!primaryTask?.deadline_date;
+              return (
+                <div
+                  key={`${conflict.conflict_type}-${index}`}
+                  className={`rounded-md border px-3 py-2 ${calendarConflictClass(conflict)}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <Icon name={calendarConflictIcon(conflict)} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold uppercase tracking-wider">{conflict.title}</div>
+                      <p className="mt-1 text-[12px] leading-5 text-ink dark:text-paper">{conflict.message}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
+                        {conflict.start_time && conflict.end_time && <span>{conflict.start_time} - {conflict.end_time}</span>}
+                        {conflict.overlap_minutes != null && <span>{conflict.overlap_minutes} min sovrapposti</span>}
+                        {conflict.overload_hours != null && <span>{formatHours(conflict.overload_hours)} oltre capacità</span>}
+                        {conflict.effective_load_hours != null && <span>{formatHours(conflict.effective_load_hours)} workload</span>}
                       </div>
-                      {task.overload_hours > 0 && (
-                        <span className="inline-flex items-center rounded-full bg-danger/10 px-2 py-1 text-[10px] font-semibold text-danger">
-                          +{task.overload_hours.toFixed(1)}h
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      {primaryTaskId != null && (
+                        <button
+                          type="button"
+                          className="rounded border border-line bg-paper px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink hover:bg-cream dark:border-line-dark dark:bg-ink-2 dark:text-paper dark:hover:bg-ink-soft"
+                          onClick={() => void openEditWorkItemModal(primaryTaskId)}
+                        >
+                          Apri
+                        </button>
+                      )}
+                      {canReschedule && (
+                        <button
+                          type="button"
+                          className="rounded border border-warning/35 bg-warning/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-warning hover:bg-warning/15 disabled:opacity-50"
+                          disabled={reschedulingTaskId === primaryTaskId}
+                          onClick={() => void rescheduleTaskToNextAvailable(primaryTaskId)}
+                        >
+                          {reschedulingTaskId === primaryTaskId ? "..." : "Riprogramma"}
+                        </button>
+                      )}
+                      {primaryTaskId != null && conflict.conflict_type !== "severe_delay" && !primaryTask?.deadline_date && (
+                        <span className="rounded border border-line px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:border-line-dark dark:text-muted-dark" title="Serve una scadenza per riprogrammare automaticamente">
+                          No scadenza
                         </span>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        )}
+
+        {conflictsModalTab === "arretrate" && (
+        <div className="flex flex-col gap-3">
+          {!calendarOperatorId ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Seleziona un operatore per vedere le task arretrate.
             </div>
-          </div>
-        </Modal>
-      )}
+          ) : overdueLoading ? (
+            <div className="flex items-center justify-center px-3 py-6">
+              <Spinner />
+            </div>
+          ) : overdueError ? (
+            <div className="rounded-md border border-danger/35 bg-danger/10 px-3 py-3 text-sm text-danger">
+              {overdueError}
+            </div>
+          ) : (overdueData?.tasks ?? []).length === 0 ? (
+            <div className="rounded-md border border-dashed border-line px-3 py-6 text-center text-sm text-muted dark:border-line-dark dark:text-muted-dark">
+              Nessuna task arretrata.
+            </div>
+          ) : (
+            (overdueData?.tasks ?? []).map((item) => {
+              const isSevere = item.is_severe_delay || item.delay_code === "non_deferrable_overdue";
+              const cardClass = isSevere
+                ? "border-danger/35 bg-danger/10 text-danger"
+                : "border-warning/35 bg-warning/10 text-warning";
+              return (
+                <div
+                  key={item.work_item_id}
+                  className={`rounded-md border px-3 py-2 ${cardClass}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <Icon name="alert-triangle" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider">{item.title}</span>
+                        {item.is_deadline_locked && (
+                          <span className="rounded border border-danger/40 bg-danger/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-danger">
+                            Non derogabile
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted dark:text-muted-dark">
+                        {item.days_overdue > 0 && <span>{item.days_overdue} gg di ritardo</span>}
+                        {item.deadline_date && <span>Scadenza {item.deadline_date}</span>}
+                        {item.work_date && <span>Pianificata {item.work_date}</span>}
+                        <span>{formatHours(item.effective_load_hours)} workload</span>
+                        {item.client_name && <span>{item.client_name}</span>}
+                      </div>
+                      {item.work_areas.length > 0 && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {item.work_areas.map((area) => (
+                            <span
+                              key={area.id}
+                              className="inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[9px] font-medium text-muted dark:border-line-dark dark:text-muted-dark"
+                            >
+                              {area.icon && <span>{area.icon}</span>}
+                              {area.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      <button
+                        type="button"
+                        className="rounded border border-line bg-paper px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink hover:bg-cream dark:border-line-dark dark:bg-ink-2 dark:text-paper dark:hover:bg-ink-soft"
+                        onClick={() => void openEditWorkItemModal(item.work_item_id)}
+                      >
+                        Apri
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        )}
+      </Modal>
 
       <WorkItemFormModal
         open={newWorkModalOpen}
@@ -2847,21 +3027,39 @@ export function WorkloadPage() {
         companyId={selectedCompanyId!}
         isAdmin={!!permissions?.is_admin}
         defaultWorkDate={quickAdd?.day ?? selectedDay ?? getTodayDate()}
+        defaultStartTime={quickAdd?.startTime}
+        defaultEstimatedHours={quickAdd?.estimatedHours}
         defaultAssigneeIds={quickAdd ? [quickAdd.userId] : undefined}
-        onSaved={() => { setQuickAdd(null); setEditingItem(null); loadMain(); }}
+        onOverlapConflict={(message, conflicts, suggestedSlots, onPickSlot) => {
+          // Una nuova risposta 409 (anche dopo un retry fallito) azzera lo stato di loading.
+          setConflictRetrySlot(null);
+          setCalendarConflictModal({
+            message,
+            conflicts,
+            suggestedSlots,
+            requestedDate: quickAdd?.day ?? selectedDay ?? null,
+            onPickSlot: (slot) => {
+              setConflictRetrySlot(`${slot.date}T${slot.start_time}`);
+              onPickSlot(slot);
+            },
+          });
+        }}
+        onSaved={() => { setCalendarConflictModal(null); setConflictRetrySlot(null); setQuickAdd(null); setEditingItem(null); void loadMain(); void reloadCalendar(); setMultiReloadToken((t) => t + 1); }}
       />
 
-      {openingEditTaskId != null && (
-        <div className="fixed bottom-5 right-5 z-40 rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-3 py-2 text-xs text-muted dark:text-muted-dark shadow-lg">
-          Apertura task #{openingEditTaskId}...
-        </div>
-      )}
+      {/* Reso dopo il form così, nel flusso di creazione in conflitto, resta in primo piano (stessa z dei Modal). */}
+      <TaskConflictModal
+        open={!!calendarConflictModal}
+        message={calendarConflictModal?.message ?? ""}
+        conflicts={calendarConflictModal?.conflicts ?? []}
+        suggestedSlots={calendarConflictModal?.suggestedSlots ?? []}
+        requestedDate={calendarConflictModal?.requestedDate ?? null}
+        retryingSlotKey={conflictRetrySlot}
+        onPickSlot={calendarConflictModal?.onPickSlot}
+        onOpenTask={(workItemId) => void openEditWorkItemModal(workItemId)}
+        onClose={() => { setCalendarConflictModal(null); setConflictRetrySlot(null); }}
+      />
 
-      {movingTaskId != null && (
-        <div className="fixed bottom-16 right-5 z-40 rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-3 py-2 text-xs text-muted dark:text-muted-dark shadow-lg">
-          Spostamento task #{movingTaskId}...
-        </div>
-      )}
 
 
     </div>

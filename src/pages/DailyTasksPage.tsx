@@ -10,6 +10,9 @@ import { Button } from "../components/ui/Button";
 import { Accordion, type AccordionItem } from "../components/ui/Accordion";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
+import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { getWorkItemApi, type WorkItem } from "../api/workItems";
+import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
 
@@ -63,6 +66,72 @@ function getDayGreeting(): string {
   return lateNightEggs[Math.floor(Math.random() * lateNightEggs.length)];
 }
 
+// ── Recap giornaliero (testo copia-incolla, stile wrap-up) ──────────────────────
+function fmtRecapHours(value: number | null | undefined): string {
+  const v = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return v % 1 === 0 ? String(v) : v.toFixed(1);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function recapTaskLine(task: any): string {
+  const client = task?.client_name ? `[${task.client_name}] ` : "";
+  const hours = typeof task?.effective_load_hours === "number" ? task.effective_load_hours : (task?.estimated_hours ?? 0);
+  let line = `  - ${client}${task?.title ?? "Senza titolo"} (${fmtRecapHours(hours)}h)`;
+  const note = task?.left_behind_note || task?.left_behind_reason;
+  if (note) line += ` — ${note}`;
+  return line;
+}
+
+// Costruisce il testo del recap dal payload self (usa `recap` se presente, altrimenti i KPI/tasks).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildDailyRecapText(selfData: any, dateIso: string): string {
+  const displayName = selfData?.full_name || selfData?.username || "Utente";
+  const dateLabel = dateFromIso(dateIso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const lines: string[] = [`RECAP — ${displayName} — ${dateLabel}`, ""];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const section = (title: string, items: any[] | undefined) => {
+    if (!items || items.length === 0) return;
+    lines.push(`${title} (${items.length}):`);
+    items.forEach((task) => lines.push(recapTaskLine(task)));
+    lines.push("");
+  };
+
+  const recap = selfData?.recap;
+  if (recap) {
+    lines.push(`Task di oggi: ${recap.today_total} (completate ${recap.done_count} · in corso ${recap.in_progress_count} · da fare ${recap.todo_count})`);
+    if (recap.overdue_count > 0) lines.push(`Arretrate: ${recap.overdue_count}`);
+    lines.push(`Carico oggi: ${fmtRecapHours(recap.estimated_hours_today)}h / ${fmtRecapHours(recap.capacity_hours)}h · Tracciate: ${fmtRecapHours(recap.actual_hours_today)}h`);
+    if (recap.overdue_hours > 0) lines.push(`Da recuperare (arretrato): ${fmtRecapHours(recap.overdue_hours)}h`);
+    lines.push("");
+    section("COMPLETATE", recap.done);
+    section("IN CORSO", recap.in_progress);
+    section("DA FARE", recap.todo);
+    section("ARRETRATE", recap.overdue);
+  } else {
+    // Fallback: il backend non espone ancora il recap → ricostruisco da tasks/KPI.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tasks: any[] = selfData?.tasks ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isDone = (t: any) => t.is_completed || t.status === "completed" || t.status === "done";
+    const done = tasks.filter(isDone);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inProgress = tasks.filter((t: any) => !isDone(t) && (t.status === "in_progress" || t.status === "review"));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const todo = tasks.filter((t: any) => !isDone(t) && t.status !== "in_progress" && t.status !== "review");
+    const cap = selfData?.max_capacity_hours_day;
+    lines.push(`Task totali: ${selfData?.tasks_total ?? tasks.length}`);
+    lines.push(`Completate: ${selfData?.tasks_completed ?? done.length} · In corso: ${inProgress.length} · Da fare: ${todo.length}`);
+    lines.push(`Carico stimato: ${fmtRecapHours(selfData?.estimated_hours_total)}h${typeof cap === "number" ? ` / ${fmtRecapHours(cap)}h` : ""} · Tracciate: ${fmtRecapHours(selfData?.actual_hours_total)}h`);
+    lines.push("");
+    section("COMPLETATE", done);
+    section("IN CORSO", inProgress);
+    section("DA FARE", todo);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
 function loadClass(loadPercent: number): "wl-acc-load--ok" | "wl-acc-load--warning" | "wl-acc-load--overload" {
   if (loadPercent >= 100) return "wl-acc-load--overload";
   if (loadPercent >= 80) return "wl-acc-load--warning";
@@ -100,11 +169,13 @@ function renderLoadLegend() {
 export function DailyTasksPage() {
   const { user, permissions } = useAuth();
   const isAdmin = !!permissions?.is_admin;
+  // Visibilità team: admin e Project Manager (scoped alla propria azienda dal backend).
+  const canSeeTeam = isAdmin || !!permissions?.is_project_manager;
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
 
-  const [viewMode, setViewMode] = useState<ViewMode>(isAdmin ? "admin" : "self");
+  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "admin" : "self");
   const [targetDate, setTargetDate] = useState(getTodayDate());
 
   const [selfData, setSelfData] = useState<any>(null);
@@ -112,8 +183,24 @@ export function DailyTasksPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
+  const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+
+  const openTask = async (workItemId: number) => {
+    if (companyId == null) {
+      toast.error("Seleziona una company");
+      return;
+    }
+    try {
+      const item = await getWorkItemApi(workItemId);
+      setEditingItem(item);
+      setWorkItemModalOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile aprire la lavorazione");
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -255,6 +342,41 @@ export function DailyTasksPage() {
           </div>
         )}
 
+        {/* Recap giornaliero (testo copia & incolla) */}
+        {(() => {
+          const recapText = buildDailyRecapText(selfData, targetDate);
+          const copyRecap = async () => {
+            try {
+              await navigator.clipboard.writeText(recapText);
+              toast.success("Recap copiato negli appunti");
+            } catch {
+              toast.error("Copia non riuscita");
+            }
+          };
+          const emailRecap = () => {
+            const subject = `Recap giornaliero ${dateFromIso(targetDate).toLocaleDateString("it-IT")}`;
+            window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recapText)}`);
+          };
+          return (
+            <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-ink dark:text-paper">Recap giornaliero</h3>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => void copyRecap()} leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}>Copia</Button>
+                  <Button size="sm" variant="ghost" onClick={emailRecap} leftIcon={<Icon name="mail" className="w-3.5 h-3.5" />}>Email</Button>
+                </div>
+              </div>
+              <textarea
+                readOnly
+                value={recapText}
+                rows={Math.min(24, recapText.split("\n").length + 1)}
+                onFocus={(event) => event.currentTarget.select()}
+                className="w-full resize-y rounded-md border border-line dark:border-line-dark bg-cream dark:bg-ink-2 px-3 py-2 font-mono text-[12px] leading-5 text-ink dark:text-paper focus:outline-none"
+              />
+            </div>
+          );
+        })()}
+
         {/* Task List */}
         <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
           <div className="px-4 py-3 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
@@ -265,64 +387,33 @@ export function DailyTasksPage() {
               Nessuna task per oggi.
             </div>
           ) : (
-            <div className="divide-y divide-line dark:divide-line-dark">
-              {tasks.map((task: any) => {
-                const isPedTask = Boolean(task.is_PED ?? task.is_ped);
-                return (
-                <div key={task.work_item_id} className={`p-4 ${isPedTask ? "bg-info/5 dark:bg-info/10" : ""}`}>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="font-semibold text-ink dark:text-paper">{task.title}</h4>
-                        {isPedTask && (
-                          <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-                            PED
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted dark:text-muted-dark mt-1">
-                        {task.client_name || "Senza cliente"}
-                      </p>
-                    </div>
-                    {task.is_completed && (
-                      <Badge variant="success">Completata</Badge>
-                    )}
-                    {task.is_priority && (
-                      <Icon name="star" className="w-4 h-4 text-warning" />
-                    )}
-                  </div>
-                  {task.is_left_behind && (
-                    <div className="mb-2 inline-flex rounded-pill px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-warning/15 text-warning border border-warning/30">
-                      Lasciata indietro
-                    </div>
-                  )}
-                  {task.work_areas && task.work_areas.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {task.work_areas.map((area: any) => (
-                        <span
-                          key={area.id}
-                          className="inline-flex text-[10px] px-2 py-1 rounded-full"
-                          style={{
-                            backgroundColor: area.color ? `${area.color}22` : "rgba(0,0,0,0.05)",
-                            color: area.color || "#666",
-                            border: area.color ? `1px solid ${area.color}44` : "1px solid #ddd",
-                          }}
-                        >
-                          {area.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 mt-3 text-[11px] text-muted dark:text-muted-dark">
-                    {task.start_time && <span>{task.start_time}</span>}
-                    {task.estimated_hours && <span>{task.estimated_hours}h stimate</span>}
-                    {typeof task.effective_load_hours === "number" && <span>{task.effective_load_hours}h effettive</span>}
-                    {typeof task.load_weight_factor === "number" && <span>peso {task.load_weight_factor.toFixed(2)}x</span>}
-                    {task.actual_hours_spent && <span>{task.actual_hours_spent}h effettive</span>}
-                    <span>{Math.round(task.progress_percent ?? 0)}%</span>
-                  </div>
-                </div>
-              );})}
+            <div className="pt-3">
+              <div className="wl-acc-tasks">
+                {tasks.map((task: any) => {
+                  // Workload endpoints can expose PED with either is_ped or is_PED.
+                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+                  return (
+                    <AccLaneTaskCard
+                      key={task.work_item_id}
+                      title={task.title}
+                      hoursLabel={hoursLabel}
+                      timeLabel={task.start_time || null}
+                      clientName={task.client_name}
+                      status={`${Math.round(task.progress_percent ?? 0)}%`}
+                      areaColor={task.work_areas?.[0]?.color ?? null}
+                      isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      priority={Boolean(task.is_priority)}
+                      completed={Boolean(task.is_completed)}
+                      leftBehind={Boolean(task.is_left_behind)}
+                      overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+                      overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                      reworkCount={task.rework_count}
+                      onClick={() => void openTask(task.work_item_id)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -357,7 +448,7 @@ export function DailyTasksPage() {
         itemClassName="wl-acc-lane"
         headerClassName="wl-acc-lane__row"
         chevronClassName="wl-acc-lane__toggle w-4 h-4 transition-transform"
-        contentClassName="px-0 pb-0 pt-3 mt-3 border-t border-line/70 dark:border-line-dark"
+        contentClassName=""
         renderHeader={(operatore: any) => (
           <>
             <div className="wl-acc-lane__op">
@@ -406,40 +497,39 @@ export function DailyTasksPage() {
         )}
         renderContent={(operatore: any) =>
           operatore.tasks.length === 0 ? (
-            <div className="rounded-md border border-dashed border-line dark:border-line-dark px-3 py-3 text-xs text-muted dark:text-muted-dark">
-              Nessuna task
-            </div>
+            <div className="wl-acc-empty">Nessuna task</div>
           ) : (
-            <div className="space-y-2">
-              {operatore.tasks.map((task: any) => (
-                // Workload endpoints can expose PED with either is_ped or is_PED.
-                (() => {
-                  const isPedTask = Boolean(task.is_PED ?? task.is_ped);
+            <>
+              <div className="wl-acc-day-label">
+                Task del giorno {dateFromIso(targetDate).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })}
+              </div>
+              <div className="wl-acc-tasks">
+                {operatore.tasks.map((task: any) => {
+                  // Workload endpoints can expose PED with either is_ped or is_PED.
+                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
                   return (
-                <div
-                  key={task.work_item_id}
-                  className={`w-full text-left rounded-md border border-line dark:border-line-dark bg-cream/40 dark:bg-ink-2 px-3 py-2 ${isPedTask ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-sm font-semibold text-ink dark:text-paper">{task.title}</div>
-                    {isPedTask && (
-                      <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
-                        PED
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                    {task.client_name || "Senza cliente"} · {task.status}
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted dark:text-muted-dark">
-                    {typeof task.effective_load_hours === "number" ? `${task.effective_load_hours}h effettive` : "0h effettive"}
-                    {task.estimated_hours != null ? ` · ${task.estimated_hours}h stimate` : ""}
-                  </div>
-                </div>
+                    <AccLaneTaskCard
+                      key={task.work_item_id}
+                      title={task.title}
+                      hoursLabel={hoursLabel}
+                      timeLabel={task.start_time || null}
+                      clientName={task.client_name}
+                      status={`${Math.round(task.progress_percent ?? 0)}%`}
+                      areaColor={task.work_areas?.[0]?.color ?? null}
+                      isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      priority={Boolean(task.is_priority)}
+                      completed={Boolean(task.is_completed)}
+                      leftBehind={Boolean(task.is_left_behind)}
+                      overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+                      overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                      reworkCount={task.rework_count}
+                      onClick={() => void openTask(task.work_item_id)}
+                    />
                   );
-                })()
-              ))}
-            </div>
+                })}
+              </div>
+            </>
           )
         }
       />
@@ -447,7 +537,7 @@ export function DailyTasksPage() {
   };
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
         eyebrow="Operazioni"
         eyebrowIcon={<Icon name="activity" className="w-3.5 h-3.5" />}
@@ -482,9 +572,14 @@ export function DailyTasksPage() {
               Oggi
             </button>
 
-            <button type="button" className="wl-ghost-btn" onClick={() => void loadData()}>
+            <button
+              type="button"
+              className="wl-ghost-btn wl-ghost-btn--icon"
+              onClick={() => void loadData()}
+              title="Aggiorna"
+              aria-label="Aggiorna"
+            >
               <Icon name="refresh-cw" className="w-3.5 h-3.5" />
-              Aggiorna
             </button>
 
             <Button
@@ -499,7 +594,7 @@ export function DailyTasksPage() {
             </Button>
           </div>
 
-          {isAdmin && (
+          {canSeeTeam && (
             <div className="dt-toolbar-right">
               <div className="wl-segmented wl-segmented--view">
                 <button
@@ -547,6 +642,22 @@ export function DailyTasksPage() {
         onClose={() => setQuickTaskModalOpen(false)}
         companyId={companyId}
         onCreated={() => {
+          void loadData();
+        }}
+      />
+
+      <WorkItemFormModal
+        open={workItemModalOpen}
+        onClose={() => {
+          setWorkItemModalOpen(false);
+          setEditingItem(null);
+        }}
+        editingItem={editingItem}
+        companyId={companyId ?? 0}
+        isAdmin={isAdmin}
+        onSaved={() => {
+          setWorkItemModalOpen(false);
+          setEditingItem(null);
           void loadData();
         }}
       />

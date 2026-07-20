@@ -1,10 +1,15 @@
-import { authFetch, API_BASE, type AuthUser } from "./auth";
+import { authFetch, API_BASE, type AuthUser, type AccessLevel } from "./auth";
 
 /** User è lo stesso oggetto di AuthUser — re-export per convenienza nei componenti */
 export type User = AuthUser;
+export type { AccessLevel } from "./auth";
 
 export interface UserPermissions {
   is_admin: boolean;
+  /** true se l'utente è Project Manager (può gestire le task di tutti gli operatori della propria azienda) */
+  is_project_manager: boolean;
+  /** "admin" | "project_manager" | "operator" */
+  access_level: AccessLevel;
   can_use_llm: boolean;
   can_generate_manual_tasks: boolean;
   can_manage_roles: boolean;
@@ -29,6 +34,8 @@ export interface CreateUserPayload {
   full_name: string;
   password: string;
   is_admin?: boolean;
+  /** "admin" | "project_manager" | "operator". Se valorizzato vince su is_admin (che viene tenuto coerente lato backend). */
+  access_level?: AccessLevel;
   company_id?: number | null;
   company_ids?: number[] | null;
   role_ids?: number[] | null;
@@ -43,6 +50,8 @@ export interface UpdateUserPayload {
   email?: string;
   full_name?: string;
   is_admin?: boolean;
+  /** "admin" | "project_manager" | "operator". Se valorizzato vince su is_admin. */
+  access_level?: AccessLevel;
   is_active?: boolean;
   company_id?: number | null;
   company_ids?: number[] | null;
@@ -53,6 +62,8 @@ export interface UpdateUserPayload {
   role_label?: string | null;
   signature?: string | null;
   operator_permissions?: string[] | null;
+  /** Disattiva il warning di conferma sullo scambio task (self-service). */
+  swap_confirmation_disabled?: boolean;
 }
 
 /** Permessi operatore disponibili */

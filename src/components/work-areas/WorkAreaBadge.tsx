@@ -32,16 +32,20 @@ function normalizeHex(value: string | null) {
 interface WorkAreaBadgeProps {
   area: WorkArea;
   className?: string;
+  /** Mostra solo il pallino/icona dell'area (il nome diventa tooltip). */
+  iconOnly?: boolean;
 }
 
-export function WorkAreaBadge({ area, className = "" }: WorkAreaBadgeProps) {
+export function WorkAreaBadge({ area, className = "", iconOnly = false }: WorkAreaBadgeProps) {
   const color = normalizeHex(area.color);
   const borderColor = color ?? "rgba(0,0,0,0.12)";
   const backgroundColor = color ? `${color}14` : undefined;
 
   return (
     <span
-      className={`inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${className}`}
+      title={iconOnly ? area.name : undefined}
+      aria-label={iconOnly ? area.name : undefined}
+      className={`inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-pill border ${iconOnly ? "px-1.5 py-1" : "px-2.5 py-1"} text-[11px] font-semibold uppercase tracking-wider ${className}`}
       style={{ borderColor, backgroundColor, color: color ?? "currentColor" }}
     >
       <span
@@ -59,7 +63,7 @@ export function WorkAreaBadge({ area, className = "" }: WorkAreaBadgeProps) {
       ) : (
         <Icon name="target" className="w-3 h-3" />
       )}
-      <span className="min-w-0 max-w-full truncate">{area.name}</span>
+      {!iconOnly && <span className="min-w-0 max-w-full truncate">{area.name}</span>}
     </span>
   );
 }

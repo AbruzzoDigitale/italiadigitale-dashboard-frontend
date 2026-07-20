@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { getClientsApi, type Client } from "../api/clients";
+import { createLeadApi, getClientsApi, type Client } from "../api/clients";
 import {
   bulkDeleteContractsApi,
   CONTRACT_STAGE_LABELS,
@@ -18,9 +19,12 @@ import {
 import type { BulkDeleteResponse } from "../api/bulk";
 import {
   acceptAndContractDryRunApi,
+  chooseGroupWinnerApi,
   confirmQuoteContractAutomationApi,
   contractAutomationDryRunApi,
+  createQuoteGroupApi,
   deleteQuoteApi,
+  detachFromGroupApi,
   formatEur,
   getQuoteApi,
   updateQuoteStatusApi,
@@ -37,33 +41,66 @@ import { QuoteQuickCreateModal } from "../components/contracts/QuoteQuickCreateM
 import { ClientSelectorWithCreate } from "../components/clients/ClientSelectorWithCreate";
 import { Icon } from "../components/ui/Icon";
 import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
 import { Checkbox } from "../components/ui/Checkbox";
+import { FieldLabel } from "../components/ui/FieldLabel";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { MultiSelect } from "../components/ui/MultiSelect";
+import { hasRichTextContent } from "../components/ui/RichTextEditor";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { Textarea } from "../components/ui/Textarea";
 import { Spinner } from "../components/ui/Spinner";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
-import { KanbanColumnShell } from "../components/ui/KanbanColumnShell";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
 import { useToast } from "../context/ToastContext";
 import { useCommercialPipeline } from "../hooks/useCommercialPipeline";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
-import { getCommercialStageTone } from "../utils/commercialStageTone";
+import "./contracts-pipeline.css";
 
-function stageTone(stage: ContractCommercialStage): string {
-  return getCommercialStageTone(stage);
+// Colore della barra superiore di ogni stage (dal prototipo).
+const STAGE_BAR: Record<ContractCommercialStage, string> = {
+  bozza: "oklch(0.62 0.02 260)",
+  inviato: "oklch(0.6 0.14 264)",
+  in_trattativa: "oklch(0.74 0.13 78)",
+  accettato: "oklch(0.66 0.14 150)",
+  contratto_inviato: "oklch(0.6 0.15 300)",
+  firmato: "oklch(0.66 0.12 190)",
+  in_produzione: "oklch(0.66 0.13 232)",
+  completato: "oklch(0.64 0.15 142)",
+  perso: "oklch(0.62 0.17 18)",
+};
+
+/** Data odierna in formato ISO "YYYY-MM-DD" (locale, non UTC: evita lo slittamento di un giorno). */
+function todayIso(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
-const CARD_ICON_ACTION_CLASS =
-  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-muted transition-colors hover:text-ink hover:bg-cream dark:border-line-dark dark:text-muted-dark dark:hover:text-paper dark:hover:bg-[#1e1e22]";
+/** Formatta una data ISO "YYYY-MM-DD" in gg/mm/aaaa senza passare da Date (niente shift di timezone). */
+function formatIsoDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
 
-const CARD_ICON_DANGER_ACTION_CLASS =
-  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-danger/30 text-danger transition-colors hover:bg-danger/10";
+/** Le note del lead arrivano dal Textarea (RichTextEditor) come HTML: nella card serve testo semplice. */
+function richTextToPlain(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new DOMParser().parseFromString(value, "text/html");
+  return (parsed.body.textContent ?? "").replace(/\u00A0/g, " ").trim();
+}
+
+const EMPTY_LEAD_FORM = { name: "", notes: "", lead_date: "" };
+
+const CARD_ICON_ACTION_CLASS = "pipe-c-act";
+
+const CARD_ICON_DANGER_ACTION_CLASS = "pipe-c-act is-danger";
 
 const QUOTE_BRANCH_ACTION_CLASS =
   "inline-flex items-center gap-1 rounded-md border border-line bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-cream dark:border-line-dark dark:bg-[#131316] dark:text-paper dark:hover:bg-[#1e1e22]";
@@ -276,6 +313,30 @@ function buildAutomationPayload(form: ContractAutomationFormState): QuoteContrac
   };
 }
 
+// Raggruppa gli item di una colonna in "cluster": i preventivi accorpati (stesso
+// group_id) finiscono in un unico cluster (renderizzati impilati), gli altri restano
+// singoli. Preserva l'ordine di prima comparsa del gruppo.
+type PipelineCluster = { groupId: number | null; items: CommercialPipelineItem[] };
+function buildPipelineClusters(items: CommercialPipelineItem[]): PipelineCluster[] {
+  const clusters: PipelineCluster[] = [];
+  const indexByGroup = new Map<number, number>();
+  for (const item of items) {
+    const gid = item.entity_type === "quote" ? item.group_id : null;
+    if (gid == null) {
+      clusters.push({ groupId: null, items: [item] });
+      continue;
+    }
+    const existing = indexByGroup.get(gid);
+    if (existing != null) {
+      clusters[existing].items.push(item);
+    } else {
+      indexByGroup.set(gid, clusters.length);
+      clusters.push({ groupId: gid, items: [item] });
+    }
+  }
+  return clusters;
+}
+
 export function ContractsPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions, activeCompanyId, myCompanies } = useAuth();
@@ -297,7 +358,66 @@ export function ContractsPipelinePage() {
 
   const [draggingContractId, setDraggingContractId] = useState<number | null>(null);
   const [dropStage, setDropStage] = useState<ContractCommercialStage | null>(null);
+  // Ghost custom animato durante il drag (stesso sistema di Lavorazioni): nascondiamo
+  // l'immagine di drag nativa del browser (statica) e mostriamo questo, che dondola
+  // e segue il cursore con un leggero trailing.
+  const [dragGhost, setDragGhost] = useState<{ label: string; count: number } | null>(null);
+  const dragGhostElRef = useRef<HTMLDivElement | null>(null);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const attachDragGhost = (el: HTMLDivElement | null) => {
+    dragGhostElRef.current = el;
+    if (el) {
+      const { x, y } = dragStartPosRef.current;
+      el.style.transform = `translate3d(${x + 16}px, ${y + 16}px, 0)`;
+    }
+  };
+
+  /** Nasconde l'immagine di drag nativa e attiva il ghost custom. */
+  const beginDragGhost = (event: React.DragEvent, label: string, count: number) => {
+    const blank = document.createElement("div");
+    blank.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;";
+    document.body.appendChild(blank);
+    event.dataTransfer.setDragImage(blank, 0, 0);
+    setTimeout(() => document.body.removeChild(blank), 0);
+    dragStartPosRef.current = { x: event.clientX, y: event.clientY };
+    setDragGhost({ label, count });
+  };
+
+  // Il ghost segue il cursore durante il drag (trailing "fisico" via CSS transition).
+  useEffect(() => {
+    if (!dragGhost) return;
+    const onDragOver = (e: DragEvent) => {
+      const g = dragGhostElRef.current;
+      if (g) g.style.transform = `translate3d(${e.clientX + 16}px, ${e.clientY + 16}px, 0)`;
+    };
+    document.addEventListener("dragover", onDragOver);
+    return () => document.removeEventListener("dragover", onDragOver);
+  }, [dragGhost]);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  // Popover "Esito" del preventivo in trattativa: renderizzato in portale (fixed)
+  // così esce dalla colonna senza causare overflow-x e resta sopra a tutto.
+  const [esitoMenu, setEsitoMenu] = useState<{ item: CommercialPipelineItem; top: number; left: number } | null>(null);
+  const esitoCloseTimer = useRef<number | null>(null);
+  const cancelEsitoClose = () => {
+    if (esitoCloseTimer.current != null) {
+      window.clearTimeout(esitoCloseTimer.current);
+      esitoCloseTimer.current = null;
+    }
+  };
+  const scheduleEsitoClose = () => {
+    cancelEsitoClose();
+    esitoCloseTimer.current = window.setTimeout(() => setEsitoMenu(null), 160);
+  };
+  const openEsitoMenu = (item: CommercialPipelineItem, anchor: HTMLElement) => {
+    cancelEsitoClose();
+    const r = anchor.getBoundingClientRect();
+    const POP_W = 196;
+    let left = r.right + 8;
+    const maxLeft = window.innerWidth - POP_W - 12;
+    if (left > maxLeft) left = Math.max(12, maxLeft);
+    setEsitoMenu({ item, top: r.top + r.height / 2, left });
+  };
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
@@ -310,12 +430,26 @@ export function ContractsPipelinePage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [selectedContractIds, setSelectedContractIds] = useState<number[]>([]);
+  // Accorpamento preventivi: selezione multipla + azioni di gruppo.
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState<number[]>([]);
+  const [grouping, setGrouping] = useState(false);
+  const [groupActionId, setGroupActionId] = useState<number | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [bulkDeleteResult, setBulkDeleteResult] = useState<BulkDeleteResponse | null>(null);
 
+  // ── Lead (colonna Bozza) ──
+  const [leads, setLeads] = useState<Client[]>([]);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
+  const [leadForm, setLeadForm] = useState(EMPTY_LEAD_FORM);
+  const [leadSaving, setLeadSaving] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [createQuoteOpen, setCreateQuoteOpen] = useState(false);
+  // Cliente preselezionato all'apertura del preventivo (conversione di un lead).
+  const [quoteInitialClientId, setQuoteInitialClientId] = useState<string | null>(null);
   const [editQuoteOpen, setEditQuoteOpen] = useState(false);
   const [editQuoteData, setEditQuoteData] = useState<Quote | null>(null);
   const [editQuoteLoadingId, setEditQuoteLoadingId] = useState<number | null>(null);
@@ -364,6 +498,16 @@ export function ContractsPipelinePage() {
     })),
     [clients]
   );
+
+  // Il lead è già in anagrafica ma la lista clienti standard lo esclude: lo uniamo
+  // così il selettore del preventivo può mostrarlo e preselezionarlo.
+  const clientsWithLeads = useMemo(() => {
+    if (leads.length === 0) return clients;
+    const byId = new Map<number, Client>();
+    clients.forEach((client) => byId.set(client.id, client));
+    leads.forEach((lead) => byId.set(lead.id, lead));
+    return Array.from(byId.values());
+  }, [clients, leads]);
 
   const clientDisplayNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -518,6 +662,48 @@ export function ContractsPipelinePage() {
     };
   }, [currentCompanyId, reloadSeq]);
 
+  // I lead non sono item di pipeline: vivono in anagrafica con is_lead=true e li
+  // impaginiamo a parte come card della sola colonna Bozza.
+  useEffect(() => {
+    if (!currentCompanyId) {
+      setLeads([]);
+      return;
+    }
+
+    let active = true;
+    void getClientsApi({ is_lead: true, company_id: currentCompanyId, per_page: 200 })
+      .then((response) => {
+        if (active) setLeads(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        toast.error(err instanceof Error ? err.message : "Errore caricamento lead");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentCompanyId, reloadSeq, toast]);
+
+  // Chiusura del menu "+" al click fuori e con Esc.
+  useEffect(() => {
+    if (!addMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [addMenuOpen]);
+
   useEffect(() => {
     if (!quoteContractPreviewOpen) return;
     const targetCompanyId = quoteContractForm?.company_id ? Number(quoteContractForm.company_id) : currentCompanyId;
@@ -571,6 +757,98 @@ export function ContractsPipelinePage() {
   const reloadPipeline = () => {
     refetchPipeline();
     reload();
+  };
+
+  // ── Accorpamento preventivi ──
+  const toggleQuoteSelection = (id: number, checked: boolean) =>
+    setSelectedQuoteIds((cur) => (checked ? Array.from(new Set([...cur, id])) : cur.filter((x) => x !== id)));
+
+  const handleAccorpa = async () => {
+    if (selectedQuoteIds.length < 2) return;
+    setGrouping(true);
+    try {
+      await createQuoteGroupApi(selectedQuoteIds);
+      toast.success(`Accorpati ${selectedQuoteIds.length} preventivi: ora si muovono insieme.`);
+      setSelectedQuoteIds([]);
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore accorpamento");
+    } finally {
+      setGrouping(false);
+    }
+  };
+
+  const handleChooseWinner = async (item: CommercialPipelineItem) => {
+    if (item.group_id == null) return;
+    setGroupActionId(item.id);
+    try {
+      await chooseGroupWinnerApi(item.group_id, item.id);
+      toast.success("Preventivo scelto: gli altri del gruppo sono stati scartati.");
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore");
+    } finally {
+      setGroupActionId(null);
+    }
+  };
+
+  const handleDetachGroup = async (item: CommercialPipelineItem) => {
+    setGroupActionId(item.id);
+    try {
+      await detachFromGroupApi(item.id);
+      toast.success("Preventivo sganciato dal gruppo.");
+      reloadPipeline();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore");
+    } finally {
+      setGroupActionId(null);
+    }
+  };
+
+  // ── Lead ──
+  const openLeadForm = () => {
+    setLeadForm({ ...EMPTY_LEAD_FORM, lead_date: todayIso() });
+    setLeadFormOpen(true);
+    setAddMenuOpen(false);
+  };
+
+  const closeLeadForm = () => {
+    if (leadSaving) return;
+    setLeadFormOpen(false);
+    setLeadForm(EMPTY_LEAD_FORM);
+  };
+
+  const saveLead = async () => {
+    if (!leadForm.name.trim()) {
+      toast.error("Il nome del cliente è obbligatorio");
+      return;
+    }
+
+    setLeadSaving(true);
+    try {
+      await createLeadApi({
+        name: leadForm.name.trim(),
+        // L'editor lascia markup vuoto (es. "<p><br></p>") anche a testo cancellato.
+        notes: hasRichTextContent(leadForm.notes) ? leadForm.notes.trim() : null,
+        lead_date: leadForm.lead_date || null,
+        company_id: currentCompanyId,
+      });
+      toast.success("Lead salvato");
+      setLeadFormOpen(false);
+      setLeadForm(EMPTY_LEAD_FORM);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore salvataggio lead");
+    } finally {
+      setLeadSaving(false);
+    }
+  };
+
+  // La conversione è automatica lato server: alla creazione del preventivo il
+  // backend spegne is_lead. Qui basta aprire il flusso col cliente preselezionato.
+  const convertLeadToQuote = (lead: Client) => {
+    setQuoteInitialClientId(String(lead.id));
+    setCreateQuoteOpen(true);
   };
 
   const openDetail = (contractId: number) => {
@@ -705,6 +983,8 @@ export function ContractsPipelinePage() {
     try {
       await updateQuoteStatusApi(item.id, toStatus as Parameters<typeof updateQuoteStatusApi>[1], notes ?? null);
       toast.success(`Preventivo spostato in ${CONTRACT_STAGE_LABELS[toStage]}`);
+      // Se è accorpato, il backend ha mosso anche gli altri: ricarico per allinearli.
+      if (item.group_id != null) reloadPipeline();
     } catch (err) {
       setDisplayedItems((items) =>
         items.map((entry) =>
@@ -948,7 +1228,7 @@ export function ContractsPipelinePage() {
   const boardError = error ?? pipelineError;
 
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn">
+    <div className="px-6 pt-4 mx-auto w-full h-full flex flex-col overflow-hidden animate-fadeIn">
       <PageSectionHeader
         eyebrow="Contratti"
         eyebrowIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
@@ -992,28 +1272,54 @@ export function ContractsPipelinePage() {
             placeholder="Filtra tipo"
           />
 
-          <label className="inline-flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5 text-sm text-ink dark:text-paper">
-            <Checkbox checked={includeInactive} onChange={setIncludeInactive} />
-            Include inattivi
-          </label>
+          <Button
+            variant="ghost"
+            iconOnly
+            onClick={reloadPipeline}
+            title="Aggiorna"
+            aria-label="Aggiorna"
+            leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+          />
 
-          <label className="inline-flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5 text-sm text-ink dark:text-paper">
-            <Checkbox checked={includeDeleted} onChange={setIncludeDeleted} />
-            Include eliminati
-          </label>
+          {/* Opzioni di inclusione + azioni bulk accorpate: niente seconda riga. */}
+          <DropdownMenu
+            label="Opzioni e azioni"
+            items={[
+              {
+                key: "inactive",
+                label: "Include inattivi",
+                icon: "eye",
+                active: includeInactive,
+                onClick: () => setIncludeInactive(!includeInactive),
+              },
+              {
+                key: "deleted",
+                label: "Include eliminati",
+                icon: "trash",
+                active: includeDeleted,
+                onClick: () => setIncludeDeleted(!includeDeleted),
+              },
+              isAdmin && selectedContractIds.length > 0 && {
+                key: "bulk-delete",
+                label: "Elimina selezionati",
+                icon: "trash",
+                danger: true,
+                trailing: String(selectedContractIds.length),
+                onClick: () => setBulkDeleteOpen(true),
+                separatorBefore: true,
+              },
+            ]}
+          />
 
-          <Button variant="ghost" onClick={reloadPipeline} leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}>
-            Aggiorna
-          </Button>
-
-          {isAdmin && (
+          {isAdmin && selectedQuoteIds.length > 0 && (
             <Button
-              variant="danger-ghost"
-              onClick={() => setBulkDeleteOpen(true)}
-              leftIcon={<Icon name="trash" className="w-4 h-4" />}
-              disabled={selectedContractIds.length === 0}
+              variant="secondary"
+              onClick={() => void handleAccorpa()}
+              loading={grouping}
+              disabled={selectedQuoteIds.length < 2}
+              leftIcon={<Icon name="grid-compact" className="w-4 h-4" />}
             >
-              Elimina contratti selezionati ({selectedContractIds.length})
+              Accorpa preventivi ({selectedQuoteIds.length})
             </Button>
           )}
       </div>
@@ -1029,8 +1335,9 @@ export function ContractsPipelinePage() {
           <Spinner size="md" />
         </div>
       ) : (
-        <div className="overflow-x-auto p-1">
-          <div className="flex items-start gap-3 w-max min-w-full">
+        <div className="pipe-board-wrap">
+        <div className="pipe-board">
+          <div className="pipe-board-inner">
             {CONTRACT_STAGE_ORDER.map((stage) => {
               const items = pipelineByStage.get(stage) ?? [];
               const stageTotal = items.reduce((acc, contract) => acc + (contract.pricing?.selected_total ?? 0), 0);
@@ -1039,15 +1346,10 @@ export function ContractsPipelinePage() {
               const isDropTarget = dropStage === stage;
 
               return (
-                <div key={stage} className="w-[320px] flex-none">
-                <KanbanColumnShell
-                  label={CONTRACT_STAGE_LABELS[stage]}
-                  count={items.length}
-                  minHeightClassName="min-h-[520px]"
-                  isDropTarget={isDropTarget}
-                  className=""
-                  headerClassName={`border-b dark:border-line-dark ${stageTone(stage)}`}
-                  bodyClassName="p-2"
+                <div
+                  key={stage}
+                  className={`pipe-col${isDropTarget ? " is-drop" : ""}`}
+                  style={{ "--bar": STAGE_BAR[stage] } as CSSProperties}
                   onDragOver={(event) => {
                     if (!isAdmin) return;
                     event.preventDefault();
@@ -1061,59 +1363,144 @@ export function ContractsPipelinePage() {
                     if (!isAdmin) return;
                     event.preventDefault();
                     setDraggingContractId(null);
+                    setDragGhost(null);
                     const raw = event.dataTransfer.getData("text/plain");
                     const payload = parsePipelineDropPayload(raw);
                     if (!payload) return;
                     void handlePipelineDrop(payload, stage);
                   }}
                 >
-                  <div className="mb-1 px-1.5 text-xs text-muted dark:text-muted-dark">Tot {formatEur(stageTotal)}</div>
-                  <div className="mb-2 px-1.5 text-[11px] text-muted dark:text-muted-dark">Mese {formatEur(stageMonthly)} · Una tantum {formatEur(stageOneTime)}</div>
-                  <div className="space-y-2 flex-1">
+                  <div className="pipe-col-head">
+                    <span className="pipe-col-name">{CONTRACT_STAGE_LABELS[stage]}</span>
+                    {/* In Bozza il contatore include i lead, che sono card a tutti gli effetti. */}
+                    <span className="pipe-col-count">{items.length + (stage === "bozza" ? leads.length : 0)}</span>
+                  </div>
+                  <div className="pipe-col-tot">
+                    <b>Tot {formatEur(stageTotal)}</b>
+                    <span>Mese {formatEur(stageMonthly)} · Una tantum {formatEur(stageOneTime)}</span>
+                  </div>
+                  <div className="pipe-col-body">
                     {stage === "bozza" && isAdmin && (
-                      <div className="space-y-2">
+                      <div ref={addMenuRef} className={`pipe-add${addMenuOpen ? " is-open" : ""}`}>
                         <button
                           type="button"
-                          onClick={() => setCreateQuoteOpen(true)}
-                          className="w-full rounded-lg border border-dashed border-success/40 bg-success/5 px-3 py-3 text-left transition-colors hover:bg-success/10"
+                          className="pipe-add-fab"
+                          onClick={() => setAddMenuOpen((open) => !open)}
+                          aria-expanded={addMenuOpen}
+                          aria-label={addMenuOpen ? "Chiudi opzioni di creazione" : "Apri opzioni di creazione"}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
-                              <Icon name="plus" className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="text-sm font-semibold text-ink dark:text-paper">Nuovo preventivo</span>
-                          </div>
-                          <p className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            Crea rapidamente un preventivo senza uscire dalla pipeline.
-                          </p>
+                          <span className="pipe-add-plus">
+                            <Icon name="plus" className="w-4 h-4" />
+                          </span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setCreateFromQuoteOpen(true)}
-                          className="w-full rounded-lg border border-dashed border-info/40 bg-info/5 px-3 py-3 text-left transition-colors hover:bg-info/10"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info/15 text-info">
-                              <Icon name="plus" className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="text-sm font-semibold text-ink dark:text-paper">Genera contratto da preventivo</span>
+                        {/* Voci sempre montate: l'apertura è una transizione CSS, non un mount. */}
+                        <div className="pipe-add-opts" aria-hidden={!addMenuOpen}>
+                          <div className="pipe-add-opts-inner">
+                            <button
+                              type="button"
+                              style={{ "--i": 0 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={() => {
+                                setAddMenuOpen(false);
+                                setCreateQuoteOpen(true);
+                              }}
+                              className="pipe-create pipe-create-quote pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
+                                  <Icon name="document-text" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Nuovo preventivo</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Crea rapidamente un preventivo senza uscire dalla pipeline.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              style={{ "--i": 1 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={() => {
+                                setAddMenuOpen(false);
+                                setCreateFromQuoteOpen(true);
+                              }}
+                              className="pipe-create pipe-create-contract pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info/15 text-info">
+                                  <Icon name="copy" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Genera contratto da preventivo</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Anteprima guidata, avvisi e conferma finale senza uscire dalla pipeline.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              style={{ "--i": 2 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={openLeadForm}
+                              className="pipe-create pipe-create-lead pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-warning/15 text-warning">
+                                  <Icon name="user-circle" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Lead</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Appunta al volo una richiesta: nome, note e data.
+                              </p>
+                            </button>
                           </div>
-                          <p className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            Anteprima guidata, avvisi e conferma finale senza uscire dalla pipeline.
-                          </p>
-                        </button>
+                        </div>
                       </div>
                     )}
 
-                    {items.length === 0 && (
-                      <div className="rounded-md border border-dashed border-line dark:border-line-dark px-2 py-3 text-center text-xs text-muted dark:text-muted-dark">
-                        Nessun elemento
-                      </div>
+                    {stage === "bozza" && leads.map((lead) => {
+                      const leadNotes = richTextToPlain(lead.notes);
+
+                      return (
+                        <div
+                          key={`lead-${lead.id}`}
+                          className="pipe-card is-lead"
+                          style={{ "--area": STAGE_BAR.in_trattativa } as CSSProperties}
+                        >
+                          <div className="pipe-c-top">
+                            <span className="pipe-c-client" title={lead.commercial_name || lead.name}>
+                              {lead.commercial_name || lead.name}
+                            </span>
+                            <span className="pipe-c-kind is-lead">Lead</span>
+                          </div>
+
+                          {leadNotes && <p className="pipe-c-lead-notes" title={leadNotes}>{leadNotes}</p>}
+
+                          <div className="pipe-c-foot">
+                            <span className="pipe-c-upd">Richiesta {formatIsoDate(lead.lead_date)}</span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="pipe-c-lead-cta"
+                                onClick={() => convertLeadToQuote(lead)}
+                              >
+                                Converti in preventivo
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {items.length === 0 && stage !== "bozza" && (
+                      <div className="pipe-col-empty">Nessun elemento</div>
                     )}
 
-                    {items.map((item) => (
-                      (() => {
+                    {buildPipelineClusters(items).map((cluster) => {
+                      const cards = cluster.items.map((item) => {
                         const clientLabel = item.client_id != null
                           ? (clientDisplayNameById.get(item.client_id) ?? `Cliente #${item.client_id}`)
                           : "Cliente non associato";
@@ -1122,30 +1509,33 @@ export function ContractsPipelinePage() {
                       <button
                         key={`${item.entity_type}-${item.id}`}
                         type="button"
-                        draggable={isAdmin}
+                        draggable={isAdmin && cluster.groupId == null}
                         onDragStart={(event) => {
-                          if (!isAdmin) return;
+                          if (!isAdmin || cluster.groupId != null) return;
                           event.dataTransfer.effectAllowed = "move";
                           event.dataTransfer.setData("text/plain", JSON.stringify({
                             entity_type: item.entity_type,
                             id: item.id,
                           }));
+                          beginDragGhost(event, item.title, 1);
                           setDraggingContractId(item.id);
                         }}
                         onDragEnd={() => {
                           if (!isAdmin) return;
                           setDraggingContractId(null);
                           setDropStage(null);
+                          setDragGhost(null);
                         }}
                         onClick={() => {
                           if (item.entity_type === "contract") {
                             void openDetail(item.id);
                           }
                         }}
-                        className={`group w-full text-left rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-[#131316] p-3 transition-all hover:-translate-y-px hover:shadow-md hover:border-ink/30 dark:hover:border-paper/30 ${draggingContractId === item.id ? "opacity-60" : ""}`}
+                        className={`pipe-card${selectedContractIds.includes(item.id) ? " is-sel" : ""}${draggingContractId === item.id ? " is-dragging" : ""}`}
+                        style={{ "--area": item.work_areas?.[0]?.color ?? "var(--pipe-area-fallback, #94a3b8)" } as CSSProperties}
                       >
                           {isAdmin && item.entity_type === "contract" && (
-                            <div className="mb-2" onClick={(event) => event.stopPropagation()}>
+                            <div className="pipe-c-sel" onClick={(event) => event.stopPropagation()}>
                               <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-muted dark:text-muted-dark">
                                 <Checkbox
                                   checked={selectedContractIds.includes(item.id)}
@@ -1156,71 +1546,41 @@ export function ContractsPipelinePage() {
                             </div>
                           )}
 
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex items-center gap-1.5">
-                              <span className="shrink-0 font-variant-numeric text-[10px] tabular-nums text-muted dark:text-muted-dark">#{String(item.id).padStart(3, "0")}</span>
-                              <span
-                                className="truncate max-w-[170px] text-[11px] text-muted dark:text-muted-dark"
-                                title={clientLabel}
-                              >
-                                {clientLabel}
-                              </span>
+                          {isAdmin && item.entity_type === "quote" && item.group_id == null && (
+                            <div className="pipe-c-sel" onClick={(event) => event.stopPropagation()}>
+                              <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-muted dark:text-muted-dark">
+                                <Checkbox
+                                  checked={selectedQuoteIds.includes(item.id)}
+                                  onChange={(checked) => toggleQuoteSelection(item.id, checked)}
+                                />
+                                Accorpa
+                              </label>
                             </div>
-                            <Badge variant={item.entity_type === "quote" ? "info" : "default"}>
+                          )}
+
+                          <div className="pipe-c-top">
+                            <span className="pipe-c-client" title={clientLabel}>{clientLabel}</span>
+                            <span className={`pipe-c-kind ${item.entity_type === "quote" ? "is-prev" : "is-contract"}`}>
                               {item.entity_type === "quote" ? "Preventivo" : "Contratto"}
-                            </Badge>
+                            </span>
                           </div>
 
-                          <div className="mt-1 flex items-start justify-between gap-2">
-                          <div className="text-sm font-semibold text-ink dark:text-paper line-clamp-2">{item.title}</div>
-                          <Badge variant={item.pricing.mode === "single_quote" ? "info" : "default"}>
-                            {item.pricing.mode === "single_quote" ? "single" : "agg"}
-                          </Badge>
-                        </div>
+                          <div className="pipe-c-title">{item.title}</div>
 
-                        <div className="mt-1 text-xs text-muted dark:text-muted-dark">
-                          {item.entity_type === "quote"
-                            ? `${item.source_number ?? "Preventivo"}${item.source_status ? ` · ${item.source_status}` : ""}`
-                            : `${item.contract_type} · ${item.engagement_type}`}
-                        </div>
-
-                        {((item.tags?.length ?? 0) > 0 || (item.work_areas?.length ?? 0) > 0) && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {(item.work_areas ?? []).map((area) => (
-                              <span
-                                key={`area-${item.id}-${area.id}`}
-                                className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                                style={area.color ? { borderColor: `${area.color}55`, color: area.color, backgroundColor: `${area.color}1A` } : undefined}
-                              >
-                                {area.name}
-                              </span>
-                            ))}
-                            {(item.tags ?? []).map((tag) => (
-                              <span
-                                key={`tag-${item.id}-${tag.id}`}
-                                className="inline-flex items-center rounded-pill border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                                style={tag.color ? { borderColor: `${tag.color}55`, color: tag.color, backgroundColor: `${tag.color}1A` } : undefined}
-                              >
-                                #{tag.name}
-                              </span>
-                            ))}
+                          <div className="pipe-c-money">
+                            <span className="pipe-c-total">{formatEur(item.pricing.selected_total)}</span>
+                            <span className="pipe-c-break">
+                              Mese {formatEur(item.pricing.selected_monthly ?? 0)} · Una tantum {formatEur(item.pricing.selected_one_time ?? 0)}
+                            </span>
                           </div>
-                        )}
 
-                        <div className="mt-2 text-sm font-semibold text-ink dark:text-paper">
-                          {formatEur(item.pricing.selected_total)}
-                        </div>
-
-                        <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                          Mese {formatEur(item.pricing.selected_monthly ?? 0)} · Una tantum {formatEur(item.pricing.selected_one_time ?? 0)}
-                        </div>
-
-                        <div className="mt-2 text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark">
-                          Aggiornato {new Date(item.updated_at).toLocaleDateString("it-IT")}
-                        </div>
+                          <div className="pipe-c-foot">
+                            <span className="pipe-c-upd">
+                              #{String(item.id).padStart(3, "0")} · {new Date(item.updated_at).toLocaleDateString("it-IT")}
+                            </span>
 
                         {isAdmin && item.entity_type === "contract" && (
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="pipe-c-actions" onClick={(event) => event.stopPropagation()}>
                             <button
                               type="button"
                               title="Indietro"
@@ -1268,7 +1628,31 @@ export function ContractsPipelinePage() {
                         )}
 
                         {isAdmin && item.entity_type === "quote" && (
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="pipe-c-actions" onClick={(event) => event.stopPropagation()}>
+                            {item.group_id != null && (
+                              <>
+                                <button
+                                  type="button"
+                                  title="Scegli questo preventivo (gli altri del gruppo escono dalla trattativa)"
+                                  aria-label="Scegli questo preventivo"
+                                  onClick={(event) => { event.stopPropagation(); void handleChooseWinner(item); }}
+                                  className={CARD_ICON_ACTION_CLASS}
+                                  disabled={groupActionId === item.id}
+                                >
+                                  <Icon name="star" className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Sgancia dal gruppo"
+                                  aria-label="Sgancia dal gruppo"
+                                  onClick={(event) => { event.stopPropagation(); void handleDetachGroup(item); }}
+                                  className={CARD_ICON_ACTION_CLASS}
+                                  disabled={groupActionId === item.id}
+                                >
+                                  <Icon name="x" className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
                             {(() => {
                               const quoteStatus = getQuoteCurrentStatus(item);
                               const { previous, next } = getQuoteArrowTargets(item);
@@ -1289,64 +1673,15 @@ export function ContractsPipelinePage() {
                                     >
                                       <Icon name="eye" className="h-4 w-4" />
                                     </button>
-                                    <div className="group/quote-branch relative py-5 -my-5">
-                                      <button
-                                        type="button"
-                                        className={QUOTE_BRANCH_ACTION_CLASS}
-                                        onClick={(event) => event.stopPropagation()}
-                                      >
-                                        Esito
-                                      </button>
-
-                                      <div className="pointer-events-none absolute left-full top-1/2 z-10 ml-2 h-32 w-44 -translate-y-1/2">
-                                        <div className="absolute left-0 top-1/2 h-px w-7 -translate-y-1/2 origin-left scale-x-0 bg-line transition-transform duration-200 group-hover/quote-branch:scale-x-100 dark:bg-line-dark" />
-
-                                        <div className="absolute left-7 top-1/2 flex -translate-y-11 items-center">
-                                          <div className="h-7 w-8 -translate-y-0.5 rounded-tr-[999px] border-r border-t border-success/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-success/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-success opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-success/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void openQuoteContractPreview(item.id, true);
-                                            }}
-                                            disabled={quoteContractPreviewLoading && quoteContractPreviewQuoteId === item.id}
-                                          >
-                                            Accettato
-                                          </button>
-                                        </div>
-
-                                        <div className="absolute left-7 top-1/2 flex -translate-y-1/2 items-center">
-                                          <div className="h-px w-8 bg-info/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-info/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-info opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-info/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void handleOpenEditQuote(item.id);
-                                            }}
-                                            disabled={editQuoteLoadingId === item.id}
-                                          >
-                                            Modifica
-                                          </button>
-                                        </div>
-
-                                        <div className="absolute left-7 top-1/2 flex translate-y-4 items-center">
-                                          <div className="h-7 w-8 translate-y-0.5 rounded-br-[999px] border-b border-r border-danger/60 opacity-0 transition-opacity duration-150 delay-75 group-hover/quote-branch:opacity-100" />
-                                          <button
-                                            type="button"
-                                            className="pointer-events-auto ml-2 inline-flex items-center rounded-md border border-danger/30 bg-paper px-2.5 py-1 text-[11px] font-semibold text-danger opacity-0 translate-x-2 transition-all duration-200 delay-200 hover:bg-danger/10 group-hover/quote-branch:translate-x-0 group-hover/quote-branch:opacity-100 dark:bg-[#131316]"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              void executeQuoteStageMove(item, "perso");
-                                            }}
-                                            disabled={actionLoadingId === item.id}
-                                          >
-                                            Perso
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      className={QUOTE_BRANCH_ACTION_CLASS}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onMouseEnter={(event) => openEsitoMenu(item, event.currentTarget)}
+                                      onMouseLeave={scheduleEsitoClose}
+                                    >
+                                      Esito
+                                    </button>
                                   </>
                                 );
                               }
@@ -1419,16 +1754,46 @@ export function ContractsPipelinePage() {
                             })()}
                           </div>
                         )}
+                          </div>
                       </button>
                         );
-                      })()
-                    ))}
+                      });
+                      return cluster.groupId != null ? (
+                        <div
+                          key={`grp-${cluster.groupId}`}
+                          className={`pipe-group${draggingContractId === cluster.items[0].id ? " is-dragging" : ""}`}
+                          draggable={isAdmin}
+                          onDragStart={(event) => {
+                            if (!isAdmin) return;
+                            event.dataTransfer.effectAllowed = "move";
+                            // Trascino il gruppo come unico elemento: uso un membro
+                            // come rappresentante; il backend muove insieme gli altri.
+                            event.dataTransfer.setData("text/plain", JSON.stringify({
+                              entity_type: "quote",
+                              id: cluster.items[0].id,
+                            }));
+                            beginDragGhost(event, cluster.items[0].title, cluster.items.length);
+                            setDraggingContractId(cluster.items[0].id);
+                          }}
+                          onDragEnd={() => {
+                            if (!isAdmin) return;
+                            setDraggingContractId(null);
+                            setDropStage(null);
+                            setDragGhost(null);
+                          }}
+                        >
+                          {cards}
+                        </div>
+                      ) : (
+                        cards
+                      );
+                    })}
                   </div>
-                </KanbanColumnShell>
                 </div>
               );
             })}
           </div>
+        </div>
         </div>
       )}
 
@@ -1436,6 +1801,54 @@ export function ContractsPipelinePage() {
         <p className="mt-4 text-center text-[11px] text-muted dark:text-muted-dark">
           Trascina una card tra le colonne per cambiare stage.
         </p>
+      )}
+
+      {esitoMenu && createPortal(
+        <div
+          className="pipe-esito-pop"
+          style={{ top: esitoMenu.top, left: esitoMenu.left } as CSSProperties}
+          onMouseEnter={cancelEsitoClose}
+          onMouseLeave={scheduleEsitoClose}
+        >
+          <span className="pipe-esito-stem" />
+
+          <div className="pipe-esito-branch is-top">
+            <span className="pipe-esito-corner is-tr is-ok" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-ok"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void openQuoteContractPreview(it.id, true); }}
+              disabled={quoteContractPreviewLoading && quoteContractPreviewQuoteId === esitoMenu.item.id}
+            >
+              Accettato
+            </button>
+          </div>
+
+          <div className="pipe-esito-branch is-mid">
+            <span className="pipe-esito-line is-info" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-info"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void handleOpenEditQuote(it.id); }}
+              disabled={editQuoteLoadingId === esitoMenu.item.id}
+            >
+              Modifica
+            </button>
+          </div>
+
+          <div className="pipe-esito-branch is-bot">
+            <span className="pipe-esito-corner is-br is-danger" />
+            <button
+              type="button"
+              className="pipe-esito-opt is-danger"
+              onClick={() => { const it = esitoMenu.item; setEsitoMenu(null); void executeQuoteStageMove(it, "perso"); }}
+              disabled={actionLoadingId === esitoMenu.item.id}
+            >
+              Perso
+            </button>
+          </div>
+        </div>,
+        document.body,
       )}
 
       <ContractDetailModal
@@ -1545,13 +1958,13 @@ export function ContractsPipelinePage() {
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</label>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalità prezzi</label>
                 <SearchableSelect
                   value={quoteContractForm.pricing_view_mode}
                   onChange={(value) => updateQuoteContractForm("pricing_view_mode", value as ContractPricingMode)}
                   options={[
-                    { value: "aggregated", label: "Aggregated" },
-                    { value: "single_quote", label: "Single quote" },
+                    { value: "aggregated", label: "Totale aggregato" },
+                    { value: "single_quote", label: "Preventivo principale" },
                   ]}
                 />
               </div>
@@ -1588,7 +2001,7 @@ export function ContractsPipelinePage() {
 
               <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <MultiSelect
-                  label="work areas"
+                  label="Aree di lavoro"
                   value={quoteContractForm.work_area_ids}
                   onChange={(value) => updateQuoteContractForm("work_area_ids", value)}
                   options={workAreaOptions}
@@ -1599,7 +2012,7 @@ export function ContractsPipelinePage() {
                   createActionLabel="Crea area"
                 />
                 <MultiSelect
-                  label="tags"
+                  label="Tag"
                   value={quoteContractForm.tag_ids}
                   onChange={(value) => updateQuoteContractForm("tag_ids", value)}
                   options={workTagOptions}
@@ -1829,22 +2242,74 @@ export function ContractsPipelinePage() {
       <QuoteQuickCreateModal
         open={createQuoteOpen || editQuoteOpen}
         companyId={currentCompanyId}
-        clients={clients}
+        clients={clientsWithLeads}
         clientsLoading={clientsLoading}
         canSyncFromFic={isAdmin}
         quoteToEdit={editQuoteOpen ? editQuoteData : null}
+        initialClientId={quoteInitialClientId}
         onClose={() => {
           setCreateQuoteOpen(false);
           setEditQuoteOpen(false);
           setEditQuoteData(null);
+          setQuoteInitialClientId(null);
         }}
         onCreated={() => {
           setCreateQuoteOpen(false);
           setEditQuoteOpen(false);
           setEditQuoteData(null);
+          setQuoteInitialClientId(null);
           reloadPipeline();
         }}
       />
+
+      <Modal
+        open={leadFormOpen}
+        onClose={closeLeadForm}
+        title="Nuovo lead"
+        description="Appunta una richiesta in arrivo: diventerà un preventivo quando sarà il momento."
+        icon={<Icon name="user-circle" className="h-5 w-5" />}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeLeadForm} disabled={leadSaving}>
+              Annulla
+            </Button>
+            <Button onClick={() => void saveLead()} loading={leadSaving} leftIcon={<Icon name="check" className="h-4 w-4" />}>
+              Salva
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {/* Nome libero: al momento della chiamata il cliente può non esistere in anagrafica. */}
+          <Input
+            label="Nome cliente *"
+            labelIcon={<Icon name="user-circle" className="h-3 w-3" />}
+            value={leadForm.name}
+            onChange={(event) => setLeadForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Es. Pasticceria Rossi"
+          />
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Note commerciali</FieldLabel>
+            <Textarea
+              rows={3}
+              value={leadForm.notes}
+              onChange={(event) => setLeadForm((current) => ({ ...current, notes: event.target.value }))}
+              className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+              placeholder="Es. Ha chiesto un preventivo per il restyling del sito"
+            />
+          </div>
+
+          <Input
+            label="Data richiesta"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            type="date"
+            value={leadForm.lead_date}
+            onChange={(event) => setLeadForm((current) => ({ ...current, lead_date: event.target.value }))}
+          />
+        </div>
+      </Modal>
 
       <ContractFromQuoteModal
         open={createFromQuoteOpen}
@@ -1860,6 +2325,23 @@ export function ContractsPipelinePage() {
           setDetailOpen(true);
         }}
       />
+
+      {/* Ghost animato del drag (dondola e insegue il cursore): stesso sistema di Lavorazioni. */}
+      {dragGhost &&
+        createPortal(
+          <div ref={attachDragGhost} className="wl-drag-ghost" aria-hidden>
+            <span className="wl-drag-ghost-stack">
+              {/* La pila sfalsata solo per i gruppi: con un solo elemento sarebbe fuorviante. */}
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-card c3" />}
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-card c2" />}
+              <span className="wl-drag-ghost-card c1">
+                <Icon name="document-text" className="h-3.5 w-3.5" /> {dragGhost.label}
+              </span>
+              {dragGhost.count > 1 && <span className="wl-drag-ghost-badge">{dragGhost.count}</span>}
+            </span>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

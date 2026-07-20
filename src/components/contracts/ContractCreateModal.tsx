@@ -6,10 +6,13 @@ import type { Client } from "../../api/clients";
 import { useToast } from "../../context/ToastContext";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
+import { FieldLabel } from "../ui/FieldLabel";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { SectionCard } from "../ui/SectionCard";
 import { Textarea } from "../ui/Textarea";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
@@ -252,6 +255,7 @@ export function ContractCreateModal({
       open={open}
       onClose={handleClose}
       title={title}
+      icon={<Icon name="document-text" className="h-5 w-5" />}
       size="xl"
       draftId={companyId != null ? `contract-create:${companyId}` : "contract-create"}
       footer={
@@ -263,98 +267,124 @@ export function ContractCreateModal({
         </>
       }
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Input
-          label="Titolo"
-          value={form.title}
-          onChange={(event) => updateForm("title", event.target.value)}
-          placeholder="Es. Contratto Social Q3"
-        />
+      <div className="flex flex-col gap-4">
+        <SectionCard icon="document-text" title="Dati contratto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Input
+            label="Titolo"
+            labelIcon={<Icon name="pencil" className="h-3 w-3" />}
+            value={form.title}
+            onChange={(event) => updateForm("title", event.target.value)}
+            placeholder="Es. Contratto Social Q3"
+          />
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Cliente</label>
-          <ClientSelectorWithCreate
-            value={form.client_id}
-            onChange={(value) => updateForm("client_id", value)}
-            clients={clients}
-            companyId={companyId}
-            placeholder="Seleziona cliente"
-            includeEmptyOption
-            emptyOptionLabel="Nessun cliente"
+          <div className="flex flex-col gap-1">
+            <FieldLabel icon={<Icon name="user-circle" className="h-3 w-3" />}>Cliente</FieldLabel>
+            <ClientSelectorWithCreate
+              value={form.client_id}
+              onChange={(value) => updateForm("client_id", value)}
+              clients={clients}
+              companyId={companyId}
+              placeholder="Seleziona cliente"
+              includeEmptyOption
+              emptyOptionLabel="Nessun cliente"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel
+              icon={<Icon name="document-text" className="h-3 w-3" />}
+              help={{ title: "Tipo contratto", shortText: "Commerciale o Execution.", longText: "Commerciale: contratto lato vendita/trattativa.\nExecution: contratto operativo per l'esecuzione del lavoro." }}
+            >
+              Tipo contratto
+            </FieldLabel>
+            <SearchableSelect
+              value={form.contract_type}
+              onChange={(value) => updateForm("contract_type", value as ContractType)}
+              options={[
+                { value: "commercial", label: "Commerciale" },
+                { value: "execution", label: "Execution" },
+              ]}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel
+              icon={<Icon name="refresh-cw" className="h-3 w-3" />}
+              help={{ title: "Tipo rapporto", shortText: "Una tantum o continuativo.", longText: "Una tantum: fornitura singola, non ricorrente.\nContinuativo: rapporto ricorrente/abbonamento nel tempo." }}
+            >
+              Tipo rapporto
+            </FieldLabel>
+            <SearchableSelect
+              value={form.engagement_type}
+              onChange={(value) => updateForm("engagement_type", value as "" | ContractEngagementType)}
+              options={[
+                { value: "", label: "Non impostato" },
+                { value: "one_time", label: "Una tantum" },
+                { value: "ongoing", label: "Continuativo" },
+              ]}
+              placeholder="Seleziona tipo rapporto"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel icon={<Icon name="activity" className="h-3 w-3" />}>Stato iniziale</FieldLabel>
+            <SearchableSelect
+              value={form.commercial_stage}
+              onChange={(value) => updateForm("commercial_stage", value as ContractCommercialStage)}
+              options={stageOptions}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel
+              icon={<Icon name="credit-card" className="h-3 w-3" />}
+              help={{ title: "Modalità prezzi", shortText: "Come si mostrano i totali.", longText: "Totale aggregato: somma di tutti i preventivi collegati.\nPreventivo principale: mostra il totale del preventivo di riferimento." }}
+            >
+              Modalità prezzi
+            </FieldLabel>
+            <SearchableSelect
+              value={form.pricing_view_mode}
+              onChange={(value) => updateForm("pricing_view_mode", value as ContractPricingMode)}
+              options={[
+                { value: "aggregated", label: "Totale aggregato" },
+                { value: "single_quote", label: "Preventivo principale" },
+              ]}
+            />
+          </div>
+        </div>
+        </SectionCard>
+
+        <SectionCard icon="calendar" title="Date">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Input
+            label="Data firma"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            type="datetime-local"
+            value={form.signed_at}
+            onChange={(event) => updateForm("signed_at", event.target.value)}
+          />
+          <Input
+            label="Data inizio"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            type="date"
+            value={form.start_date}
+            onChange={(event) => updateForm("start_date", event.target.value)}
+          />
+          <Input
+            label="Data fine"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            type="date"
+            value={form.end_date}
+            onChange={(event) => updateForm("end_date", event.target.value)}
           />
         </div>
+        </SectionCard>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo contratto</label>
-          <SearchableSelect
-            value={form.contract_type}
-            onChange={(value) => updateForm("contract_type", value as ContractType)}
-            options={[
-              { value: "commercial", label: "Commercial" },
-              { value: "execution", label: "Execution" },
-            ]}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo rapporto</label>
-          <SearchableSelect
-            value={form.engagement_type}
-            onChange={(value) => updateForm("engagement_type", value as "" | ContractEngagementType)}
-            options={[
-              { value: "", label: "Non impostato" },
-              { value: "one_time", label: "Una tantum" },
-              { value: "ongoing", label: "Continuativo" },
-            ]}
-            placeholder="Seleziona tipo rapporto"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Stage iniziale</label>
-          <SearchableSelect
-            value={form.commercial_stage}
-            onChange={(value) => updateForm("commercial_stage", value as ContractCommercialStage)}
-            options={stageOptions}
-          />
-        </div>
-
-        <Input
-          label="Data firma"
-          type="datetime-local"
-          value={form.signed_at}
-          onChange={(event) => updateForm("signed_at", event.target.value)}
-        />
-
-        <Input
-          label="Data inizio"
-          type="date"
-          value={form.start_date}
-          onChange={(event) => updateForm("start_date", event.target.value)}
-        />
-
-        <Input
-          label="Data fine"
-          type="date"
-          value={form.end_date}
-          onChange={(event) => updateForm("end_date", event.target.value)}
-        />
-
-        <div className="md:col-span-2 flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modalita pricing</label>
-          <SearchableSelect
-            value={form.pricing_view_mode}
-            onChange={(value) => updateForm("pricing_view_mode", value as ContractPricingMode)}
-            options={[
-              { value: "aggregated", label: "Aggregated" },
-              { value: "single_quote", label: "Single quote" },
-            ]}
-          />
-        </div>
-
-        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <SectionCard icon="star" title="Aree e tag">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <MultiSelect
-            label="work areas"
+            label="Aree di lavoro"
             value={form.work_area_ids}
             onChange={(value) => updateForm("work_area_ids", value)}
             options={workAreaOptions}
@@ -365,7 +395,7 @@ export function ContractCreateModal({
             createActionLabel="Crea area"
           />
           <MultiSelect
-            label="tags"
+            label="Tag"
             value={form.tag_ids}
             onChange={(value) => updateForm("tag_ids", value)}
             options={workTagOptions}
@@ -376,8 +406,10 @@ export function ContractCreateModal({
             createActionLabel="Crea tag"
           />
         </div>
+        </SectionCard>
 
-        <div className="md:col-span-2 space-y-2">
+        <SectionCard icon="annotation" title="Note e brief">
+        <div className="space-y-2">
           <div className="mb-2 inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">
             <button
               type="button"
@@ -411,6 +443,7 @@ export function ContractCreateModal({
             />
           )}
         </div>
+        </SectionCard>
       </div>
 
       <WorkTagCreateModal

@@ -100,6 +100,7 @@ function normalizeDraftForSave(draft: ContractAiPreviewDraft): ContractAiWorkIte
         })),
       })),
     })),
+    billing_source: draft.billing_source ?? null,
   };
 }
 

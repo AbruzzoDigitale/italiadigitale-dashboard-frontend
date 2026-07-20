@@ -1,239 +1,334 @@
+@import url("https://fonts.googleapis.com/css2?family=League+Gothic&display=swap");
+
 /* ============================================================
    PRESENTAZIONE PACCHETTI SOCIAL
-   Valori copiati 1:1 da preventivatore-abruzzo-digitale/css/app.css
+   Valori portati 1:1 dal prototipo "Pacchetti Social Media"
+   (Card pacchetti social Abruzzo Digitale/styles.css) — tema scuro
+   sobrio: Antracite / Magenta / Menta. NON usare i token app.
    ============================================================ */
 
-/* ── Wrapper esterno ── */
 .social-presentation-page {
+  /* brand */
+  --ad-magenta: #ef3a65;
+  --ad-magenta-soft: rgba(239, 58, 101, .14);
+  --ad-magenta-line: rgba(239, 58, 101, .55);
+  --ad-mint: #16eb96;
+  --ad-mint-soft: rgba(22, 235, 150, .12);
+  --ad-antracite: #1b1c1b;
+  /* dark surfaces */
+  --ad-bg: #0e0f0e;
+  --ad-bg-2: #131413;
+  --ad-surface: #191a19;
+  --ad-surface-2: #1f211f;
+  --ad-line: rgba(255, 255, 255, .09);
+  --ad-line-2: rgba(255, 255, 255, .14);
+  /* text */
+  --ad-tx: #f4f4f2;
+  --ad-tx-2: rgba(244, 244, 242, .66);
+  --ad-tx-3: rgba(244, 244, 242, .42);
+
+  --ad-display: "League Gothic", "Space Grotesk", sans-serif;
+  --ad-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --ad-r-2: 6px;
+  --ad-r-3: 12px;
+  --ad-ease: cubic-bezier(.2, .7, .2, 1);
+
   min-height: calc(100vh - 64px);
   min-height: calc(100dvh - 64px);
   display: flex;
   flex-direction: column;
+  background: var(--ad-bg);
 }
 
-/* ── Sezione hero scura (identica al prototipo) ── */
+/* ── Sezione hero scura ── */
 .social-hero-section {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(46, 195, 243, .25), transparent 60%),
-    radial-gradient(ellipse 70% 60% at 80% 70%, rgba(233, 30, 138, .25), transparent 60%),
-    linear-gradient(180deg, #2b1342 0%, #1a0a2b 100%);
-  color: #ffffff;
+    radial-gradient(52% 44% at 50% 32%, rgba(239, 58, 101, .14), transparent 72%),
+    radial-gradient(42% 42% at 6% 92%, rgba(22, 235, 150, .06), transparent 72%),
+    var(--ad-bg);
+  color: var(--ad-tx);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
   position: relative;
   overflow: hidden;
   padding: 64px 40px 56px;
+  flex: 1 1 auto;
 }
 
-/* ---- hero title/sub (identici al prototipo) ---- */
+/* puntinatura sottile come .pkg-bg .dots del prototipo */
+.social-hero-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .6;
+  background-image: radial-gradient(rgba(255, 255, 255, .07) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(78% 72% at 50% 42%, #000, transparent 82%);
+  mask-image: radial-gradient(78% 72% at 50% 42%, #000, transparent 82%);
+}
+.social-hero-section > * { position: relative; z-index: 2; }
 
+/* ---- hero title/sub ---- */
 .social-hero__title {
-  /* --fs-4xl = 60px, --tracking-tight = -0.025em, --lh-tight = 1.05 */
-  font-family: 'Space Grotesk', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 60px;
-  letter-spacing: -0.025em;
-  line-height: 1.05;
+  font-family: var(--ad-display);
+  font-weight: 400;
+  font-size: clamp(34px, 6.7vw, 92px);
+  letter-spacing: .01em;
+  line-height: .9;
   text-align: center;
   text-transform: uppercase;
   margin-bottom: 14px;
 }
 
 .social-hero__sub {
-  /* --fs-md = 17px, --tracking-wide = 0.04em */
   text-align: center;
-  font-size: 17px;
-  color: rgba(255, 255, 255, .7);
-  letter-spacing: 0.04em;
+  font-size: 15px;
+  color: var(--ad-tx-2);
+  font-weight: 500;
+  letter-spacing: 0;
   margin-bottom: 8px;
 }
 
 .social-hero__sub strong {
-  color: #ffffff;
+  color: var(--ad-tx);
   font-weight: 600;
 }
 
 /* ---- deck grid ---- */
-
 .social-hero__deck {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
-  max-width: 1200px;
+  align-items: start;
+  max-width: 1240px;
   margin: 36px auto 0;
 }
 
-/* ---- card ---- */
-
+/* ---- card (sober = default) ---- */
 .social-pack {
   position: relative;
-  background: linear-gradient(180deg, rgba(0, 0, 0, .25), rgba(0, 0, 0, .45));
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: 16px; /* --r-lg */
-  padding: 28px 22px 22px;
+  background: var(--ad-surface);
+  border: 1px solid var(--ad-line);
+  border-radius: var(--ad-r-3);
+  padding: 26px 24px;
   cursor: pointer;
-  transition: all 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
-  color: #ffffff;
+  transition: transform .25s var(--ad-ease), border-color .25s var(--ad-ease), box-shadow .25s var(--ad-ease), background .25s var(--ad-ease);
+  color: var(--ad-tx);
   display: flex;
   flex-direction: column;
 }
 
 .social-pack:hover {
   transform: translateY(-4px);
-  border-color: rgba(255, 255, 255, .2);
+  border-color: var(--ad-line-2);
 }
 
-/* is-selected: identico al prototipo */
+.social-pack.is-reco {
+  border-color: var(--ad-magenta-line);
+  box-shadow: 0 0 0 1px var(--ad-magenta-line), 0 24px 60px -28px rgba(239, 58, 101, .7);
+}
+
 .social-pack.is-selected {
-  border-color: currentColor;
-  box-shadow: 0 0 0 2px currentColor, 0 20px 40px rgba(0, 0, 0, .5);
+  border-color: var(--ad-magenta);
+  box-shadow: 0 0 0 2px var(--ad-magenta), 0 24px 60px -30px rgba(239, 58, 101, .55);
 }
 
-/* accent colori esatti dai token del prototipo */
-.social-pack--visibility { color: #2ec3f3; } /* --ad-cyan */
-.social-pack--growth     { color: #fcd43c; } /* --ad-yellow */
-.social-pack--evolution  { color: #e91e8a; } /* --ad-pink */
+/* reco tag "Il più scelto" */
+.social-pack__reco-tag {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--ad-magenta);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px -6px rgba(239, 58, 101, .8);
+}
+
+/* select mark */
+.social-pack__select-mark {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--ad-magenta);
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(.6);
+  transition: all .2s var(--ad-ease);
+}
+.social-pack__select-mark svg { color: #fff; }
+.social-pack.is-selected .social-pack__select-mark { opacity: 1; transform: scale(1); }
+
+.social-pack__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.social-pack__index {
+  font-family: var(--ad-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  color: var(--ad-tx-3);
+}
 
 .social-pack__name {
   font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 30px;
   font-weight: 700;
-  font-size: 36px;
-  text-transform: uppercase;
-  letter-spacing: -0.025em; /* --tracking-tight */
-  line-height: 1.05;        /* --lh-tight */
-  text-align: center;
-  color: currentColor;
-  margin-bottom: 14px;
+  letter-spacing: -.01em;
+  line-height: 1;
+  text-transform: none;
+  text-align: left;
+  color: var(--ad-tx);
+  margin: 14px 0 0;
 }
 
 .social-pack__desc {
-  font-size: 13px; /* --fs-sm */
-  color: rgba(255, 255, 255, .8);
-  text-align: center;
-  margin-bottom: 22px;
-  line-height: 1.5; /* --lh-base */
-  min-height: 64px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ad-tx-2);
+  text-align: left;
+  margin: 12px 0 0;
+  min-height: 62px;
 }
 
-.social-pack__group-title {
-  display: inline-block;
-  align-self: flex-start;
-  padding: 5px 14px;
-  border-radius: 999px; /* --r-pill */
-  background: rgba(0, 0, 0, .4);
-  border: 1.5px solid currentColor;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em; /* --tracking-wider */
-  color: currentColor;
-  margin-bottom: 12px;
-}
-
-.social-pack__list {
-  list-style: none;
-  padding: 0;
-  margin-bottom: 18px;
-}
-
-.social-pack__list li {
-  font-size: 13px; /* --fs-sm */
-  padding: 4px 0;
-  color: rgba(255, 255, 255, .92);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .02em;
-}
-
-.social-pack__list li::before {
-  content: "•";
-  color: currentColor;
-  margin-right: 8px;
-  font-weight: 900;
-}
-
+/* price block: € / value / per */
 .social-pack__price {
-  margin-top: auto;
-  text-align: center;
-  padding: 14px;
-  border-radius: 999px; /* --r-pill */
-  border: 2px solid currentColor;
-  font-family: 'Space Grotesk', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 32px; /* --fs-2xl */
-  color: currentColor;
-  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 20px 0 2px;
+  border: none;
+  padding: 0;
 }
+.social-pack__price .cur { font-size: 24px; font-weight: 600; color: var(--ad-tx-2); }
+.social-pack__price .val { font-size: 46px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--ad-tx); }
+.social-pack__price .per { font-size: 13px; color: var(--ad-tx-3); font-weight: 500; }
 
-.social-pack__price small {
-  display: block;
-  font-size: 10px;
+.social-pack__price-note {
+  font-size: 11.5px;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  letter-spacing: 0.12em; /* --tracking-wider */
-  color: rgba(255, 255, 255, .5);
+  color: var(--ad-tx-3);
   font-weight: 600;
-  margin-top: 2px;
 }
 
-.social-pack__badge {
-  position: absolute;
-  top: -16px;
-  right: -10px;
-  background: #fcd43c; /* --ad-yellow */
-  color: #0a0a0a;      /* --ad-ink */
-  padding: 6px 12px;
-  border-radius: 999px; /* --r-pill */
-  font-size: 10px;
-  font-weight: 800;
+/* feat label + list with green check */
+.social-pack__feat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .16em;
   text-transform: uppercase;
-  letter-spacing: 0.12em; /* --tracking-wider */
-  transform: rotate(8deg);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
+  color: var(--ad-tx-3);
+  margin: 22px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.social-pack__feat-label::after { content: ""; flex: 1; height: 1px; background: var(--ad-line); }
+
+.social-pack__feat {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.social-pack__feat li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--ad-tx);
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+  padding: 0;
+}
+.social-pack__feat li svg { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--ad-mint); }
+
+/* collapsible monthly */
+.social-pack__expand-btn {
+  margin-top: 18px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--ad-line);
+  color: var(--ad-tx-2);
+  border-radius: var(--ad-r-2);
+  padding: 11px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all .15s var(--ad-ease);
+}
+.social-pack__expand-btn:hover { border-color: var(--ad-line-2); color: var(--ad-tx); background: var(--ad-bg-2); }
+.social-pack__expand-btn svg { width: 16px; height: 16px; transition: transform .25s var(--ad-ease); }
+.social-pack__expand-btn.open svg { transform: rotate(180deg); }
+
+.social-pack__monthly { overflow: hidden; transition: height .3s var(--ad-ease); }
+.social-pack__monthly-in { padding-top: 16px; }
+.social-pack__monthly .social-pack__feat li svg { color: var(--ad-tx-2); }
+
+/* CTA */
+.social-pack__cta {
+  margin-top: 20px;
+  width: 100%;
+  border-radius: 999px;
+  padding: 14px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: var(--ad-surface-2);
+  color: var(--ad-tx);
+  border: 1.5px solid var(--ad-line-2);
+  transition: all .18s var(--ad-ease);
+}
+.social-pack__cta:hover { background: var(--ad-antracite); border-color: var(--ad-tx-3); }
+.social-pack__cta svg { width: 15px; height: 15px; }
+.social-pack__cta.primary { background: var(--ad-magenta); border-color: var(--ad-magenta); color: #fff; }
+.social-pack__cta.primary:hover { background: #d62f57; border-color: #d62f57; }
 
 .social-presentation-empty {
-  border-radius: 16px;
-  border: 1px dashed rgba(255, 255, 255, .2);
-  color: rgba(255, 255, 255, .7);
+  border-radius: var(--ad-r-3);
+  border: 1px dashed var(--ad-line-2);
+  color: var(--ad-tx-2);
   background: rgba(255, 255, 255, .04);
   padding: 20px;
   font-size: 15px;
 }
 
 @media (max-width: 1180px) {
-  .social-hero-section {
-    padding: 40px 24px 40px;
-  }
-
-  .social-hero__deck {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .social-hero__title {
-    font-size: 48px;
-  }
+  .social-hero-section { padding: 40px 24px 40px; }
+  .social-hero__deck { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 760px) {
-  .social-hero-section {
-    padding: 24px 14px 32px;
-  }
-
-  .social-hero__title {
-    font-size: 34px;
-  }
-
-  .social-hero__sub {
-    font-size: 14px;
-  }
-
-  .social-hero__deck {
-    grid-template-columns: 1fr;
-    gap: 16px;
-    margin-top: 24px;
-  }
-
-  .social-pack__desc {
-    min-height: 0;
-  }
+@media (max-width: 880px) {
+  .social-hero-section { padding: 24px 14px 32px; }
+  .social-hero__deck { grid-template-columns: 1fr; max-width: 460px; gap: 16px; margin-top: 24px; }
+  .social-pack__desc { min-height: 0; }
 }
 
 /* ============================================================
@@ -265,4 +360,302 @@
   .pack-config-block {
     padding: 24px 14px 48px;
   }
+}
+
+/* ============================================================
+   Stili card pacchetti (impostazione azienda: sober | tech | rail)
+   "sober" = default (regole sopra). Accent = colore della card (currentColor).
+   ============================================================ */
+
+/* ---- Variant B : DIGITAL / TECH ---- */
+.social-deck--tech .social-pack {
+  background: var(--ad-bg-2);
+  border-radius: var(--ad-r-2);
+  background-image: radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1.3px);
+  background-size: 16px 16px;
+  background-position: 0 0;
+}
+.social-deck--tech .social-pack::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 18px;
+  right: 18px;
+  height: 2px;
+  background: var(--ad-line-2);
+}
+.social-deck--tech .social-pack.is-reco::before { background: var(--ad-magenta); }
+.social-deck--tech .social-pack__name {
+  font-family: var(--ad-display);
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: .01em;
+  text-transform: uppercase;
+}
+.social-deck--tech .social-pack__index { color: var(--ad-mint); }
+.social-deck--tech .social-pack__price .val {
+  font-family: var(--ad-display);
+  font-weight: 400;
+  font-size: 56px;
+  letter-spacing: .01em;
+}
+.social-pack__corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--ad-line-2);
+  pointer-events: none;
+}
+.social-pack__corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+.social-pack__corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+.social-deck--tech .social-pack.is-reco .social-pack__corner { border-color: var(--ad-magenta); }
+
+/* ---- Variant C : PROGRESSIONE / RAIL ---- */
+.social-deck--rail .social-pack { padding-left: 24px; }
+.social-deck--rail .social-pack::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 16px;
+  bottom: 16px;
+  width: 5px;
+  border-radius: 999px;
+  background: linear-gradient(var(--ad-mint), var(--ad-mint));
+  background-size: 100% var(--rail, 40%);
+  background-repeat: no-repeat;
+  background-position: bottom;
+  opacity: .85;
+}
+.social-deck--rail .social-pack.is-reco::before {
+  background: linear-gradient(var(--ad-magenta), var(--ad-magenta));
+  background-size: 100% var(--rail, 70%);
+  background-repeat: no-repeat;
+  background-position: bottom;
+}
+.social-deck--rail .social-pack__tier-dots { display: flex; gap: 5px; margin-top: 14px; }
+.social-deck--rail .social-pack__tier-dots i { width: 8px; height: 8px; border-radius: 999px; background: var(--ad-line-2); }
+.social-deck--rail .social-pack__tier-dots i.on { background: var(--ad-mint); }
+.social-deck--rail .social-pack.is-reco .social-pack__tier-dots i.on { background: var(--ad-magenta); }
+.social-deck--rail .social-pack__name { margin-top: 8px; }
+
+/* ── Modalità presentazione ── */
+.social-deck__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+.social-present-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ad-magenta);
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s var(--ad-ease);
+}
+.social-present-btn:hover { background: #d62f57; }
+
+.social-presentation-page.is-presentation {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: auto;
+  background: var(--ad-bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.social-presentation-page.is-presentation .pack-config-block { display: none; }
+
+.social-present-exit {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  border: 1px solid var(--ad-line-2);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.social-present-exit:hover { background: rgba(255, 255, 255, .18); }
+
+/* ── Barra preventivo sticky in basso ── */
+.social-quotebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
+  background: var(--ad-bg-2);
+  border-top: 1px solid var(--ad-line-2);
+}
+.social-quotebar__info {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--ad-tx);
+}
+.social-quotebar__pkg { font-size: 13px; color: var(--ad-tx-2); }
+.social-quotebar__price { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.social-quotebar__disc { font-size: 12px; color: var(--ad-magenta); font-weight: 700; }
+.social-quotebar__hint { font-size: 13px; color: var(--ad-tx-3); }
+.social-quotebar__controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.social-quotebar__field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ad-tx-2); white-space: nowrap; }
+.social-quotebar__field input {
+  width: 72px;
+  background: var(--ad-surface);
+  border: 1px solid var(--ad-line-2);
+  color: var(--ad-tx);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.social-quotebar__field input:disabled { opacity: .5; }
+
+/* ── Stepper durata (+/- a tema) ── */
+.cfg-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--ad-line-2);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ad-surface);
+  width: max-content;
+}
+.cfg-stepper__btn {
+  width: 42px;
+  border: 0;
+  background: transparent;
+  color: var(--ad-tx);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s var(--ad-ease), color .15s var(--ad-ease);
+}
+.cfg-stepper__btn:hover:not(:disabled) { background: var(--ad-magenta); color: #fff; }
+.cfg-stepper__btn:disabled { opacity: .35; cursor: not-allowed; }
+.cfg-stepper__val {
+  width: 64px;
+  border: 0;
+  border-left: 1px solid var(--ad-line-2);
+  border-right: 1px solid var(--ad-line-2);
+  background: transparent;
+  color: var(--ad-tx);
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 6px;
+}
+.cfg-stepper__val:focus { outline: none; }
+/* niente frecce native sui number della pagina presentazione */
+.social-presentation-page input[type="number"]::-webkit-outer-spin-button,
+.social-presentation-page input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.social-presentation-page input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ============================================================
+   Motion graphic (entrata elementi) + barra sconto collassabile
+   + responsive tablet — soprattutto in modalità presentazione
+   ============================================================ */
+@keyframes sp-fade-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes sp-fade-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* `backwards`: nasconde durante il delay (stagger) e libera lo stile a fine
+   animazione, così l'hover translateY(-4px) delle card continua a funzionare. */
+.social-hero__title { animation: sp-fade-down .55s var(--ad-ease) backwards; }
+.social-hero__sub   { animation: sp-fade-down .55s var(--ad-ease) .08s backwards; }
+.social-pack {
+  animation: sp-fade-up .55s var(--ad-ease) backwards;
+  animation-delay: calc(var(--i, 0) * .08s + .1s);
+}
+/* Reveal all'ingresso in presentazione: attende ~2s (il tempo di apertura a schermo
+   intero) restando nascosto — grazie a `backwards` — poi entra con lo stagger. */
+.social-presentation-page.is-presentation .social-hero__title { animation: sp-fade-down .6s var(--ad-ease) 2s backwards; }
+.social-presentation-page.is-presentation .social-hero__sub   { animation: sp-fade-down .6s var(--ad-ease) 2.12s backwards; }
+.social-presentation-page.is-presentation .social-pack {
+  animation: sp-fade-up .65s var(--ad-ease) backwards;
+  animation-delay: calc(var(--i, 0) * .1s + 2.2s);
+}
+
+/* ── Barra sconto/preventivo collassabile (solo in presentazione) ── */
+.social-quotebar { transition: transform .45s var(--ad-ease); }
+/* In presentazione la barra è FISSA al viewport: così lo slide-down (translateY)
+   non estende l'area scrollabile del contenitore e NON crea overflow verticale. */
+.social-quotebar.is-present-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9998;
+}
+/* Spazio sotto al contenuto SOLO quando la barra è tirata su (aperta), così non
+   copre l'ultima riga; da abbassata niente vuoto. */
+.social-hero-section { transition: padding-bottom .45s var(--ad-ease); }
+.social-presentation-page.qbar-open .social-hero-section { padding-bottom: 104px; }
+.social-quotebar__handle {
+  position: absolute;
+  left: 50%;
+  top: -26px;
+  transform: translateX(-50%);
+  width: 62px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--ad-bg-2);
+  border: 1px solid var(--ad-line-2);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  color: var(--ad-tx-2);
+  cursor: pointer;
+}
+.social-quotebar__handle:hover { color: var(--ad-tx); }
+.social-quotebar__handle svg { transition: transform .4s var(--ad-ease); }
+/* aperta → freccia in giù (per abbassare) */
+.social-quotebar.is-present-bar:not(.is-collapsed) .social-quotebar__handle svg { transform: rotate(180deg); }
+/* abbassata → scivola giù lasciando visibile solo l'handle */
+.social-quotebar.is-collapsed { transform: translateY(100%); }
+
+/* ── Responsive tablet (landscape/portrait) ── */
+@media (max-width: 1024px) {
+  .social-hero-section { padding: 40px 20px 40px; }
+  .social-hero__deck { grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 760px; }
+  .social-pack { padding: 22px 20px; }
+  .social-pack__price .val { font-size: 40px; }
+  .social-quotebar { padding: 12px 18px; }
+}
+@media (max-width: 680px) {
+  .social-hero__deck { grid-template-columns: 1fr; max-width: 440px; gap: 14px; }
+  .social-pack__desc { min-height: 0; }
+  .social-quotebar__controls { width: 100%; justify-content: space-between; }
+  .social-present-exit { top: 10px; right: 10px; padding: 7px 12px; font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-hero__title, .social-hero__sub, .social-pack,
+  .social-presentation-page.is-presentation .social-hero__title,
+  .social-presentation-page.is-presentation .social-hero__sub,
+  .social-presentation-page.is-presentation .social-pack { animation: none; }
+  .social-quotebar, .social-quotebar__handle svg { transition: none; }
 }

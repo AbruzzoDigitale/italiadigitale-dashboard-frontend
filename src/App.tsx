@@ -1,7 +1,8 @@
 import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
+import { UndoProvider } from "./context/UndoContext";
 import { AuthProvider } from "./context/AuthContext";
 import { BrandProvider } from "./context/BrandContext";
 import { useAuth } from "./hooks/useAuth";
@@ -19,6 +20,7 @@ import { ClientDetailPage } from "./pages/ClientDetailPage";
 import { ClientsSituationPage } from "./pages/ClientsSituationPage";
 import { QuotesPage } from "./pages/QuotesPage";
 import { RequestsPage } from "./pages/RequestsPage";
+import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { QuoteEditorPage } from "./pages/QuoteEditorPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ConfiguratorModularPage } from "./pages/ConfiguratorModularPage";
@@ -27,9 +29,11 @@ import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentati
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkloadPage } from "./pages/WorkloadPage";
+import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
-import { canAccessRoute } from "./utils/access";
+import { FatturazionePage } from "./pages/FatturazionePage";
+import { canAccessRoute, getFallbackRoute } from "./utils/access";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -45,9 +49,17 @@ function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
 
 function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAccessRoute>[1]; children: React.ReactNode }) {
   const { permissions, isLoading, isAuthenticated } = useAuth();
+  const location = useLocation();
   if (isLoading) return <FullPageSpinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return canAccessRoute(permissions, routeKey) ? <>{children}</> : <ForbiddenPage />;
+  if (canAccessRoute(permissions, routeKey)) return <>{children}</>;
+  // La dashboard non è una pagina "vietata": chi non può vederla (es. operatore)
+  // viene portato alla propria vista di partenza invece di un "accesso negato".
+  if (routeKey === "dashboard") {
+    const fallback = getFallbackRoute(permissions);
+    if (fallback !== "/") return <Navigate to={`${fallback}${location.search}`} replace />;
+  }
+  return <ForbiddenPage />;
 }
 
 function AppRoutes() {
@@ -95,8 +107,11 @@ function AppRoutes() {
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
+        <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
+        <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
+        <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
       {/* Fallback */}
@@ -109,11 +124,13 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <AuthProvider>
-          <BrandProvider>
-            <AppRoutes />
-          </BrandProvider>
-        </AuthProvider>
+        <UndoProvider>
+          <AuthProvider>
+            <BrandProvider>
+              <AppRoutes />
+            </BrandProvider>
+          </AuthProvider>
+        </UndoProvider>
       </ToastProvider>
     </ThemeProvider>
   );

@@ -5,6 +5,7 @@ export type AppRouteKey =
   | "contracts"
   | "clients-situation"
   | "workload"
+  | "controllo-ped"
   | "daily-tasks"
   | "configurator"
   | "preventivo"
@@ -16,6 +17,8 @@ export type AppRouteKey =
   | "llm"
   | "profile"
   | "work-items"
+  | "comunicazioni"
+  | "fatturazione"
   | "admin";
 
 export function canAccessRoute(
@@ -26,6 +29,11 @@ export function canAccessRoute(
   if (route === "admin") return permissions.is_admin;
 
   switch (route) {
+    case "comunicazioni":
+      return permissions.is_admin || permissions.is_project_manager;
+    case "fatturazione":
+      // Area amministrativa: riservata SOLO agli admin.
+      return permissions.is_admin;
     case "dashboard":
       return permissions.allowed_views.includes("dashboard");
     case "contracts":
@@ -33,9 +41,16 @@ export function canAccessRoute(
     case "clients-situation":
       return permissions.is_admin;
     case "workload":
-      return permissions.allowed_views.includes("workload") || permissions.is_admin;
+      // Admins get the full workload page; every other authenticated user (operatore)
+      // gets the restricted calendar-only / self-only view enforced inside WorkloadPage.
+      return true;
+    case "controllo-ped":
+      // Matrice PED clienti × mesi: riservata a admin e project manager (NON operatori).
+      return permissions.is_admin || permissions.is_project_manager;
     case "daily-tasks":
-      return permissions.allowed_views.includes("daily-tasks") || permissions.is_admin || permissions.allowed_views.includes("workload");
+      // Come per il workload: ogni utente autenticato (operatore) accede. La pagina mostra
+      // di default la vista "Mie task"; il toggle "Team" resta riservato agli admin.
+      return true;
     case "configurator":
       return permissions.allowed_views.includes("configurator");
     case "preventivo":
@@ -53,7 +68,9 @@ export function canAccessRoute(
     case "llm":
       return permissions.is_admin || permissions.can_use_llm || permissions.allowed_views.includes("llm");
     case "profile":
-      return permissions.allowed_views.includes("profile");
+      // Ogni utente autenticato può accedere al PROPRIO profilo per modificare
+      // le informazioni personali (l'API applica comunque l'RBAC sui dati).
+      return true;
     case "work-items":
       // All authenticated users can access; the API enforces fine-grained RBAC
       return true;

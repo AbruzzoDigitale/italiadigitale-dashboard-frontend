@@ -98,6 +98,18 @@ export async function updateRequestStatusApi(id: number, status: QuoteStatus): P
   return res.json();
 }
 
+/** Converte una richiesta approvata in un preventivo (solo admin). */
+export async function convertRequestToQuoteApi(id: number): Promise<Quote> {
+  const res = await authFetch(`${API_BASE}/api/v1/requests/${id}/convert-to-quote`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail ?? "Errore nella conversione in preventivo");
+  }
+  return res.json();
+}
+
 export async function duplicateRequestApi(id: number): Promise<Quote> {
   const res = await authFetch(`${API_BASE}/api/v1/requests/${id}/duplicate`, {
     method: "POST",

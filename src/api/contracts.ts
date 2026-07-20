@@ -74,6 +74,8 @@ export interface CommercialPipelineItem {
   source_status: string | null;
   source_kind: string | null;
   source_number: string | null;
+  /** Accorpamento pipeline: preventivi con lo stesso group_id si muovono insieme. */
+  group_id: number | null;
 }
 
 export interface ListCommercialPipelineParams {
@@ -262,6 +264,8 @@ export interface CreateContractPayload {
   commercial_notes?: string | null;
   operational_brief?: string | null;
   pricing_view_mode: ContractPricingMode;
+  /** "situation" se creato dalla pagina Situazione clienti → escluso dalla pipeline commerciale. */
+  created_from?: string | null;
   featured_quote_id?: number | null;
   quote_links?: ContractQuoteLink[];
   tag_ids?: number[];
@@ -392,6 +396,21 @@ export interface ContractManualGenerateWorkItemsResponse {
   generated_items: ContractAiWorkItemGeneratedDraft[];
 }
 
+/** Snapshot della voce di preventivo sorgente, congelato sulla lavorazione (fatturazione per-voce). */
+export interface WorkItemBillingSourceInput {
+  quote_id?: number | null;
+  line_key?: string | null;
+  label?: string | null;
+  description?: string | null;
+  billing_period?: string | null;
+  unit_net?: number | null;
+  quantity?: number | null;
+  discount_pct?: number | null;
+  vat?: number | null;
+  area_id?: number | null;
+  area_name?: string | null;
+}
+
 export interface ContractAiWorkItemDraftUpsert {
   draft_id: string;
   title: string;
@@ -428,6 +447,7 @@ export interface ContractAiWorkItemDraftUpsert {
   contract_ids: number[];
   time_slots: ContractAiDraftTimeSlotInput[];
   checklists: ContractAiChecklistInput[];
+  billing_source?: WorkItemBillingSourceInput | null;
 }
 
 export interface ContractAiSaveOneWorkItemPayload {
@@ -689,6 +709,119 @@ export async function regressContractStageApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Impossibile retrocedere lo stage"));
+  }
+  return res.json();
+}
+
+// ── Piano di fatturazione a percentuali (scadenzario) ───────────────────────
+
+export type BillingTriggerType = "manual" | "stage" | "date";
+
+/** Tranche in ingresso (upsert del piano). */
+export interface BillingInstallmentInput {
+  id?: number | null;
+  label: string;
+  percent?: number | null;
+  amount_net?: number | null;
+  trigger_type: BillingTriggerType;
+  trigger_stage?: string | null;
+  trigger_date?: string | null;
+  due_offset_days?: number | null;
+  sort_order?: number;
+}
+
+export interface BillingInstallment {
+  id: number;
+  label: string;
+  percent: number | null;
+  amount_net_input: number | null;
+  trigger_type: BillingTriggerType;
+  trigger_stage: string | null;
+  trigger_date: string | null;
+  due_offset_days: number | null;
+  sort_order: number;
+  state: "pending" | "released";
+  released_at: string | null;
+  releasable: boolean;
+  amount_net: number;
+  amount_vat: number;
+  amount_gross: number;
+  billing_item_id: number | null;
+  billing_state: "da_fatturare" | "fatturato" | null;
+  invoice_number: string | null;
+}
+
+export interface BillingPlan {
+  contract_id: number;
+  billing_mode: "per_lavorazione" | "piano";
+  base_net: number;
+  base_net_default: number;
+  vat_rate: number;
+  base_gross: number;
+  installments: BillingInstallment[];
+  allocated_percent: number;
+  allocated_net: number;
+  remaining_percent: number;
+  remaining_net: number;
+}
+
+export interface BillingPlanUpdatePayload {
+  billing_mode: "per_lavorazione" | "piano";
+  base_net?: number | null;
+  vat_rate?: number | null;
+  installments: BillingInstallmentInput[];
+}
+
+export async function getContractBillingPlanApi(contractId: number): Promise<BillingPlan> {
+  const res = await authFetch(`${API_BASE}/api/v1/contracts/${contractId}/billing-plan`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile recuperare il piano di fatturazione"));
+  }
+  return res.json();
+}
+
+export async function updateContractBillingPlanApi(
+  contractId: number,
+  payload: BillingPlanUpdatePayload
+): Promise<BillingPlan> {
+  const res = await authFetch(`${API_BASE}/api/v1/contracts/${contractId}/billing-plan`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile salvare il piano di fatturazione"));
+  }
+  return res.json();
+}
+
+export async function releaseInstallmentApi(
+  contractId: number,
+  installmentId: number
+): Promise<BillingPlan> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/contracts/${contractId}/billing-plan/installments/${installmentId}/release`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile inviare la tranche in fatturazione"));
+  }
+  return res.json();
+}
+
+export async function unreleaseInstallmentApi(
+  contractId: number,
+  installmentId: number
+): Promise<BillingPlan> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/contracts/${contractId}/billing-plan/installments/${installmentId}/unrelease`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile annullare il rilascio della tranche"));
   }
   return res.json();
 }

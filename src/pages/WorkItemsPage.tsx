@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import "./work-items-page.css";
 import { createPortal } from "react-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useWorkItems } from "../hooks/useWorkItems";
 import { useToast } from "../context/ToastContext";
+import { useUndo } from "../context/UndoContext";
 import {
   bulkDeleteWorkItemsApi,
+  bulkRestoreWorkItemsApi,
   deleteWorkItemApi,
   generateWorkItemRecurrencesApi,
+  getWorkItemApi,
+  listArchivedWorkItemsApi,
   listWorkItemsApi,
+  restoreWorkItemApi,
   updateWorkItemApi,
   listWorkTagsApi,
+  isReviewSendBack,
   type WorkItem,
   type WorkItemStatus,
   type LeftBehindReason,
@@ -26,21 +33,26 @@ import {
   type ContractListItemResponse,
 } from "../api/contracts";
 import type { WorkTag } from "../api/workItems";
+import type { QuoteLineItem } from "../api/quotes";
 import { Button } from "../components/ui/Button";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
+import { Checkbox } from "../components/ui/Checkbox";
+import { Spinner } from "../components/ui/Spinner";
 import { Icon } from "../components/ui/Icon";
 import { Avatar } from "../components/ui/Avatar";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { RightSidebarPanel } from "../components/ui/RightSidebarPanel";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
-import { KanbanColumnShell } from "../components/ui/KanbanColumnShell";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
+import { TrelloImportModal } from "../components/work-items/TrelloImportModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { ReviewTab } from "../components/review/ReviewTab";
 import { WorkItemCard } from "../components/work-items/WorkItemCard";
 import { ContractDetailModal } from "../components/contracts/ContractDetailModal";
-import { ContractAiWorkItemsSliderModal } from "../components/work-items/ContractAiWorkItemsSliderModal";
+import { ContractAiWorkItemsSliderModal, type ContractQuoteLinePrecompile } from "../components/work-items/ContractAiWorkItemsSliderModal";
 import { getCommercialStageTone } from "../utils/commercialStageTone";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -135,6 +147,7 @@ interface KanbanColumnProps {
   users: User[];
   workAreas: WorkArea[];
   workTags: WorkTag[];
+  clientsById: Map<number, Client>;
   isAdmin: boolean;
   selectedItemIds: number[];
   onToggleSelect: (itemId: number, checked: boolean) => void;
@@ -212,14 +225,6 @@ function TemplateSidebarCard({
               PED
             </span>
           )}
-          {item.force_today && (
-            <span
-              className="inline-flex rounded-pill border border-[#a32d2d]/35 bg-[#a32d2d]/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#a32d2d] dark:border-[#f47070]/35 dark:bg-[#3d1212] dark:text-[#f47070]"
-              title="Il motore workload alloca questa task esclusivamente su oggi"
-            >
-              Forzato a oggi
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           {overdue && (
@@ -281,6 +286,7 @@ function TemplateSidebarCard({
               <Avatar
                 key={u.id}
                 name={u.full_name ?? u.username}
+                src={u.avatar_url}
                 size="sm"
                 className="h-6 w-6 text-[9px] ring-2 ring-paper dark:ring-[#131316]"
               />
@@ -303,6 +309,7 @@ function KanbanColumn({
   users,
   workAreas,
   workTags,
+  clientsById,
   isAdmin,
   selectedItemIds,
   onToggleSelect,
@@ -319,12 +326,9 @@ function KanbanColumn({
   const [isDropTarget, setIsDropTarget] = useState(false);
 
   return (
-    <KanbanColumnShell
-      label={column.label}
-      color={column.color}
-      count={items.length}
-      compact={compact}
-      isDropTarget={isDropTarget}
+    <div
+      className={`lv-col${compact ? " lv-col--grid" : ""}${isDropTarget ? " drop" : ""}`}
+      data-stage={column.id}
       onDragOver={(e) => {
         if (!hasWorkItemDragType(e.dataTransfer?.types)) return;
         e.preventDefault();
@@ -336,31 +340,35 @@ function KanbanColumn({
         onDrop(column.id);
       }}
     >
-      {items.map((item) => (
-        <WorkItemCard
-          key={item.id}
-          item={item}
-          users={users}
-          workAreas={workAreas}
-          workTags={workTags}
-          isAdmin={isAdmin}
-          isSelected={selectedItemIds.includes(item.id)}
-          onToggleSelect={onToggleSelect}
-          onDragStartItem={onDragStartItem}
-          onDragEndItem={onDragEndItem}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onRegenerateRecurrences={onRegenerateRecurrences}
-          onInstantiateFromTemplate={onInstantiateFromTemplate}
-          onOpenAiSourceContract={onOpenAiSourceContract}
-        />
-      ))}
-      {items.length === 0 && (
-        <div className={`flex flex-1 items-center justify-center rounded-lg border border-dashed border-line ${compact ? "py-4 text-[11px]" : "py-8 text-[12px]"} text-muted dark:border-line-dark dark:text-muted-dark`}>
-          Nessuna lavorazione
-        </div>
-      )}
-    </KanbanColumnShell>
+      <div className="lv-col-head">
+        <span className="lv-col-dot" style={{ background: column.color }} />
+        <span className="lv-col-name">{column.label}</span>
+        <span className="lv-col-count">{items.length}</span>
+      </div>
+      <div className="lv-col-body">
+        {items.map((item) => (
+          <WorkItemCard
+            key={item.id}
+            item={item}
+            clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
+            users={users}
+            workAreas={workAreas}
+            workTags={workTags}
+            isAdmin={isAdmin}
+            isSelected={selectedItemIds.includes(item.id)}
+            onToggleSelect={onToggleSelect}
+            onDragStartItem={onDragStartItem}
+            onDragEndItem={onDragEndItem}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onRegenerateRecurrences={onRegenerateRecurrences}
+            onInstantiateFromTemplate={onInstantiateFromTemplate}
+            onOpenAiSourceContract={onOpenAiSourceContract}
+          />
+        ))}
+        {items.length === 0 && <div className="lv-col-empty">Nessuna lavorazione</div>}
+      </div>
+    </div>
   );
 }
 
@@ -370,12 +378,15 @@ export function WorkItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions } = useAuth();
   const isAdmin = !!permissions?.is_admin;
+  // Archiviazione (soft-delete) e selezione multipla: admin e Project Manager (non operatori).
+  const canManageWorkItems = isAdmin || !!permissions?.is_project_manager;
   const canUseAiTasks = isAdmin || !!permissions?.can_use_llm;
   const canUseManualTasks = isAdmin || !!permissions?.can_generate_manual_tasks;
   const canOpenTaskGenerator = canUseAiTasks || canUseManualTasks;
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
+  const { registerUndo } = useUndo();
   const contractFilterId = useMemo(() => {
     const raw = searchParams.get("contract_id");
     if (!raw) return null;
@@ -399,12 +410,32 @@ export function WorkItemsPage() {
   const [singleDateFilter, setSingleDateFilter] = useState("");
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
   const [contractsPanelCollapsed, setContractsPanelCollapsed] = useState(true);
-  const dragItemId = useRef<number | null>(null);
+  // Drag&drop board: trascinamento anche MULTIPLO (se la card è nella selezione).
+  const dragIdsRef = useRef<number[]>([]);
+  // Ghost "fisico" per il drag multiplo: pila di card che segue il cursore.
+  const [dragCount, setDragCount] = useState(0);
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const setDragGhost = (el: HTMLDivElement | null) => {
+    dragGhostRef.current = el;
+    if (el) {
+      const { x, y } = dragStartPosRef.current;
+      el.style.transform = `translate3d(${x + 16}px, ${y + 16}px, 0)`;
+    }
+  };
+
+  // ── Archivio (task soft-deleted) — solo admin/PM
+  const [archivePanelOpen, setArchivePanelOpen] = useState(false);
+  const [archivedItems, setArchivedItems] = useState<WorkItem[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedError, setArchivedError] = useState<string | null>(null);
+  const [selectedArchivedIds, setSelectedArchivedIds] = useState<number[]>([]);
+  const [restoringArchive, setRestoringArchive] = useState(false);
 
   // ── Clients list (for toolbar filter)
   const [clients, setClients] = useState<Client[]>([]);
   useEffect(() => {
-    getClientsApi({ company_id: companyId ?? undefined, per_page: 200 })
+    getClientsApi({ company_id: companyId ?? undefined, per_page: 1000 })
       .then((res) => setClients(res.data))
       .catch(() => {});
   }, [companyId]);
@@ -490,8 +521,6 @@ export function WorkItemsPage() {
     return map;
   }, [clients]);
 
-  const contractsColumnMinHeightClass = viewMode === "by_client" ? "min-h-[220px]" : "min-h-[480px]";
-
   const [users, setUsers] = useState<User[]>([]);
   const [workAreas, setWorkAreas] = useState<WorkArea[]>([]);
   const [workTags, setWorkTags] = useState<WorkTag[]>([]);
@@ -520,15 +549,23 @@ export function WorkItemsPage() {
   // ── Delete confirm
   const [deletingItem, setDeletingItem] = useState<WorkItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Cambio stato via drag con commento opzionale (timeline).
+  const [pendingStatusChange, setPendingStatusChange] = useState<{ items: WorkItem[]; newStatus: WorkItemStatus } | null>(null);
+  const [statusChangeComment, setStatusChangeComment] = useState("");
+  const [statusChangeSaving, setStatusChangeSaving] = useState(false);
+  // Rimando da revisione (drag di una singola task): mostra SOLO la scheda Revisione.
+  const [reviewItem, setReviewItem] = useState<WorkItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
+  const [trelloImportOpen, setTrelloImportOpen] = useState(false);
   const [taskAiSourceContractId, setTaskAiSourceContractId] = useState<number | null>(null);
   const [aiContractId, setAiContractId] = useState<number | null>(null);
   const [aiSplitOpen, setAiSplitOpen] = useState(false);
   const [aiCompactPane, setAiCompactPane] = useState<"contract" | "ai">("ai");
+  const [precompileLine, setPrecompileLine] = useState<ContractQuoteLinePrecompile | null>(null);
   const [isWideAiSplitLayout, setIsWideAiSplitLayout] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.innerWidth >= 768;
@@ -622,6 +659,33 @@ export function WorkItemsPage() {
     setAiSplitOpen(false);
     setAiContractId(null);
     setAiCompactPane("ai");
+    setPrecompileLine(null);
+  };
+
+  // Chiave stabile della voce: regge i re-save del preventivo (che ricreano i quote_items).
+  const buildLineKey = (line: QuoteLineItem, quoteId: number): string =>
+    [quoteId, line.area ?? "", line.name.trim().toLowerCase(), line.period ?? "", line.net].join("|");
+
+  const handleQuoteLinePrecompile = (line: QuoteLineItem, quoteId: number) => {
+    setPrecompileLine({
+      name: line.name,
+      desc: line.desc ?? null,
+      // Snapshot della voce sorgente: base della fatturazione per-voce.
+      billing_source: {
+        quote_id: quoteId,
+        line_key: buildLineKey(line, quoteId),
+        label: line.name,
+        description: line.desc ?? null,
+        billing_period: line.period ?? null,
+        unit_net: line.net,
+        quantity: line.quantity ?? 1,
+        discount_pct: line.discountPct ?? 0,
+        vat: line.vat ?? null,
+        area_id: null,
+        area_name: line.area ?? null,
+      },
+    });
+    if (!isWideAiSplitLayout) setAiCompactPane("ai");
   };
 
   const splitContractDialogClassName = isWideAiSplitLayout
@@ -633,14 +697,32 @@ export function WorkItemsPage() {
     : "pt-16 sm:pt-20 xl:pt-0";
 
   useEffect(() => {
-    if (searchParams.get("open") !== "create") return;
-    setEditingItem(null);
-    setModalOpen(true);
+    const openParam = searchParams.get("open");
+    if (!openParam) return;
 
+    // Consuma subito il parametro per evitare riaperture ai render successivi.
     const next = new URLSearchParams(searchParams);
     next.delete("open");
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+
+    if (openParam === "create") {
+      setEditingItem(null);
+      setInstantiateTemplateItem(null);
+      setModalOpen(true);
+      return;
+    }
+
+    // ?open=<id> — apre il modal della lavorazione (es. dal click su una notifica).
+    const id = Number(openParam);
+    if (Number.isNaN(id)) return;
+    getWorkItemApi(id)
+      .then((item) => {
+        setEditingItem(item);
+        setInstantiateTemplateItem(null);
+        setModalOpen(true);
+      })
+      .catch(() => toast.error("Lavorazione non trovata o non accessibile"));
+  }, [searchParams, setSearchParams, toast]);
 
   const openEdit = (item: WorkItem) => {
     setEditingItem(item);
@@ -652,6 +734,9 @@ export function WorkItemsPage() {
     setModalOpen(false);
     setEditingItem(null);
     setInstantiateTemplateItem(null);
+    // Le azioni della scheda Revisione (consegna al cliente, peso, scadenza) salvano
+    // fuori dal "Salva" del modale: rinfresca la board alla chiusura per rifletterle.
+    void refetch(true);
   };
 
   const toggleItemSelection = (itemId: number, checked: boolean) => {
@@ -679,7 +764,7 @@ export function WorkItemsPage() {
       }
       setBulkDeleteOpen(false);
       setSelectedItemIds((current) => current.filter((id) => !result.deleted.includes(id)));
-      await refetch();
+      await refetch(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nell'eliminazione bulk");
     } finally {
@@ -690,16 +775,95 @@ export function WorkItemsPage() {
   // ── Delete item
   const handleDelete = async () => {
     if (!deletingItem) return;
+    const { id, title } = deletingItem;
     setDeleting(true);
     try {
-      await deleteWorkItemApi(deletingItem.id);
-      toast.success("Lavorazione eliminata");
+      await deleteWorkItemApi(id);
       setDeletingItem(null);
-      await refetch();
+      await refetch(true);
+      registerUndo({
+        label: `Lavorazione "${title}" eliminata`,
+        undo: async () => {
+          await restoreWorkItemApi(id);
+          await refetch(true);
+        },
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nell'eliminazione");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // ── Archivio: carica le task archiviate dell'azienda
+  const loadArchived = async () => {
+    if (companyId == null) {
+      setArchivedItems([]);
+      return;
+    }
+    setArchivedLoading(true);
+    setArchivedError(null);
+    try {
+      const items = await listArchivedWorkItemsApi({ company_id: companyId });
+      setArchivedItems(items);
+    } catch (err) {
+      setArchivedError(err instanceof Error ? err.message : "Impossibile recuperare l'archivio");
+      setArchivedItems([]);
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+
+  const openArchive = () => {
+    setSelectedArchivedIds([]);
+    setArchivePanelOpen(true);
+    void loadArchived();
+  };
+
+  const toggleArchivedSelection = (itemId: number, checked: boolean) => {
+    setSelectedArchivedIds((current) => {
+      if (checked) return current.includes(itemId) ? current : [...current, itemId];
+      return current.filter((id) => id !== itemId);
+    });
+  };
+
+  const handleRestoreOne = async (item: WorkItem) => {
+    setRestoringArchive(true);
+    try {
+      await restoreWorkItemApi(item.id);
+      setArchivedItems((current) => current.filter((i) => i.id !== item.id));
+      setSelectedArchivedIds((current) => current.filter((id) => id !== item.id));
+      toast.success("Task ripristinata");
+      await refetch(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile ripristinare la task");
+    } finally {
+      setRestoringArchive(false);
+    }
+  };
+
+  const handleRestoreSelected = async () => {
+    if (selectedArchivedIds.length === 0) return;
+    setRestoringArchive(true);
+    try {
+      const result = await bulkRestoreWorkItemsApi(selectedArchivedIds);
+      const restored = result.restored_ids;
+      if (restored.length > 0) {
+        toast.success(
+          result.errors.length > 0
+            ? `Ripristinate ${restored.length} task, ${result.errors.length} con errore`
+            : `${restored.length} task ripristinate`
+        );
+      } else {
+        toast.error(result.errors[0]?.detail || "Nessuna task ripristinata");
+      }
+      setArchivedItems((current) => current.filter((i) => !restored.includes(i.id)));
+      setSelectedArchivedIds([]);
+      await refetch(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile ripristinare le task");
+    } finally {
+      setRestoringArchive(false);
     }
   };
 
@@ -718,7 +882,7 @@ export function WorkItemsPage() {
     try {
       const result = await generateWorkItemRecurrencesApi(item.id, { generation_end_date: generationEndDate });
       toast.success(`Ricorrenze rigenerate: ${result.generated_count}`);
-      await refetch();
+      await refetch(true);
     } catch (err) {
       if (isWorkItemError(err, 422)) {
         toast.error(err instanceof Error ? err.message.replace(/^\[422\]\s*/, "") : "Dati non validi");
@@ -729,41 +893,110 @@ export function WorkItemsPage() {
   };
 
   // ── Drag and drop
-  const handleDrop = async (newStatus: WorkItemStatus) => {
-    const id = dragItemId.current;
-    dragItemId.current = null;
-    if (!id) return;
-    const item = displayedWorkItems.find((w) => w.id === id);
-    if (!item || item.status === newStatus) return;
+  // Applica il cambio stato (con commento opzionale) ottimisticamente, con rollback.
+  const commitStatusChange = async (item: WorkItem, newStatus: WorkItemStatus, comment: string): Promise<boolean> => {
     const previousStatus = item.status;
-    setDisplayedWorkItems((current) => current.map((workItem) => (
-      workItem.id === id ? { ...workItem, status: newStatus } : workItem
-    )));
+    setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? { ...w, status: newStatus } : w)));
     try {
-      const updated = await updateWorkItemApi(id, { status: newStatus });
-      setDisplayedWorkItems((current) => current.map((workItem) => (
-        workItem.id === id ? updated : workItem
-      )));
+      const updated = await updateWorkItemApi(item.id, {
+        status: newStatus,
+        status_comment: comment.trim() || undefined,
+      });
+      setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? updated : w)));
+      const colLabel = KANBAN_COLUMNS.find((c) => c.id === newStatus)?.label ?? newStatus;
+      registerUndo({
+        label: `"${item.title}" spostata in ${colLabel}`,
+        undo: async () => {
+          const reverted = await updateWorkItemApi(item.id, { status: previousStatus });
+          setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? reverted : w)));
+          void refetch(true);
+        },
+      });
+      return true;
     } catch {
-      setDisplayedWorkItems((current) => current.map((workItem) => (
-        workItem.id === id ? { ...workItem, status: previousStatus } : workItem
-      )));
+      setDisplayedWorkItems((current) => current.map((w) => (w.id === item.id ? { ...w, status: previousStatus } : w)));
       toast.error("Impossibile cambiare lo stato");
+      return false;
+    }
+  };
+
+  // Il ghost segue il cursore durante il drag multiplo (con leggero trailing "fisico").
+  useEffect(() => {
+    if (dragCount === 0) return;
+    const onDragOver = (e: DragEvent) => {
+      const g = dragGhostRef.current;
+      if (g) g.style.transform = `translate3d(${e.clientX + 16}px, ${e.clientY + 16}px, 0)`;
+    };
+    document.addEventListener("dragover", onDragOver);
+    return () => document.removeEventListener("dragover", onDragOver);
+  }, [dragCount]);
+
+  // Drop su una colonna. Chiede un commento SOLO quando si torna indietro da
+  // "revisione"/"completato" (rimando indietro); altrimenti applica subito.
+  const handleDrop = (newStatus: WorkItemStatus) => {
+    const ids = dragIdsRef.current;
+    dragIdsRef.current = [];
+    setDragCount(0);
+    if (ids.length === 0) return;
+    // Solo le task che cambiano davvero stato.
+    const items = ids
+      .map((id) => displayedWorkItems.find((w) => w.id === id))
+      .filter((w): w is WorkItem => !!w && w.status !== newStatus);
+    if (items.length === 0) return;
+    // Rimando indietro da revisione: per UNA task apri direttamente la scheda
+    // Revisione (la task è ancora in "review" → il modale si apre su quella tab),
+    // dove "Rimanda a correggere" applica la logica corretta (contatori + thread).
+    // Per più task insieme resta il modale rapido con il motivo condiviso.
+    const sendBacks = items.filter((it) => isReviewSendBack(it.status, newStatus));
+    if (sendBacks.length > 0) {
+      if (items.length === 1) {
+        setReviewItem(items[0]);
+        return;
+      }
+      setStatusChangeComment("");
+      setPendingStatusChange({ items, newStatus });
+    } else {
+      void Promise.all(items.map((it) => commitStatusChange(it, newStatus, "")));
+    }
+  };
+
+  const applyStatusChange = async () => {
+    if (!pendingStatusChange) return;
+    const { items, newStatus } = pendingStatusChange;
+    setStatusChangeSaving(true);
+    const results = await Promise.all(items.map((it) => commitStatusChange(it, newStatus, statusChangeComment)));
+    setStatusChangeSaving(false);
+    if (results.every(Boolean)) {
+      setPendingStatusChange(null);
+      setStatusChangeComment("");
     }
   };
 
   const handleDragStartItem = (event: React.DragEvent<HTMLDivElement>, itemId: number) => {
-    dragItemId.current = itemId;
+    // Se la card trascinata è nella selezione multipla, sposta tutta la selezione.
+    const ids = selectedItemIds.includes(itemId) && selectedItemIds.length > 1 ? [...selectedItemIds] : [itemId];
+    dragIdsRef.current = ids;
     if (event.dataTransfer) {
       event.dataTransfer.setData("application/work-item-id", String(itemId));
       event.dataTransfer.setData("text/plain", String(itemId));
       event.dataTransfer.effectAllowed = "move";
     }
+    if (ids.length > 1) {
+      // Nasconde l'immagine di drag nativa: usiamo il ghost custom animato.
+      const blank = document.createElement("div");
+      blank.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;";
+      document.body.appendChild(blank);
+      event.dataTransfer.setDragImage(blank, 0, 0);
+      setTimeout(() => document.body.removeChild(blank), 0);
+      dragStartPosRef.current = { x: event.clientX, y: event.clientY };
+      setDragCount(ids.length);
+    }
     event.currentTarget.style.opacity = "0.45";
   };
 
   const handleDragEndItem = (event: React.DragEvent<HTMLDivElement>) => {
-    dragItemId.current = null;
+    dragIdsRef.current = [];
+    setDragCount(0);
     event.currentTarget.style.opacity = "";
   };
 
@@ -833,36 +1066,11 @@ export function WorkItemsPage() {
   ].filter(Boolean).length;
 
   const boardRef = useRef<HTMLDivElement>(null);
-  const [boardMeasuredHeight, setBoardMeasuredHeight] = useState<number | null>(null);
   const formCompanyId = editingItem?.company_id ?? companyId;
-
-  useEffect(() => {
-    if (isLoading) {
-      setBoardMeasuredHeight(null);
-      return;
-    }
-    const node = boardRef.current;
-    if (!node) {
-      setBoardMeasuredHeight(null);
-      return;
-    }
-
-    const measure = () => {
-      const next = Math.ceil(node.getBoundingClientRect().height);
-      setBoardMeasuredHeight(next > 0 ? next : null);
-    };
-
-    measure();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [isLoading, viewMode, filteredItems.length, clientGroups.length]);
 
   // ── Render
   return (
-    <div className="px-10 py-8 pb-20 max-w-[1440px] mx-auto w-full animate-fadeIn overflow-x-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-6 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
         eyebrow="Operazioni"
         eyebrowIcon={<Icon name="list" className="w-3.5 h-3.5" />}
@@ -888,7 +1096,7 @@ export function WorkItemsPage() {
           onChange={setAssigneeFilter}
           options={[
             { value: "", label: "Tutti gli assegnatari" },
-            ...users.map((u) => ({ value: String(u.id), label: u.full_name ?? u.username })),
+            ...users.map((u) => ({ value: String(u.id), label: u.full_name ?? u.username, avatarUrl: u.avatar_url })),
           ]}
           placeholder="Tutti gli assegnatari"
           searchPlaceholder="Cerca assegnatario…"
@@ -908,11 +1116,11 @@ export function WorkItemsPage() {
           placeholder="Tutti i clienti"
           searchPlaceholder="Cerca cliente…"
         />
-        <div className="inline-flex rounded-md border border-line dark:border-[#2a2a2e] overflow-hidden">
+        <div className="seg-switch">
           <button
             type="button"
             onClick={() => setViewMode("global")}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-body font-semibold uppercase tracking-wide transition-colors ${viewMode === "global" ? "bg-ink text-paper dark:bg-[#f4f4f7] dark:text-[#131316]" : "bg-paper text-muted hover:text-ink dark:bg-[#131316] dark:text-[#9999a0] dark:hover:text-[#f4f4f7]"}`}
+            className={viewMode === "global" ? "is-active" : ""}
           >
             <Icon name="list" className="h-3.5 w-3.5" />
             Globale
@@ -920,52 +1128,70 @@ export function WorkItemsPage() {
           <button
             type="button"
             onClick={() => setViewMode("by_client")}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-body font-semibold uppercase tracking-wide transition-colors ${viewMode === "by_client" ? "bg-ink text-paper dark:bg-[#f4f4f7] dark:text-[#131316]" : "bg-paper text-muted hover:text-ink dark:bg-[#131316] dark:text-[#9999a0] dark:hover:text-[#f4f4f7]"}`}
+            className={viewMode === "by_client" ? "is-active" : ""}
           >
             <Icon name="building" className="h-3.5 w-3.5" />
             Per cliente
           </button>
         </div>
+        {/* Filtri secondari: sola icona; variante "secondary" quando ce ne sono di attivi. */}
         <Button
-          variant="ghost"
-          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+          variant={secondaryFiltersCount > 0 ? "secondary" : "ghost"}
+          iconOnly
           onClick={() => setFiltersPanelOpen(true)}
-        >
-          Filtri {secondaryFiltersCount > 0 ? `(${secondaryFiltersCount})` : ""}
-        </Button>
-                <Button
-                  variant="secondary"
-                  leftIcon={<Icon name="plus" className="w-4 h-4" />}
-                  onClick={() => setQuickTaskModalOpen(true)}
-                  disabled={companyId == null}
-                >
-                  Task rapida
-                </Button>
-        {isAdmin && (
-          <Button
-            variant="danger-ghost"
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            onClick={() => setBulkDeleteOpen(true)}
-            disabled={selectedItemIds.length === 0}
-          >
-            Elimina selezionate ({selectedItemIds.length})
-          </Button>
-        )}
-        {isAdmin && (
-          <Button
-            variant="secondary"
-            leftIcon={<Icon name="document-text" className="w-4 h-4" />}
-            onClick={openTemplatePanel}
-            disabled={companyId == null}
-          >
-            Template
-          </Button>
-        )}
-        {isAdmin && (
+          title={secondaryFiltersCount > 0 ? `Filtri (${secondaryFiltersCount})` : "Filtri"}
+          aria-label="Filtri"
+          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+        />
+        {/* Azioni secondarie accorpate: evita righe di bottoni in testata. */}
+        <DropdownMenu
+          label="Altre azioni"
+          items={[
+            {
+              key: "quick",
+              label: "Task rapida",
+              icon: "plus",
+              onClick: () => setQuickTaskModalOpen(true),
+              disabled: companyId == null,
+            },
+            isAdmin && {
+              key: "template",
+              label: "Template",
+              icon: "document-text",
+              onClick: openTemplatePanel,
+              disabled: companyId == null,
+            },
+            isAdmin && {
+              key: "trello-import",
+              label: "Importa da Trello",
+              icon: "trello",
+              onClick: () => setTrelloImportOpen(true),
+              disabled: companyId == null,
+            },
+            canManageWorkItems && {
+              key: "archive",
+              label: "Archivio",
+              icon: "trash",
+              onClick: openArchive,
+              separatorBefore: true,
+            },
+            canManageWorkItems && selectedItemIds.length > 0 && {
+              key: "bulk-archive",
+              label: "Archivia selezionate",
+              icon: "trash",
+              danger: true,
+              trailing: String(selectedItemIds.length),
+              onClick: () => setBulkDeleteOpen(true),
+              separatorBefore: true,
+            },
+          ]}
+        />
+        {canUseManualTasks && (
           <Button
             variant="primary"
             leftIcon={<Icon name="plus" className="w-4 h-4" />}
             onClick={openCreate}
+            disabled={companyId == null}
           >
             Nuova lavorazione
           </Button>
@@ -979,50 +1205,54 @@ export function WorkItemsPage() {
         </div>
       )}
 
-      <div className="flex items-stretch gap-3">
+      <div className="wi-page flex min-h-0 flex-1 items-stretch gap-3">
+        {canManageWorkItems && (
         <aside
-          className={`shrink-0 flex ${contractsColumnMinHeightClass} flex-col rounded-xl border border-[#4C8DFF]/35 bg-[#EEF5FF] p-2.5 transition-all dark:border-[#4C8DFF]/45 dark:bg-[#112034] ${contractsPanelCollapsed ? "w-20" : "w-80"}`}
-          style={boardMeasuredHeight != null ? { height: `${boardMeasuredHeight}px` } : undefined}
+          className={`shrink-0 ${contractsPanelCollapsed ? "ct-rail" : "ct-panel"}`}
+          onClick={contractsPanelCollapsed ? () => setContractsPanelCollapsed(false) : undefined}
+          role={contractsPanelCollapsed ? "button" : undefined}
+          tabIndex={contractsPanelCollapsed ? 0 : undefined}
+          title={contractsPanelCollapsed ? "Espandi contratti" : undefined}
         >
-          <button
-            type="button"
-            onClick={() => setContractsPanelCollapsed((current) => !current)}
-            className={`mb-2 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[11px] font-bold uppercase tracking-wider text-[#123A72] transition-colors hover:bg-white/70 dark:text-[#CFE0FF] dark:hover:bg-[#0C182A] ${contractsPanelCollapsed ? "justify-center" : ""}`}
-          >
-            <span className="h-2 w-2 shrink-0 rounded-full bg-[#2E6CE6]" />
-            <span className="flex-1">{contractsPanelCollapsed ? "CTR" : "Contratti"}</span>
-            {!contractsPanelCollapsed && (
-              <span className="rounded-pill bg-white px-2 py-0.5 text-[11px] text-[#2E6CE6] dark:bg-[#0C182A] dark:text-[#8CB1FF]">
-                {focusContracts.length}
+          {contractsPanelCollapsed ? (
+            <>
+              <span className="ct-rail-exp" aria-hidden="true">
+                <Icon name="chevron-right" className="h-4 w-4" />
               </span>
-            )}
-            <Icon name="chevron-right" className={`h-4 w-4 shrink-0 text-[#2E6CE6] transition-transform dark:text-[#8CB1FF] ${contractsPanelCollapsed ? "" : "rotate-180"}`} />
-          </button>
-
-          {contractsPanelCollapsed && (
-            <div className="flex flex-1 flex-col items-center gap-2 px-1 py-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[10px] font-semibold text-[#174D9B] dark:bg-[#0C182A] dark:text-[#CFE0FF]">
-                {focusContracts.length}
+              <div className="ct-rail-label">Contratti</div>
+              <div className="ct-rail-stats">
+                <div className="ct-rail-stat" title="Firmati">
+                  <i style={{ background: "var(--mint)" }} />
+                  <b>{signedContracts.length}</b>
+                </div>
+                <div className="ct-rail-stat" title="In produzione">
+                  <i style={{ background: "var(--ct-accent)" }} />
+                  <b>{inProductionContracts.length}</b>
+                </div>
+                <div className="ct-rail-stat" title="Completati">
+                  <i style={{ background: "oklch(0.64 0.15 142)" }} />
+                  <b>{completedContracts.length}</b>
+                </div>
               </div>
-              <div className="flex flex-col items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 text-[9px] text-[#2A4E85] dark:text-[#9BB5E7]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  {signedContracts.length}
-                </span>
-                <span className="inline-flex items-center gap-1 text-[9px] text-[#2A4E85] dark:text-[#9BB5E7]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
-                  {inProductionContracts.length}
-                </span>
-                <span className="inline-flex items-center gap-1 text-[9px] text-[#2A4E85] dark:text-[#9BB5E7]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                  {completedContracts.length}
-                </span>
-              </div>
+            </>
+          ) : (
+            <div className="ct-panel-head">
+              <span className="ct-col-dot" style={{ background: "var(--ct-accent)" }} />
+              <span className="ct-panel-name">Contratti</span>
+              <span className="ct-panel-count">{focusContracts.length}</span>
+              <button
+                type="button"
+                className="ct-collapse"
+                onClick={() => setContractsPanelCollapsed(true)}
+                aria-label="Comprimi"
+              >
+                <Icon name="chevron-right" className="h-4 w-4 rotate-180" />
+              </button>
             </div>
           )}
 
           {!contractsPanelCollapsed && (
-            <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1.5 pb-1">
+            <div className="ct-panel-body">
               {contractsLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((item) => (
@@ -1283,8 +1513,9 @@ export function WorkItemsPage() {
             </div>
           )}
         </aside>
+        )}
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 flex flex-col min-h-0">
           {/* Board skeleton */}
           {isLoading ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1308,7 +1539,7 @@ export function WorkItemsPage() {
               ))}
             </div>
           ) : viewMode === "by_client" ? (
-            <div ref={boardRef} className="flex flex-col gap-4">
+            <div ref={boardRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
               {clientGroups.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-line dark:border-line-dark px-4 py-8 text-center text-sm text-muted dark:text-muted-dark">
                   Nessuna lavorazione trovata con i filtri correnti.
@@ -1336,7 +1567,8 @@ export function WorkItemsPage() {
                             users={users}
                             workAreas={workAreas}
                             workTags={workTags}
-                            isAdmin={isAdmin}
+                            clientsById={clientsById}
+                            isAdmin={canManageWorkItems}
                             selectedItemIds={selectedItemIds}
                             onToggleSelect={toggleItemSelection}
                             onDragStartItem={handleDragStartItem}
@@ -1356,46 +1588,46 @@ export function WorkItemsPage() {
               )}
             </div>
           ) : (
-            /* Kanban board */
-            <div
-              ref={boardRef}
-              className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
-            >
-              {KANBAN_COLUMNS.map((col) => {
-                const colItems = filteredItems.filter((w) => w.status === col.id);
-                return (
-                  <KanbanColumn
-                    key={col.id}
-                    column={col}
-                    items={colItems}
-                    users={users}
-                    workAreas={workAreas}
-                    workTags={workTags}
-                    isAdmin={isAdmin}
-                    selectedItemIds={selectedItemIds}
-                    onToggleSelect={toggleItemSelection}
-                    onDragStartItem={handleDragStartItem}
-                    onDragEndItem={handleDragEndItem}
-                    onEdit={openEdit}
-                    onDelete={(item) => setDeletingItem(item)}
-                    onRegenerateRecurrences={handleRegenerateRecurrences}
-                    onInstantiateFromTemplate={openInstantiateFromTemplate}
-                    onOpenAiSourceContract={openContractDetailFromAiTask}
-                    onDrop={handleDrop}
-                  />
-                );
-              })}
+            /* Kanban board — layout orizzontale (stile prototipo) */
+            <div ref={boardRef} className="wi-board">
+              <div className="wi-board-inner">
+                {KANBAN_COLUMNS.map((col) => {
+                  const colItems = filteredItems.filter((w) => w.status === col.id);
+                  return (
+                    <KanbanColumn
+                      key={col.id}
+                      column={col}
+                      items={colItems}
+                      users={users}
+                      workAreas={workAreas}
+                      workTags={workTags}
+                      clientsById={clientsById}
+                      isAdmin={canManageWorkItems}
+                      selectedItemIds={selectedItemIds}
+                      onToggleSelect={toggleItemSelection}
+                      onDragStartItem={handleDragStartItem}
+                      onDragEndItem={handleDragEndItem}
+                      onEdit={openEdit}
+                      onDelete={(item) => setDeletingItem(item)}
+                      onRegenerateRecurrences={handleRegenerateRecurrences}
+                      onInstantiateFromTemplate={openInstantiateFromTemplate}
+                      onOpenAiSourceContract={openContractDetailFromAiTask}
+                      onDrop={handleDrop}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          )}
-
-          {/* Footer hint */}
-          {!isLoading && (
-            <p className="mt-4 text-center text-[11px] text-muted dark:text-muted-dark">
-              Trascina una card tra le colonne per cambiare stato.
-            </p>
           )}
         </div>
       </div>
+
+      {/* Footer hint — fuori dalla riga board così Contratti e colonne restano alla stessa altezza */}
+      {!isLoading && (
+        <p className="mt-3 shrink-0 text-center text-[11px] text-muted dark:text-muted-dark">
+          Trascina una card tra le colonne per cambiare stato.
+        </p>
+      )}
 
       <RightSidebarPanel
         open={templatePanelOpen}
@@ -1588,6 +1820,73 @@ export function WorkItemsPage() {
         </div>
       </RightSidebarPanel>
 
+      <RightSidebarPanel
+        open={archivePanelOpen}
+        onClose={() => setArchivePanelOpen(false)}
+        title="Archivio lavorazioni"
+        footer={selectedArchivedIds.length > 0 ? (
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" onClick={() => setSelectedArchivedIds([])}>Deseleziona</Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleRestoreSelected()}
+              loading={restoringArchive}
+              disabled={restoringArchive}
+              leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+            >
+              Ripristina selezionate ({selectedArchivedIds.length})
+            </Button>
+          </div>
+        ) : undefined}
+      >
+        <div className="flex flex-col gap-2">
+          {archivedLoading ? (
+            <div className="flex justify-center py-10"><Spinner size="md" /></div>
+          ) : archivedError ? (
+            <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{archivedError}</div>
+          ) : archivedItems.length === 0 ? (
+            <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
+              Nessuna task archiviata.
+            </div>
+          ) : (
+            archivedItems.map((item) => {
+              const archivedClient = item.client_id != null
+                ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name)
+                : null;
+              const archivedAt = item.deleted_at
+                ? new Date(item.deleted_at).toLocaleString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                : null;
+              const checked = selectedArchivedIds.includes(item.id);
+              return (
+                <div key={item.id} className="flex items-start gap-2 rounded-lg border border-line dark:border-line-dark bg-paper p-2.5 dark:bg-[#131316]">
+                  <span className="pt-0.5">
+                    <Checkbox checked={checked} onChange={(c) => toggleArchivedSelection(item.id, c)} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    {archivedClient && (
+                      <div className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">{archivedClient}</div>
+                    )}
+                    <div className="truncate text-[13px] font-medium text-ink dark:text-paper">{item.title}</div>
+                    {archivedAt && (
+                      <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">Archiviata il {archivedAt}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleRestoreOne(item)}
+                    disabled={restoringArchive}
+                    leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}
+                  >
+                    Ripristina
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </RightSidebarPanel>
+
       {aiSplitOpen && isWideAiSplitLayout && typeof document !== "undefined" && createPortal(
         <>
           <div className="fixed inset-0 z-[12000] bg-ink/60 backdrop-blur-sm" onClick={closeAiSplit} aria-hidden="true" />
@@ -1617,6 +1916,7 @@ export function WorkItemsPage() {
                   modalBodyClassName="overscroll-contain"
                   modalHideCloseButton
                   modalInline
+                  onQuoteLineClick={handleQuoteLinePrecompile}
                 />
               </div>
 
@@ -1638,8 +1938,10 @@ export function WorkItemsPage() {
                   modalDialogClassName={splitAiDialogClassName}
                   modalHideCloseButton
                   modalInline
+                  precompileLine={precompileLine}
+                  onPrecompileConsumed={() => setPrecompileLine(null)}
                   onCreated={() => {
-                    void refetch();
+                    void refetch(true);
                   }}
                 />
               </div>
@@ -1684,6 +1986,7 @@ export function WorkItemsPage() {
             modalContainerClassName={aiCompactPane === "contract" ? "z-[3010]" : "pointer-events-none opacity-0 z-[2990]"}
             modalDialogClassName={splitContractDialogClassName}
             modalHideCloseButton={aiSplitOpen}
+            onQuoteLineClick={handleQuoteLinePrecompile}
           />
 
           <ContractAiWorkItemsSliderModal
@@ -1702,8 +2005,10 @@ export function WorkItemsPage() {
             modalContainerClassName={aiCompactPane === "ai" ? "z-[3010]" : "pointer-events-none opacity-0 z-[2990]"}
             modalDialogClassName={splitAiDialogClassName}
             modalHideCloseButton={aiSplitOpen}
+            precompileLine={precompileLine}
+            onPrecompileConsumed={() => setPrecompileLine(null)}
             onCreated={() => {
-              void refetch();
+              void refetch(true);
             }}
           />
         </>
@@ -1717,11 +2022,56 @@ export function WorkItemsPage() {
           instantiateTemplate={instantiateTemplateItem}
           companyId={formCompanyId}
           isAdmin={isAdmin}
-          onSaved={() => {
+          canManageReviewer={canManageWorkItems}
+          onSaved={(savedItem) => {
+            const prev = editingItem; // snapshot pre-modifica (null in creazione)
             setModalOpen(false);
             setEditingItem(null);
             setInstantiateTemplateItem(null);
-            void refetch();
+            void refetch(true);
+            if (prev) {
+              // MODIFICA → undo = rimetti i valori precedenti (best-effort sui campi principali).
+              registerUndo({
+                label: `Modifiche a "${prev.title}"`,
+                undo: async () => {
+                  await updateWorkItemApi(prev.id, {
+                    title: prev.title,
+                    description: prev.description ?? null,
+                    work_date: prev.work_date ?? null,
+                    start_time: prev.start_time ?? null,
+                    deadline_date: prev.deadline_date ?? null,
+                    due_time_label: prev.due_time_label ?? null,
+                    estimated_hours: prev.estimated_hours ?? null,
+                    load_weight_factor: prev.load_weight_factor,
+                    affects_daily_load: prev.affects_daily_load,
+                    status: prev.status,
+                    progress_percent: prev.progress_percent,
+                    urgency_level: prev.urgency_level ?? null,
+                    is_priority: prev.is_priority,
+                    is_deadline_locked: prev.is_deadline_locked,
+                    is_fractionable: prev.is_fractionable,
+                    is_left_behind: prev.is_left_behind,
+                    left_behind_reason: prev.left_behind_reason ?? null,
+                    left_behind_note: prev.left_behind_note ?? null,
+                    client_id: prev.client_id ?? null,
+                    is_PED: prev.is_PED,
+                    assignee_ids: prev.assignee_ids ?? [],
+                    work_area_ids: prev.work_area_ids ?? [],
+                    tag_ids: prev.tag_ids ?? [],
+                  });
+                  await refetch(true);
+                },
+              });
+            } else if (savedItem) {
+              // CREAZIONE → undo = elimina la lavorazione creata.
+              registerUndo({
+                label: `Lavorazione "${savedItem.title}" creata`,
+                undo: async () => {
+                  await deleteWorkItemApi(savedItem.id);
+                  await refetch(true);
+                },
+              });
+            }
           }}
         />
       )}
@@ -1780,15 +2130,122 @@ export function WorkItemsPage() {
         </p>
       </Modal>
 
+      <Modal
+        open={!!pendingStatusChange}
+        onClose={() => {
+          if (statusChangeSaving) return;
+          setPendingStatusChange(null);
+          setStatusChangeComment("");
+        }}
+        title="Rimanda indietro"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => { setPendingStatusChange(null); setStatusChangeComment(""); }}
+              disabled={statusChangeSaving}
+            >
+              Annulla
+            </Button>
+            <Button variant="primary" onClick={applyStatusChange} loading={statusChangeSaving}>
+              Conferma
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-ink dark:text-paper">
+            Sposti{" "}
+            <strong>
+              {pendingStatusChange && pendingStatusChange.items.length === 1
+                ? `"${pendingStatusChange.items[0].title}"`
+                : `${pendingStatusChange?.items.length ?? 0} lavorazioni`}
+            </strong>{" "}
+            in{" "}
+            <strong>
+              {KANBAN_COLUMNS.find((c) => c.id === pendingStatusChange?.newStatus)?.label ?? pendingStatusChange?.newStatus}
+            </strong>
+            .
+          </p>
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            Motivo del rimando (opzionale)
+          </label>
+          <textarea
+            value={statusChangeComment}
+            onChange={(e) => setStatusChangeComment(e.target.value)}
+            placeholder="Es. rimandata in lavorazione: rivedere il claim…"
+            rows={3}
+            maxLength={2000}
+            autoFocus
+            className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
+          />
+          <p className="text-[11px] text-muted dark:text-muted-dark">
+            Verrà salvato nella timeline della lavorazione, accanto al cambio di stato.
+          </p>
+        </div>
+      </Modal>
+
+      {/* Rimando da revisione (drag di una singola task): solo la scheda Revisione. */}
+      <Modal
+        open={!!reviewItem}
+        onClose={() => { setReviewItem(null); void refetch(true); }}
+        title={reviewItem ? `Revisione · ${reviewItem.title}` : "Revisione"}
+        size="xl"
+      >
+        {reviewItem ? (
+          <ReviewTab
+            workItemId={reviewItem.id}
+            canManage={canManageWorkItems}
+            onChanged={() => void refetch(true)}
+            onSentBack={() => { setReviewItem(null); void refetch(true); }}
+          />
+        ) : null}
+      </Modal>
+
+      {companyId != null && (
+        <TrelloImportModal
+          open={trelloImportOpen}
+          onClose={() => setTrelloImportOpen(false)}
+          companyId={companyId}
+          users={users}
+          onImported={() => void refetch(true)}
+        />
+      )}
+
       <QuickTaskModal
         open={quickTaskModalOpen}
         onClose={() => setQuickTaskModalOpen(false)}
         companyId={companyId}
-        onCreated={() => {
-          refetch();
+        onCreated={(response) => {
+          void refetch(true);
+          const created = response.item;
+          if (created) {
+            registerUndo({
+              label: `Task rapida "${created.title}" creata`,
+              undo: async () => {
+                await deleteWorkItemApi(created.id);
+                await refetch(true);
+              },
+            });
+          }
         }}
       />
 
+      {dragCount > 1 &&
+        createPortal(
+          <div ref={setDragGhost} className="wl-drag-ghost" aria-hidden>
+            <span className="wl-drag-ghost-stack">
+              <span className="wl-drag-ghost-card c3" />
+              <span className="wl-drag-ghost-card c2" />
+              <span className="wl-drag-ghost-card c1">
+                <Icon name="list" className="h-3.5 w-3.5" /> {dragCount} lavorazioni
+              </span>
+              <span className="wl-drag-ghost-badge">{dragCount}</span>
+            </span>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

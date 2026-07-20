@@ -17,9 +17,12 @@ import type { Client } from "../../api/clients";
 import { useToast } from "../../context/ToastContext";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
+import { FieldLabel } from "../ui/FieldLabel";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { SectionCard } from "../ui/SectionCard";
 import { Spinner } from "../ui/Spinner";
 import { Textarea } from "../ui/Textarea";
 import { QuoteQuickCreateModal } from "./QuoteQuickCreateModal";
@@ -340,6 +343,7 @@ export function ContractFromQuoteModal({
       open={open}
       onClose={handleClose}
       title="Genera contratto da preventivo"
+      icon={<Icon name="document-text" className="h-5 w-5" />}
       size="xl"
       footer={
         <>
@@ -476,97 +480,118 @@ export function ContractFromQuoteModal({
               <Button variant="ghost" size="sm" onClick={() => setStep("pick-existing")}>Cambia preventivo</Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input label="Titolo contratto" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Cliente</label>
-                <ClientSelectorWithCreate
-                  value={form.client_id}
-                  onChange={(value) => setForm((current) => ({ ...current, client_id: value }))}
-                  clients={clients}
-                  companyId={form.company_id ? Number(form.company_id) : companyId}
-                  placeholder="Seleziona cliente"
-                  emptyMessage="Nessun cliente"
-                  menuLayer="portal"
-                />
+            <SectionCard icon="document-text" title="Dati contratto">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input label="Titolo contratto" labelIcon={<Icon name="document-text" className="h-3 w-3" />} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+                <div className="flex flex-col gap-1">
+                  <FieldLabel icon={<Icon name="user-circle" className="h-3 w-3" />}>Cliente</FieldLabel>
+                  <ClientSelectorWithCreate
+                    value={form.client_id}
+                    onChange={(value) => setForm((current) => ({ ...current, client_id: value }))}
+                    clients={clients}
+                    companyId={form.company_id ? Number(form.company_id) : companyId}
+                    placeholder="Seleziona cliente"
+                    emptyMessage="Nessun cliente"
+                    menuLayer="portal"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel icon={<Icon name="activity" className="h-3 w-3" />}>Stage commerciale</FieldLabel>
+                  <SearchableSelect
+                    value={form.commercial_stage || "bozza"}
+                    onChange={(value) => setForm((current) => ({ ...current, commercial_stage: value as ContractCommercialStage }))}
+                    options={CONTRACT_STAGE_ORDER.map((stage) => ({ value: stage, label: CONTRACT_STAGE_LABELS[stage] }))}
+                    menuLayer="portal"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Stage commerciale</label>
-                <SearchableSelect
-                  value={form.commercial_stage || "bozza"}
-                  onChange={(value) => setForm((current) => ({ ...current, commercial_stage: value as ContractCommercialStage }))}
-                  options={CONTRACT_STAGE_ORDER.map((stage) => ({ value: stage, label: CONTRACT_STAGE_LABELS[stage] }))}
-                  menuLayer="portal"
-                />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo contratto</label>
-                <SearchableSelect
-                  value={form.contract_type}
-                  onChange={(value) => setForm((current) => ({ ...current, contract_type: value as "" | ContractType }))}
-                  options={[
-                    { value: "commercial", label: "Commercial" },
-                    { value: "execution", label: "Execution" },
-                  ]}
-                  menuLayer="portal"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="flex flex-col gap-1">
+                  <FieldLabel
+                    icon={<Icon name="document-text" className="h-3 w-3" />}
+                    help={{ title: "Tipo contratto", shortText: "Distingue la natura del contratto.", longText: "Commerciale: contratto di vendita/offerta verso il cliente. Execution: contratto operativo legato all'esecuzione delle attività." }}
+                  >
+                    Tipo contratto
+                  </FieldLabel>
+                  <SearchableSelect
+                    value={form.contract_type}
+                    onChange={(value) => setForm((current) => ({ ...current, contract_type: value as "" | ContractType }))}
+                    options={[
+                      { value: "commercial", label: "Commerciale" },
+                      { value: "execution", label: "Execution" },
+                    ]}
+                    menuLayer="portal"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel
+                    icon={<Icon name="refresh-cw" className="h-3 w-3" />}
+                    help={{ title: "Tipo ingaggio", shortText: "Definisce la ricorrenza del rapporto.", longText: "Una tantum: intervento singolo con inizio e fine. Continuativo: rapporto ricorrente/continuo nel tempo (es. abbonamento o gestione mensile)." }}
+                  >
+                    Tipo ingaggio
+                  </FieldLabel>
+                  <SearchableSelect
+                    value={form.engagement_type}
+                    onChange={(value) => setForm((current) => ({ ...current, engagement_type: value as "" | ContractEngagementType }))}
+                    options={[
+                      { value: "", label: "Non impostato" },
+                      { value: "one_time", label: "Una tantum" },
+                      { value: "ongoing", label: "Continuativo" },
+                    ]}
+                    menuLayer="portal"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel
+                    icon={<Icon name="credit-card" className="h-3 w-3" />}
+                    help={{ title: "Modalità prezzi", shortText: "Come viene calcolato il totale mostrato.", longText: "Totale aggregato: somma di tutti i preventivi collegati al contratto. Preventivo principale: mostra solo l'importo del preventivo indicato come principale." }}
+                  >
+                    Pricing view
+                  </FieldLabel>
+                  <SearchableSelect
+                    value={form.pricing_view_mode}
+                    onChange={(value) => setForm((current) => ({ ...current, pricing_view_mode: value as "" | ContractPricingMode }))}
+                    options={[
+                      { value: "aggregated", label: "Totale aggregato" },
+                      { value: "single_quote", label: "Preventivo principale" },
+                    ]}
+                    menuLayer="portal"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Tipo ingaggio</label>
-                <SearchableSelect
-                  value={form.engagement_type}
-                  onChange={(value) => setForm((current) => ({ ...current, engagement_type: value as "" | ContractEngagementType }))}
-                  options={[
-                    { value: "", label: "Non impostato" },
-                    { value: "one_time", label: "Una tantum" },
-                    { value: "ongoing", label: "Continuativo" },
-                  ]}
-                  menuLayer="portal"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Pricing view</label>
-                <SearchableSelect
-                  value={form.pricing_view_mode}
-                  onChange={(value) => setForm((current) => ({ ...current, pricing_view_mode: value as "" | ContractPricingMode }))}
-                  options={[
-                    { value: "aggregated", label: "Aggregated" },
-                    { value: "single_quote", label: "Single quote" },
-                  ]}
-                  menuLayer="portal"
-                />
-              </div>
-            </div>
+            </SectionCard>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input label="Data inizio" type="date" value={form.start_date} onChange={(event) => setForm((current) => ({ ...current, start_date: event.target.value }))} />
-              <Input label="Data fine" type="date" value={form.end_date} onChange={(event) => setForm((current) => ({ ...current, end_date: event.target.value }))} />
-              <Input label="Data firma" type="datetime-local" value={form.signed_at} onChange={(event) => setForm((current) => ({ ...current, signed_at: event.target.value }))} />
-            </div>
+            <SectionCard icon="calendar" title="Date">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input label="Data inizio" labelIcon={<Icon name="calendar" className="h-3 w-3" />} type="date" value={form.start_date} onChange={(event) => setForm((current) => ({ ...current, start_date: event.target.value }))} />
+                <Input label="Data fine" labelIcon={<Icon name="calendar" className="h-3 w-3" />} type="date" value={form.end_date} onChange={(event) => setForm((current) => ({ ...current, end_date: event.target.value }))} />
+                <Input label="Data firma" labelIcon={<Icon name="calendar" className="h-3 w-3" />} type="datetime-local" value={form.signed_at} onChange={(event) => setForm((current) => ({ ...current, signed_at: event.target.value }))} />
+              </div>
+            </SectionCard>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Note commerciali</label>
-                <Textarea
-                  rows={3}
-                  value={form.commercial_notes}
-                  onChange={(event) => setForm((current) => ({ ...current, commercial_notes: event.target.value }))}
-                  className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                />
+            <SectionCard icon="annotation" title="Note">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Note commerciali</FieldLabel>
+                  <Textarea
+                    rows={3}
+                    value={form.commercial_notes}
+                    onChange={(event) => setForm((current) => ({ ...current, commercial_notes: event.target.value }))}
+                    className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel icon={<Icon name="list" className="h-3 w-3" />}>Brief operativo</FieldLabel>
+                  <Textarea
+                    rows={3}
+                    value={form.operational_brief}
+                    onChange={(event) => setForm((current) => ({ ...current, operational_brief: event.target.value }))}
+                    className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Brief operativo</label>
-                <Textarea
-                  rows={3}
-                  value={form.operational_brief}
-                  onChange={(event) => setForm((current) => ({ ...current, operational_brief: event.target.value }))}
-                  className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
-                />
-              </div>
-            </div>
+            </SectionCard>
           </>
         )}
       </div>

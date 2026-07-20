@@ -423,7 +423,7 @@ export function LlmSettingsTab({ companyId, isAdmin }: LlmSettingsTabProps) {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1fr_auto] mb-4">
           <Input
-            label="Operation code"
+            label="Codice operazione"
             value={bindingOperationCode}
             onChange={(event) => setBindingOperationCode(normalizeLlmSlug(event.target.value))}
             placeholder="es. quote-summary"
@@ -564,7 +564,7 @@ export function LlmSettingsTab({ companyId, isAdmin }: LlmSettingsTabProps) {
             placeholder="es. openai"
           />
           <Input
-            label="Model name"
+            label="Nome modello"
             value={profileForm.model_name}
             onChange={(event) => setProfileForm((current) => ({ ...current, model_name: event.target.value }))}
             placeholder="es. gpt-4o-mini"

@@ -10,6 +10,11 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  /**
+   * Bottone di sola icona: box quadrato, nessun padding orizzontale.
+   * Passare SEMPRE `title` (tooltip) e `aria-label`: l'Icon è aria-hidden.
+   */
+  iconOnly?: boolean;
 }
 
 const base =
@@ -17,7 +22,7 @@ const base =
 
 const variantMap: Record<Variant, string> = {
   primary:
-    "bg-[#0a0a0a] text-paper border border-[#0a0a0a] hover:-translate-y-px hover:shadow-2 active:scale-95 dark:bg-paper dark:text-ink dark:border-paper dark:hover:bg-cream",
+    "bg-brand-magenta text-white border border-brand-magenta hover:bg-[#a30f6e] hover:border-[#a30f6e] active:scale-[0.98] !rounded-[8px] !normal-case !tracking-normal dark:bg-brand-magenta dark:text-white dark:border-brand-magenta dark:hover:bg-[#a30f6e]",
   secondary:
     "bg-paper text-ink border border-ink hover:bg-cream dark:bg-ink-2 dark:text-paper dark:border-line-dark",
   ghost:
@@ -34,6 +39,13 @@ const sizeMap: Record<Size, string> = {
   lg: "px-[26px] py-[14px] text-[15px]",
 };
 
+// Sola icona: box quadrato, niente padding orizzontale né gap.
+const iconOnlySizeMap: Record<Size, string> = {
+  sm: "h-8 w-8 p-0 gap-0",
+  md: "h-10 w-10 p-0 gap-0",
+  lg: "h-12 w-12 p-0 gap-0",
+};
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
@@ -42,6 +54,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       loading = false,
       leftIcon,
       rightIcon,
+      iconOnly = false,
       children,
       disabled,
       className = "",
@@ -53,7 +66,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         disabled={disabled || loading}
-        className={`${base} ${variantMap[variant]} ${sizeMap[size]} ${className}`}
+        className={`${base} ${variantMap[variant]} ${iconOnly ? iconOnlySizeMap[size] : sizeMap[size]} ${className}`}
         {...rest}
       >
         {loading ? (

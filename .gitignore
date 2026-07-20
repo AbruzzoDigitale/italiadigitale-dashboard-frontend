@@ -15,6 +15,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Segreti OAuth Google scaricati dalla Console (client_id/secret) — mai nel repo.
+client_secret_*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -25,3 +28,34 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code local state (worktrees, etc.)
+.claude/
+
+# Local reference material / artifacts (not part of the app)
+preventivatore-abruzzo-digitale*/
+preventivatore-abruzzo-digitale-*.zip
+Pacchetti Social Media (standalone).html
+handoff.md
+handoff-*.md
+Card pacchetti social Abruzzo Digitale*/
+Card pacchetti social Abruzzo Digitale*.zip
+jsoncalendario.json
+
+# Dati aziendali reali e materiale di lavoro locale — MAI nel repo
+# (export Excel di fatture/movimenti bancari, contratti, script di riconciliazione)
+*.xlsx
+*.xls
+*.docx
+*.zip
+Test/
+Versione 2 Riconciliatore/
+client-situation.json
+copia_fatture.py
+wetransfer_*
+
+# Vite cache
+.vite/
+
+# Firebase hosting deploy cache
+.firebase/

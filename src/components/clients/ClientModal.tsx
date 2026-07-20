@@ -11,14 +11,19 @@ import {
 import { getUsersApi, type User } from "../../api/users";
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { listWorkTagsApi, type WorkTag } from "../../api/workTags";
+import type { ReactNode } from "react";
 import { Button } from "../ui/Button";
+import { FieldLabel } from "../ui/FieldLabel";
+import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { MultiSelect } from "../ui/MultiSelect";
 import { Modal } from "../ui/Modal";
+import { SectionCard } from "../ui/SectionCard";
 import { useToast } from "../../context/ToastContext";
 import { Checkbox } from "../ui/Checkbox";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Textarea } from "../ui/Textarea";
+import type { FieldHelpPopoverProps } from "../ui/FieldHelpPopover";
 import { normalizeCompanyPayload } from "../../utils/companyPayload";
 import { useClientTrelloBoards } from "../../hooks/useClientTrelloBoards";
 import { createTrelloBoardApi, listTrelloBoardsApi } from "../../api/trelloBoards";
@@ -152,33 +157,24 @@ function toPayload(f: FormState): CreateClientPayload {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-function SectionDivider({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3 pt-2">
-      <span className="whitespace-nowrap text-[10px] font-bold uppercase tracking-widest text-muted dark:text-[#9999a0]">
-        {label}
-      </span>
-      <div className="flex-1 h-px bg-line dark:bg-[#2a2a2e]" />
-    </div>
-  );
-}
-
 function SelectField({
   label,
   value,
   onChange,
   options,
+  icon,
+  help,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Array<{ value: string; label: string }>;
+  icon?: ReactNode;
+  help?: FieldHelpPopoverProps;
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-        {label}
-      </label>
+      <FieldLabel icon={icon} help={help}>{label}</FieldLabel>
       <SearchableSelect
         value={value}
         onChange={onChange}
@@ -481,7 +477,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         </>
       }
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
 
         {/* ── FiC sync banner ──────────────────────────── */}
         {isEdit && (
@@ -535,11 +531,11 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         )}
 
         {/* ── Anagrafica ────────────────────────────────── */}
-        <SectionDivider label="Anagrafica" />
-
+        <SectionCard icon="user-circle" title="Anagrafica">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <SelectField
             label="Tipo"
+            icon={<Icon name="list" className="h-3 w-3" />}
             value={form.type}
             onChange={(v) => set("type", v as ClientType | "")}
             options={[
@@ -551,6 +547,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           <div className="sm:col-span-2">
             <Input
               label="Ragione sociale / Nome *"
+              labelIcon={<Icon name="pencil" className="h-3 w-3" />}
               value={form.name}
               onChange={(e) => { set("name", e.target.value); setNameError(""); }}
               placeholder="Rossi Srl"
@@ -562,6 +559,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             label="Nome commerciale"
+            labelIcon={<Icon name="star" className="h-3 w-3" />}
             value={form.commercial_name}
             onChange={(e) => set("commercial_name", e.target.value)}
             placeholder="Es. La Perla Del Mare"
@@ -572,12 +570,14 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Nome"
+              labelIcon={<Icon name="user-circle" className="h-3 w-3" />}
               value={form.first_name}
               onChange={(e) => set("first_name", e.target.value)}
               placeholder="Mario"
             />
             <Input
               label="Cognome"
+              labelIcon={<Icon name="user-circle" className="h-3 w-3" />}
               value={form.last_name}
               onChange={(e) => set("last_name", e.target.value)}
               placeholder="Rossi"
@@ -588,24 +588,28 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             label="Referente"
+            labelIcon={<Icon name="user-circle" className="h-3 w-3" />}
             value={form.contact}
             onChange={(e) => set("contact", e.target.value)}
             placeholder="Sig. Bianchi"
           />
           <Input
             label="Codice cliente"
+            labelIcon={<Icon name="list" className="h-3 w-3" />}
+            help={{ title: "Codice cliente", shortText: "Codice interno del cliente.", longText: "Codice identificativo interno del cliente (es. anagrafica gestionale). Facoltativo." }}
             value={form.code}
             onChange={(e) => set("code", e.target.value)}
             placeholder="AE86"
           />
         </div>
+        </SectionCard>
 
         {/* ── Contatti ──────────────────────────────────── */}
-        <SectionDivider label="Contatti" />
-
+        <SectionCard icon="mail" title="Contatti">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             label="Email"
+            labelIcon={<Icon name="mail" className="h-3 w-3" />}
             type="email"
             value={form.email}
             onChange={(e) => set("email", e.target.value)}
@@ -625,30 +629,36 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           />
           <Input
             label="PEC"
+            labelIcon={<Icon name="shield-check" className="h-3 w-3" />}
+            help={{ title: "PEC", shortText: "Posta Elettronica Certificata.", longText: "Indirizzo PEC del cliente, usato per comunicazioni con valore legale e fatturazione elettronica." }}
             value={form.pec}
             onChange={(e) => set("pec", e.target.value)}
             placeholder="rossisrl@pec.it"
           />
         </div>
+        </SectionCard>
 
         {/* ── Dati fiscali ──────────────────────────────── */}
-        <SectionDivider label="Dati fiscali" />
-
+        <SectionCard icon="credit-card" title="Dati fiscali">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Input
             label="Partita IVA"
+            labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
             value={form.vat}
             onChange={(e) => set("vat", e.target.value)}
             placeholder="IT01234567890"
           />
           <Input
             label="Codice fiscale"
+            labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
             value={form.cf}
             onChange={(e) => set("cf", e.target.value)}
             placeholder="RSSMAR80A01A345Z"
           />
           <Input
             label="Codice SDI"
+            labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
+            help={{ title: "Codice SDI", shortText: "Codice destinatario per la fattura elettronica.", longText: "Codice destinatario (7 caratteri) per il recapito delle fatture elettroniche tramite Sistema di Interscambio. In alternativa si usa la PEC." }}
             value={form.sdi}
             onChange={(e) => set("sdi", e.target.value)}
             placeholder="ABC1234"
@@ -660,14 +670,15 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           checked={form.e_invoice}
           onChange={(v) => set("e_invoice", v)}
         />
+        </SectionCard>
 
         {/* ── Indirizzo ─────────────────────────────────── */}
-        <SectionDivider label="Indirizzo" />
-
+        <SectionCard icon="map-pin" title="Indirizzo">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="sm:col-span-2">
             <Input
               label="Indirizzo"
+              labelIcon={<Icon name="map-pin" className="h-3 w-3" />}
               value={form.addr}
               onChange={(e) => set("addr", e.target.value)}
               placeholder="Via Roma 1"
@@ -682,6 +693,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           <div className="sm:col-span-2">
             <Input
               label="Città"
+              labelIcon={<Icon name="map-pin" className="h-3 w-3" />}
               value={form.city}
               onChange={(e) => set("city", e.target.value)}
               placeholder="Pescara"
@@ -702,16 +714,17 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           <div className="sm:col-span-2">
             <Input
               label="Paese"
+              labelIcon={<Icon name="globe" className="h-3 w-3" />}
               value={form.country}
               onChange={(e) => set("country", e.target.value)}
               placeholder="Italia"
             />
           </div>
         </div>
+        </SectionCard>
 
         {/* ── Aree e tag ───────────────────────────────── */}
-        <SectionDivider label="Aree e tag" />
-
+        <SectionCard icon="star" title="Aree, tag e utenti">
         {targetCompanyId == null ? (
           <div className="rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2.5 text-sm text-muted dark:text-[#9999a0]">
             Nessuna company assegnata al cliente: non puoi associare tag, aree o utenti.
@@ -719,7 +732,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <MultiSelect
-              label="Work areas"
+              label="Aree di lavoro"
               value={workAreaIds}
               onChange={setWorkAreaIds}
               options={workAreaOptions}
@@ -728,7 +741,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
               createActionLabel="Crea area"
             />
             <MultiSelect
-              label="Tags"
+              label="Tag"
               value={tagIds}
               onChange={setTagIds}
               options={tagOptions}
@@ -744,15 +757,15 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
             label="Utenti assegnati"
             value={assignedUserIds}
             onChange={setAssignedUserIds}
-            options={users.map((user) => ({ id: user.id, label: user.full_name ?? user.username }))}
+            options={users.map((user) => ({ id: user.id, label: user.full_name ?? user.username, avatarUrl: user.avatar_url }))}
             placeholder={usersLoading ? "Caricamento utenti..." : "Seleziona utenti"}
             searchPlaceholder="Cerca utente..."
           />
         )}
+        </SectionCard>
 
         {/* ── Trello boards ────────────────────────────── */}
-        <SectionDivider label="Trello" />
-
+        <SectionCard icon="trello" title="Trello">
         <div className="flex flex-col gap-3">
           <MultiSelect
             label="Board Trello collegate"
@@ -782,14 +795,15 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
             </div>
           )}
         </div>
+        </SectionCard>
 
         {/* ── Dati bancari ──────────────────────────────── */}
-        <SectionDivider label="Dati bancari" />
-
+        <SectionCard icon="building" title="Dati bancari">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <Input
               label="IBAN"
+              labelIcon={<Icon name="building" className="h-3 w-3" />}
               value={form.bank_iban}
               onChange={(e) => set("bank_iban", e.target.value.replace(/\s/g, ""))}
               placeholder="IT60X0542811101000000123456"
@@ -810,13 +824,15 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
             className="font-mono"
           />
         </div>
+        </SectionCard>
 
         {/* ── Condizioni commerciali ────────────────────── */}
-        <SectionDivider label="Condizioni commerciali" />
-
+        <SectionCard icon="credit-card" title="Condizioni commerciali">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Input
             label="Giorni di pagamento"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            help={{ title: "Giorni di pagamento", shortText: "Termine di pagamento predefinito.", longText: "Numero di giorni entro cui il cliente salda le fatture (es. 30, 60). Precompila la scadenza sui documenti." }}
             type="number"
             min={0}
             value={form.default_payment_terms}
@@ -825,6 +841,8 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           />
           <SelectField
             label="Tipo scadenza"
+            icon={<Icon name="calendar" className="h-3 w-3" />}
+            help={{ title: "Tipo scadenza", shortText: "Come si calcola la data di scadenza.", longText: "Standard: dalla data fattura + giorni.\nFine mese: al termine del mese.\nFine mese successivo: al termine del mese seguente." }}
             value={form.default_payment_terms_type}
             onChange={(v) => set("default_payment_terms_type", v)}
             options={[
@@ -836,6 +854,8 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
           />
           <Input
             label="Sconto predefinito (%)"
+            labelIcon={<Icon name="credit-card" className="h-3 w-3" />}
+            help={{ title: "Sconto predefinito", shortText: "Sconto applicato di default al cliente.", longText: "Percentuale di sconto proposta automaticamente nei preventivi/documenti per questo cliente. Sempre modificabile." }}
             type="number"
             min={0}
             max={100}
@@ -845,14 +865,12 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
             placeholder="0"
           />
         </div>
+        </SectionCard>
 
         {/* ── Note ──────────────────────────────────────── */}
-        <SectionDivider label="Note" />
-
+        <SectionCard icon="annotation" title="Note">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark font-body">
-            Note interne
-          </label>
+          <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Note interne</FieldLabel>
           <Textarea
             rows={3}
             value={form.notes}
@@ -861,6 +879,7 @@ export function ClientModal({ open, onClose, onSaved, client, isAdmin = false, c
             className="w-full px-3.5 py-2.5 rounded-md text-[13px] font-body text-ink dark:text-[#f4f4f7] placeholder:text-muted/60 dark:placeholder:text-[#9999a0]/60 border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20] outline-none transition-colors focus:border-ink dark:focus:border-[#f4f4f7] resize-none"
           />
         </div>
+        </SectionCard>
 
         <WorkTagCreateModal
           open={workTagModalOpen}

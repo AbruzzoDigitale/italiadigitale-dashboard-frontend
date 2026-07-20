@@ -1,0 +1,330 @@
+/* =========================================================================
+   Centro notifiche — pannello a tendina dalla campanella.
+   Portato dal prototipo "Card pacchetti social (3)" e mappato ai token app.
+   ========================================================================= */
+
+/* scrim + pannello */
+.nt-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: rgba(0, 0, 0, 0.32);
+  animation: nt-fade 0.2s ease;
+}
+.dark .nt-scrim { background: rgba(0, 0, 0, 0.5); }
+@keyframes nt-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.nt-panel {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 2210;
+  width: 436px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 84px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #d8d4cb;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(27, 28, 27, 0.22);
+  overflow: hidden;
+  animation: nt-pop 0.22s ease;
+}
+.dark .nt-panel {
+  background: #131316;
+  border-color: #2a2a2e;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+@keyframes nt-pop { from { transform: translateY(-10px) scale(0.99); } to { transform: none; } }
+
+/* header */
+.nt-head {
+  padding: 15px 16px 0;
+  border-bottom: 1px solid #e8e6e0;
+  background: #ffffff;
+}
+.dark .nt-head { background: #131316; border-bottom-color: #2a2a2e; }
+.nt-head-top { display: flex; align-items: center; justify-content: space-between; }
+.nt-head h3 { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; margin: 0; color: #1a1a1a; }
+.dark .nt-head h3 { color: #f4f4f7; }
+.nt-head h3 svg { color: #c41284; }
+.nt-close {
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid #d8d4cb; background: #ffffff; color: #6b6b6b;
+  display: grid; place-items: center; transition: all 0.14s ease;
+}
+.nt-close:hover { border-color: #c7c2b7; color: #1a1a1a; }
+.dark .nt-close { border-color: #34343a; background: #1c1c20; color: #9999a0; }
+.dark .nt-close:hover { border-color: #44444c; color: #f4f4f7; }
+
+.nt-tabs { display: flex; gap: 2px; margin-top: 13px; }
+.nt-tab {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 4px; border: none; background: none;
+  font-size: 12px; font-weight: 600; color: #6b6b6b;
+  border-bottom: 2px solid transparent; position: relative; cursor: pointer;
+  transition: color 0.14s ease;
+}
+.nt-tab svg { flex: none; }
+/* tab solo-icona (Archivio): compatta, non occupa spazio flessibile */
+.nt-tab-icon { flex: 0 0 auto; padding: 10px 12px; }
+.nt-tab:hover { color: #1a1a1a; }
+.nt-tab.on { color: #1a1a1a; border-bottom-color: #c41284; }
+.dark .nt-tab { color: #9999a0; }
+.dark .nt-tab:hover, .dark .nt-tab.on { color: #f4f4f7; }
+.nt-tab-badge {
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px;
+  background: #c41284; color: #fff; font-size: 9.5px; font-weight: 700;
+  display: grid; place-items: center;
+}
+.nt-tab:not(.on) .nt-tab-badge { background: #eceae3; color: #6b6b6b; }
+.dark .nt-tab:not(.on) .nt-tab-badge { background: #252529; color: #9999a0; }
+
+/* toolbar */
+.nt-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid #e8e6e0; background: #f7f5f1;
+}
+.dark .nt-toolbar { border-bottom-color: #2a2a2e; background: #1c1c20; }
+.nt-hint { font-size: 11.5px; font-weight: 600; color: #6b6b6b; }
+.dark .nt-hint { color: #9999a0; }
+.nt-comfilters { display: flex; gap: 6px; flex-wrap: wrap; }
+.nt-chip {
+  height: 28px; padding: 0 11px; border-radius: 99px;
+  border: 1px solid #d8d4cb; background: #ffffff; color: #4a4a4a;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: all 0.14s ease; display: inline-flex; align-items: center; gap: 6px;
+}
+.dark .nt-chip { border-color: #34343a; background: #131316; color: #c9c9d0; }
+.nt-chip[class*="tone-"]::before { content: ""; width: 7px; height: 7px; border-radius: 99px; display: inline-block; background: #9a9a9a; }
+.nt-chip.tone-magenta::before { background: #c41284; }
+.nt-chip.tone-indigo::before { background: #4f46e5; }
+.nt-chip.tone-mint::before { background: #16a34a; }
+.nt-chip:hover { border-color: #c7c2b7; color: #1a1a1a; }
+.dark .nt-chip:hover { border-color: #44444c; color: #f4f4f7; }
+.nt-chip.on { background: #1b1c1b; color: #fff; border-color: #1b1c1b; }
+.dark .nt-chip.on { background: #fff; color: #1b1c1b; border-color: #fff; }
+.nt-readall {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: none; background: none; color: #4a4a4a; font-size: 11.5px; font-weight: 600;
+  border-radius: 7px; white-space: nowrap; cursor: pointer; transition: all 0.14s ease;
+}
+.nt-readall:hover { background: #eceae3; color: #1a1a1a; }
+.dark .nt-readall { color: #c9c9d0; }
+.dark .nt-readall:hover { background: #252529; color: #f4f4f7; }
+.nt-create-req { background: #c41284; color: #fff; padding: 0 12px; }
+.nt-create-req:hover { background: #a80f70; color: #fff; }
+.dark .nt-create-req { background: #c41284; color: #fff; }
+.dark .nt-create-req:hover { background: #d81a95; color: #fff; }
+
+/* scroll list */
+.nt-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 0; }
+.nt-scroll::-webkit-scrollbar { width: 8px; }
+.nt-scroll::-webkit-scrollbar-thumb { background: #d8d4cb; border-radius: 99px; border: 2px solid #ffffff; }
+.dark .nt-scroll::-webkit-scrollbar-thumb { background: #34343a; border-color: #131316; }
+.nt-groups { display: flex; flex-direction: column; }
+.nt-group-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 9px;
+  padding: 9px 16px 6px; background: #ffffff;
+}
+.dark .nt-group-head { background: #131316; }
+.nt-group-name { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b6b6b; }
+.dark .nt-group-name { color: #9999a0; }
+.nt-group-count {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px;
+  background: #eceae3; border: 1px solid #e8e6e0; display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; color: #4a4a4a;
+}
+.dark .nt-group-count { background: #252529; border-color: #2a2a2e; color: #c9c9d0; }
+.nt-group-unread { margin-left: auto; font-size: 10px; font-weight: 700; color: #c41284; }
+.nt-group-items { display: flex; flex-direction: column; }
+.nt-group-items.flat { padding: 4px 0; }
+
+/* item */
+.nt-item {
+  display: flex; gap: 11px; padding: 11px 16px; cursor: pointer; position: relative;
+  transition: background 0.12s ease; border-left: 2px solid transparent;
+}
+.nt-item:hover { background: #f7f5f1; }
+.dark .nt-item:hover { background: #1c1c20; }
+.nt-item.unread { background: color-mix(in srgb, #c41284 4%, transparent); }
+.nt-ic { width: 32px; height: 32px; border-radius: 9px; flex: none; display: grid; place-items: center; }
+.nt-body { flex: 1; min-width: 0; }
+.nt-line1 { display: flex; align-items: baseline; gap: 8px; }
+.nt-title { font-size: 13px; font-weight: 600; color: #1a1a1a; line-height: 1.3; flex: 1; min-width: 0; }
+.dark .nt-title { color: #f4f4f7; }
+.nt-item.unread .nt-title { font-weight: 700; }
+.nt-ref { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; font-weight: 600; color: #6b6b6b; flex: none; }
+.nt-line2 { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
+.nt-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+.nt-who { font-size: 11px; color: #6b6b6b; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark .nt-who { color: #9999a0; }
+.nt-note {
+  font-size: 11.5px; color: #4a4a4a; margin-top: 6px; line-height: 1.4;
+  background: #f7f5f1; border: 1px solid #e8e6e0; border-radius: 7px; padding: 6px 9px;
+}
+.dark .nt-note { color: #c9c9d0; background: #1c1c20; border-color: #2a2a2e; }
+.nt-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex: none; }
+.nt-time { font-size: 10.5px; color: #9a9a9a; font-weight: 600; white-space: nowrap; }
+.nt-dot { width: 8px; height: 8px; border-radius: 99px; background: #c41284; }
+
+/* toni icona + badge */
+.tone-magenta .nt-ic { background: color-mix(in srgb, #c41284 14%, transparent); color: #c41284; }
+.nt-badge.tone-magenta { background: color-mix(in srgb, #c41284 14%, transparent); color: #c41284; }
+.tone-amber .nt-ic { background: color-mix(in srgb, #f5b800 18%, transparent); color: #b07d00; }
+.nt-badge.tone-amber { background: color-mix(in srgb, #f5b800 18%, transparent); color: #b07d00; }
+.dark .tone-amber .nt-ic, .dark .nt-badge.tone-amber { color: #f5b800; }
+.tone-mint .nt-ic { background: color-mix(in srgb, #16a34a 18%, transparent); color: #0c8a57; }
+.nt-badge.tone-mint { background: color-mix(in srgb, #16a34a 18%, transparent); color: #0c8a57; }
+.dark .tone-mint .nt-ic, .dark .nt-badge.tone-mint { color: #2ec16f; }
+.tone-indigo .nt-ic { background: color-mix(in srgb, #4f46e5 16%, transparent); color: #4338ca; }
+.nt-badge.tone-indigo { background: color-mix(in srgb, #4f46e5 16%, transparent); color: #4338ca; }
+.dark .tone-indigo .nt-ic, .dark .nt-badge.tone-indigo { color: #a5b4fc; }
+.tone-neutral .nt-ic { background: #eceae3; color: #4a4a4a; }
+.nt-badge.tone-neutral { background: #eceae3; color: #4a4a4a; border: 1px solid #d8d4cb; }
+.dark .tone-neutral .nt-ic { background: #252529; color: #c9c9d0; }
+.dark .nt-badge.tone-neutral { background: #252529; color: #c9c9d0; border-color: #34343a; }
+
+/* stato vuoto */
+.nt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #9a9a9a;
+}
+.nt-empty svg { color: #c7c2b7; }
+.dark .nt-empty { color: #9999a0; }
+.dark .nt-empty svg { color: #44444c; }
+
+/* footer */
+.nt-foot { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #e8e6e0; background: #ffffff; }
+.dark .nt-foot { border-top-color: #2a2a2e; background: #131316; }
+.nt-foot-btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px;
+  border: 1px solid #d8d4cb; border-radius: 8px; background: #ffffff; color: #4a4a4a;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.14s ease;
+}
+.nt-foot-btn:hover { border-color: #c7c2b7; color: #1a1a1a; }
+.dark .nt-foot-btn { border-color: #34343a; background: #1c1c20; color: #c9c9d0; }
+.dark .nt-foot-btn:hover { border-color: #44444c; color: #f4f4f7; }
+.nt-foot-cta { background: #c41284; border-color: #c41284; color: #fff; }
+.nt-foot-cta:hover { background: #a80f70; border-color: #a80f70; color: #fff; }
+.dark .nt-foot-cta { background: #c41284; border-color: #c41284; color: #fff; }
+.dark .nt-foot-cta:hover { background: #d81a95; border-color: #d81a95; color: #fff; }
+
+/* ── Espansione a modal centrale (morphing FLIP via JS) ────────────────────── */
+.nt-head-actions { display: flex; align-items: center; gap: 8px; }
+.nt-panel--modal {
+  top: 7vh;
+  bottom: 7vh;
+  left: calc(50% - min(430px, 46vw));
+  right: auto;
+  width: min(860px, 92vw);
+  max-width: none;
+  max-height: none;
+  height: auto;
+  border-radius: 20px;
+}
+.nt-hint-swipe { opacity: 0.7; font-weight: 400; }
+@media (max-width: 560px) { .nt-hint-swipe { display: none; } }
+
+/* ── Gesture swipe stile iOS/WhatsApp ─────────────────────────────────────── */
+.nt-swipe { position: relative; overflow: hidden; }
+.nt-swipe-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+}
+.nt-swipe-side.left { left: 0; }
+.nt-swipe-side.right { right: 0; }
+.nt-swipe-act {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  cursor: pointer;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.nt-swipe-act.tone-mint { background: #17b26a; }
+.nt-swipe-act.tone-amber { background: #d98b2b; }
+.nt-swipe-act.tone-indigo { background: #5b6ef5; }
+.nt-swipe-act.tone-slate { background: #64748b; }
+.nt-swipe-act svg { opacity: 0.95; }
+
+/* il contenuto scorre sopra le azioni, quindi deve essere opaco */
+.nt-swipe > .nt-item {
+  position: relative;
+  z-index: 1;
+  background: #ffffff;
+  touch-action: pan-y;
+  will-change: transform;
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .nt-swipe > .nt-item { background: #131316; }
+.nt-swipe > .nt-item.unread { background: color-mix(in srgb, #c41284 5%, #ffffff); }
+.dark .nt-swipe > .nt-item.unread { background: color-mix(in srgb, #c41284 12%, #131316); }
+.nt-swipe.open > .nt-item { box-shadow: -6px 0 14px rgba(0, 0, 0, 0.06), 6px 0 14px rgba(0, 0, 0, 0.06); }
+.nt-swipe > .nt-item:hover { background: #f7f5f1; }
+.dark .nt-swipe > .nt-item:hover { background: #1c1c20; }
+.nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 8%, #ffffff); }
+.dark .nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 16%, #131316); }
+
+/* ── Azioni come pulsanti (desktop) ───────────────────────────────────────────
+   Su mouse le gesture sono scomode: le stesse azioni compaiono come pulsanti al
+   passaggio del mouse. Su touch restano solo le gesture. */
+.nt-actions { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  /* Fuori dal flusso: da fermi non occupano spazio e non spostano il contenuto. */
+  .nt-actions {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) translateX(10px);
+    transition: opacity 0.16s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* In hover il contenuto scorre a sinistra (padding animato) e i pulsanti
+     entrano da destra: è lo "spazio" che si apre per loro. */
+  .nt-swipe > .nt-item { transition: background 0.12s ease, padding-right 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+  .nt-swipe > .nt-item:hover,
+  .nt-swipe > .nt-item:focus-within { padding-right: 108px; }
+  .nt-swipe > .nt-item:hover .nt-actions,
+  .nt-swipe > .nt-item:focus-within .nt-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+.nt-act {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8d4cb;
+  background: #ffffff;
+  color: #6b6b6b;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.dark .nt-act { border-color: #34343a; background: #1c1c20; color: #c9c9d0; }
+.nt-act.tone-mint:hover { border-color: #17b26a; color: #17b26a; }
+.nt-act.tone-amber:hover { border-color: #d98b2b; color: #d98b2b; }
+.nt-act.tone-indigo:hover { border-color: #5b6ef5; color: #5b6ef5; }
+.nt-act.tone-slate:hover { border-color: #64748b; color: #64748b; }

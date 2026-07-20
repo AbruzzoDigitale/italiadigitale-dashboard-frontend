@@ -1,5 +1,5 @@
 import { authFetch, API_BASE } from "./auth";
-import type { LeftBehindReason } from "./workItems";
+import type { LeftBehindReason, WorkItem, WorkItemScheduleState } from "./workItems";
 
 export type WorkloadAvailabilityStatus =
   | "active"
@@ -73,6 +73,7 @@ export interface WorkloadTaskSummary {
   is_left_behind: boolean;
   left_behind_reason: LeftBehindReason | null;
   left_behind_note: string | null;
+  schedule_state?: WorkItemScheduleState | null;
   work_areas: WorkloadTaskWorkArea[];
 }
 
@@ -147,6 +148,8 @@ export interface WorkloadTimelineArea {
 
 export interface WorkloadTimelineItem {
   kind: WorkloadTimelineKind;
+  /** Giorno (YYYY-MM-DD) cui appartiene l'item nelle risposte range/settimana. */
+  date?: string | null;
   source_id: number | null;
   title: string;
   start_time: string | null;
@@ -165,7 +168,56 @@ export interface WorkloadTimelineItem {
   is_left_behind?: boolean;
   left_behind_reason?: LeftBehindReason | null;
   left_behind_note?: string | null;
+  schedule_state?: WorkItemScheduleState | null;
   work_areas?: WorkloadTimelineArea[];
+  task?: WorkItem | null;
+  /** Traccia sbiadita sul giorno d'assegnazione originale di una task spostata a oggi. */
+  is_ghost?: boolean;
+  /** Task in revisione: grafica dedicata (peso per-utente già in schedule_state). */
+  is_review?: boolean;
+  /** Giorno collegato: sull'item reale = giorno d'origine ("↪ dal …"); sul ghost = dov'è ora. */
+  origin_date?: string | null;
+}
+
+export interface WorkloadCalendarOverCapacityTask {
+  work_item_id: number;
+  title: string;
+  client_name: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  overflow_hours: number;
+  status: string | null;
+  work_areas: WorkloadTimelineArea[];
+  task: WorkItem | null;
+}
+
+export interface WorkloadCalendarOverCapacity {
+  capacity_hours: number;
+  planned_hours: number;
+  overload_hours: number;
+  overflow_tasks_effective_hours: number;
+  total_tasks_count: number;
+  tasks: WorkloadCalendarOverCapacityTask[];
+}
+
+export type WorkloadCalendarConflictType = "overlap" | "over_capacity" | "behind_task" | "severe_delay";
+export type WorkloadCalendarConflictSeverity = "info" | "warning" | "danger";
+
+export interface WorkloadCalendarConflict {
+  conflict_type: WorkloadCalendarConflictType;
+  severity: WorkloadCalendarConflictSeverity;
+  title: string;
+  message: string;
+  work_item_ids: number[];
+  start_time: string | null;
+  end_time: string | null;
+  overlap_minutes: number | null;
+  overload_hours: number | null;
+  effective_load_hours: number | null;
+  tasks: WorkItem[];
+  metadata: Record<string, unknown> | null;
 }
 
 export interface WorkloadUserCalendarDayResponse {
@@ -181,6 +233,8 @@ export interface WorkloadUserCalendarDayResponse {
   company_id: number | null;
   days: WorkloadCalendarDay[];
   timeline: WorkloadTimelineItem[];
+  over_capacity: WorkloadCalendarOverCapacity | null;
+  conflicts: WorkloadCalendarConflict[];
 }
 
 export interface WorkloadUserByDay {
@@ -243,6 +297,7 @@ export interface GetWorkloadUserCalendarDayParams {
   to_date?: string;
   week_offset?: number;
   company_id?: number;
+  include_completed?: boolean;
 }
 
 export type ListWorkloadGroupedParams = ListWorkloadUsersParams;
@@ -441,6 +496,7 @@ export async function getWorkloadUserCalendarDayApi(
     to_date: params.to_date,
     week_offset: params.week_offset,
     company_id: params.company_id,
+    include_completed: params.include_completed == null ? undefined : Number(params.include_completed),
   });
 
   const res = await authFetch(`${API_BASE}/api/v1/workload/users/${userId}/calendar-day${qs}`);
@@ -458,6 +514,8 @@ export interface WorkloadDailyTaskDetail extends WorkloadTaskSummary {
   progress_percent: number;
   is_priority: boolean;
   actual_hours_spent: number;
+  /** Numero di rimandi da revisione (1 → giallo, 2+ → rosso nelle card). */
+  rework_count?: number;
 }
 
 export interface WorkloadDailyKPI {
@@ -471,6 +529,27 @@ export interface WorkloadDailyKPI {
   actual_hours_total: number;
 }
 
+export interface WorkloadDayRecap {
+  date: string;
+  // Liste complete (ogni item è un WorkloadDailyTaskDetail)
+  in_progress: WorkloadDailyTaskDetail[];
+  todo: WorkloadDailyTaskDetail[];
+  done: WorkloadDailyTaskDetail[];
+  overdue: WorkloadDailyTaskDetail[];
+  // Conteggi
+  in_progress_count: number;
+  todo_count: number;
+  done_count: number;
+  overdue_count: number;
+  today_total: number;
+  open_total: number;
+  // Ore (effective_load_hours, ore-peso)
+  estimated_hours_today: number;
+  actual_hours_today: number;
+  overdue_hours: number;
+  capacity_hours: number;
+}
+
 export interface WorkloadDailySelfResponse extends WorkloadDailyKPI {
   date: string;
   user_id: number;
@@ -480,6 +559,8 @@ export interface WorkloadDailySelfResponse extends WorkloadDailyKPI {
   company_id: number;
   next_task: WorkloadDailyTaskDetail | null;
   tasks: WorkloadDailyTaskDetail[];
+  /** Recap giornaliero (può mancare se il backend non è ancora aggiornato). */
+  recap?: WorkloadDayRecap;
 }
 
 export interface WorkloadDailyAdminAccordionUserRow extends WorkloadDailyKPI {
@@ -505,49 +586,6 @@ export interface GetDailyTasksParams {
   target_date?: string;
   company_id?: number;
   q?: string;
-}
-
-// ── Workload Engine Types ────────────────────────────────────────────────────
-
-export interface WorkloadEngineRunRequest {
-  company_id: number;
-  task_ids?: number[] | null;
-  planning_start_date?: string | null;
-  planning_end_date?: string | null;
-}
-
-export interface WorkloadEngineAllocationDetail {
-  allocation_date: string;
-  planned_hours: number;
-  overload_hours: number;
-}
-
-export interface WorkloadEngineTaskAllocation {
-  task_id: number;
-  title: string;
-  start_date: string;
-  end_date: string;
-  estimated_hours: number;
-  effective_hours: number;
-  is_fractionable: boolean;
-  conflict_code: string | null;
-  overload_hours: number;
-  allocations: WorkloadEngineAllocationDetail[];
-}
-
-export interface WorkloadEngineRunResponse {
-  run_id: string;
-  company_id: number;
-  strategy: string;
-  strategy_version: string | null;
-  daily_capacity_hours: number;
-  total_tasks: number;
-  allocated_tasks: number;
-  unallocated_tasks: number;
-  total_effective_hours: number;
-  total_overload_hours: number;
-  applied: boolean;
-  tasks: WorkloadEngineTaskAllocation[];
 }
 
 export async function getDailyTasksSelfApi(
@@ -583,124 +621,198 @@ export async function getDailyTasksAdminAccordionApi(
   return res.json();
 }
 
-// ── Workload Engine ─────────────────────────────────────────────────────────
+// ── Overdue tasks (arretrati a livello azienda, incluse le non derogabili) ────
 
-export async function previewWorkloadEngineRunApi(
-  payload: WorkloadEngineRunRequest
-): Promise<WorkloadEngineRunResponse> {
-  const res = await authFetch(`${API_BASE}/api/v1/workload/engine/preview`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      `[${res.status}] ${parseApiError(body, "Errore nella preview workload engine")}`
-    );
-  }
-  return res.json();
-}
+export type WorkItemDelayCode = "non_deferrable_overdue" | "carried_over" | null;
 
-export async function applyWorkloadEngineRunApi(
-  payload: WorkloadEngineRunRequest
-): Promise<WorkloadEngineRunResponse> {
-  const res = await authFetch(`${API_BASE}/api/v1/workload/engine/apply`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      `[${res.status}] ${parseApiError(body, "Errore nell'apply workload engine")}`
-    );
-  }
-  return res.json();
-}
-
-// ── Allocation Grid ──────────────────────────────────────────────────────────
-
-export type WorkloadAllocationStatus = "ok" | "at_limit" | "overload";
-export type WorkloadDayStatus = "ok" | "warning" | "overload" | "empty";
-
-export interface WorkloadAllocationTask {
+export interface OverdueTaskItem {
   work_item_id: number;
   title: string;
+  client_id: number | null;
   client_name: string | null;
+  work_date: string | null;
   deadline_date: string | null;
-  is_fractionable: boolean;
-  planned_hours: number;
-  overload_hours: number;
-  conflict_code: string | null;
-  allocation_status: WorkloadAllocationStatus;
+  is_deadline_locked: boolean;
+  days_overdue: number;
+  days_behind_work_date: number | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  delay_code: WorkItemDelayCode;
+  is_overdue: boolean;
+  is_severe_delay: boolean;
+  status: string | null;
+  assignee_ids: number[];
+  work_areas: WorkloadTaskWorkArea[];
+  task: WorkItem | null;
 }
 
-export interface WorkloadAllocationDay {
-  date: string;
-  daily_capacity_hours: number;
-  total_planned_hours: number;
-  total_overload_hours: number;
-  utilization_percent: number;
-  day_status: WorkloadDayStatus;
-  allocations: WorkloadAllocationTask[];
-}
-
-export interface WorkloadAllocationOperator {
-  user_id: number;
-  username: string;
-  full_name: string | null;
-  total_planned_hours: number;
-  total_overload_hours: number;
-  utilization_percent: number;
-  days: WorkloadAllocationDay[];
-}
-
-export interface WorkloadAllocationWorkArea {
-  area_id: number;
-  area_name: string;
-  area_slug: string | null;
-  area_icon: string | null;
-  area_color: string | null;
-  total_planned_hours: number;
-  total_overload_hours: number;
-  utilization_percent: number;
-  days: WorkloadAllocationDay[];
-}
-
-export interface WorkloadAllocationGrid {
-  from_date: string;
-  to_date: string;
-  daily_capacity_hours: number;
-  strategy: string;
-  last_run_id: string | null;
-  total_tasks: number;
-  total_overload_hours: number;
-  days: WorkloadAllocationDay[];
-  operators: WorkloadAllocationOperator[];
-  work_areas: WorkloadAllocationWorkArea[];
-}
-
-export interface GetWorkloadAllocationGridParams {
+export interface ListOverdueTasksResponse {
   company_id: number;
   from_date: string;
   to_date: string;
-  run_id?: string | null;
+  window_days: number;
+  filter_user_id: number | null;
+  filter_work_area_id: number | null;
+  filter_client_id: number | null;
+  total_tasks_count: number;
+  non_deferrable_count: number;
+  deferrable_count: number;
+  total_effective_load_hours: number;
+  tasks: OverdueTaskItem[];
 }
 
-export async function getWorkloadAllocationGridApi(
-  params: GetWorkloadAllocationGridParams
-): Promise<WorkloadAllocationGrid> {
+export interface ListOverdueTasksParams {
+  company_id?: number;
+  days?: number;
+  user_id?: number;
+  work_area_id?: number;
+  client_id?: number;
+}
+
+export async function listOverdueTasksApi(
+  params: ListOverdueTasksParams = {}
+): Promise<ListOverdueTasksResponse> {
   const qs = buildQuery({
     company_id: params.company_id,
-    from_date: params.from_date,
-    to_date: params.to_date,
-    ...(params.run_id ? { run_id: params.run_id } : {}),
+    days: params.days,
+    user_id: params.user_id,
+    work_area_id: params.work_area_id,
+    client_id: params.client_id,
   });
-  const res = await authFetch(`${API_BASE}/api/v1/workload/allocation-grid${qs}`);
+  const res = await authFetch(`${API_BASE}/api/v1/workload/overdue-tasks${qs}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(
-      `[${res.status}] ${parseApiError(body, "Impossibile recuperare la griglia allocazioni")}`
+      `[${res.status}] ${parseApiError(body, "Impossibile recuperare le attività in ritardo")}`
     );
+  }
+  return res.json();
+}
+
+// ── Overbooking check (alternativi liberi della stessa area dopo creazione task) ─
+
+export interface OverbookingOperatorOption {
+  user_id: number;
+  username: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  availability_status: string;
+  capacity_hours: number;
+  occupied_hours: number;
+  remaining_hours: number;
+  projected_hours: number;
+  fits: boolean;
+  shared_work_area_ids: number[];
+}
+
+export interface OverbookingCheckResponse {
+  work_item_id: number;
+  company_id: number;
+  work_date: string | null;
+  task_effective_hours: number;
+  work_area_ids: number[];
+  target_user_id: number;
+  target_capacity_hours: number;
+  target_occupied_hours: number;
+  target_overflow_hours: number;
+  is_overbooking: boolean;
+  suggested_user_id: number | null;
+  alternatives: OverbookingOperatorOption[];
+}
+
+export interface CheckOverbookingParams {
+  company_id?: number;
+  user_id?: number;
+}
+
+export async function checkWorkItemOverbookingApi(
+  workItemId: number,
+  params: CheckOverbookingParams = {}
+): Promise<OverbookingCheckResponse> {
+  const qs = buildQuery({ company_id: params.company_id, user_id: params.user_id });
+  const res = await authFetch(
+    `${API_BASE}/api/v1/workload/work-items/${workItemId}/overbooking-check${qs}`
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      `[${res.status}] ${parseApiError(body, "Impossibile verificare l'overbooking")}`
+    );
+  }
+  return res.json();
+}
+
+// ── "Da pianificare" a livello azienda, raggruppato per operatore ─────────────────
+export interface WorkloadToPlanReassignTask {
+  work_item_id: number;
+  title: string;
+  client_name: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  overflow_hours: number;
+  status: string | null;
+  work_areas: WorkloadTaskWorkArea[];
+}
+
+export interface WorkloadToPlanUnscheduledTask {
+  work_item_id: number;
+  title: string;
+  client_name: string | null;
+  estimated_hours: number | null;
+  effective_load_hours: number;
+  start_time: string | null;
+  is_all_day: boolean;
+  status: string | null;
+  work_areas: WorkloadTaskWorkArea[];
+}
+
+export interface WorkloadToPlanOperator {
+  user_id: number;
+  full_name: string | null;
+  username: string;
+  avatar_url: string | null;
+  roles: WorkloadRole[];
+  reassign: WorkloadToPlanReassignTask[];
+  unscheduled: WorkloadToPlanUnscheduledTask[];
+  review: WorkloadToPlanUnscheduledTask[];
+  reassign_count: number;
+  unscheduled_count: number;
+  review_count: number;
+}
+
+export interface WorkloadToPlanResponse {
+  from_date: string;
+  to_date: string;
+  operators: WorkloadToPlanOperator[];
+  totals: { reassign: number; unscheduled: number; review?: number };
+}
+
+export interface GetWorkloadToPlanParams {
+  company_id: number;
+  range_mode?: "day" | "week" | "month" | "custom";
+  anchor_date?: string;
+  week_offset?: number;
+  from_date?: string;
+  to_date?: string;
+  q?: string;
+}
+
+export async function getWorkloadToPlanApi(params: GetWorkloadToPlanParams): Promise<WorkloadToPlanResponse> {
+  const qs = buildQuery({
+    company_id: params.company_id,
+    range_mode: params.range_mode,
+    anchor_date: params.anchor_date,
+    week_offset: params.week_offset,
+    from_date: params.from_date,
+    to_date: params.to_date,
+    q: params.q,
+  });
+  const res = await authFetch(`${API_BASE}/api/v1/workload/to-plan${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le task da pianificare")}`);
   }
   return res.json();
 }

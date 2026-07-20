@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { listSocialPackagesApi, getSocialPackageApi, type SocialPackageDetail } from "../api/socialPackages";
+import { getMyCompaniesApi, type Company, type SocialPackageCardStyle } from "../api/companies";
 import { formatCurrency } from "../features/social-packages/draft";
 import { useCreateQuoteFromConfigurator } from "../hooks/useCreateQuoteFromConfigurator";
 import { Spinner } from "../components/ui/Spinner";
@@ -22,6 +23,143 @@ interface SocialPresentationPackage {
   included: string[];
   monthly: string[];
   accent: Accent;
+}
+
+function CheckIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  );
+}
+
+function MonthlyBlock({ items, open }: { items: string[]; open: boolean }) {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    setH(open && innerRef.current ? innerRef.current.scrollHeight : 0);
+  }, [open, items]);
+  return (
+    <div className="social-pack__monthly" style={{ height: h }}>
+      <div className="social-pack__monthly-in" ref={innerRef}>
+        <div className="social-pack__feat-label">Ogni mese realizziamo</div>
+        <ul className="social-pack__feat">
+          {items.map((f, i) => (
+            <li key={i}><CheckIcon size={16} /><span>{f}</span></li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function formatPriceValue(amount: number | null | undefined) {
+  if (amount == null) return "-";
+  try {
+    return new Intl.NumberFormat("it-IT", {
+      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return String(amount);
+  }
+}
+
+interface PackageCardProps {
+  pkg: SocialPresentationPackage;
+  index: number;
+  total: number;
+  cardStyle: SocialPackageCardStyle;
+  reco: boolean;
+  selected: boolean;
+  onSelect: (id: number) => void;
+}
+
+function PackageCard({ pkg, index, total, cardStyle, reco, selected, onSelect }: PackageCardProps) {
+  const [open, setOpen] = useState(false);
+  const indexLabel = String(index + 1).padStart(2, "0");
+  // rail: riempimento progressivo in base alla posizione (1..N)
+  const railFill = `${Math.round(((index + 1) / total) * 100)}%`;
+  const tier = index + 1;
+
+  const included = pkg.included.length ? pkg.included : ["Definizione strategica iniziale"];
+  const monthly = pkg.monthly.length ? pkg.monthly : ["Produzione contenuti ricorrenti"];
+  const priceNote = pkg.price_badge || "Durata min. 6 mesi · IVA esclusa";
+
+  return (
+    <article
+      className={`social-pack${reco ? " is-reco" : ""}${selected ? " is-selected" : ""}`}
+      style={{ ["--i"]: index, ...(cardStyle === "rail" ? { "--rail": railFill } : {}) } as CSSProperties}
+      onClick={() => onSelect(pkg.id)}
+    >
+      {cardStyle === "tech" && (<><span className="social-pack__corner tl" /><span className="social-pack__corner br" /></>)}
+      {reco && <div className="social-pack__reco-tag">Il più scelto</div>}
+      <div className="social-pack__select-mark"><CheckIcon size={15} /></div>
+
+      <div className="social-pack__head">
+        <span className="social-pack__index">{cardStyle === "tech" ? `/ ${indexLabel}` : indexLabel}</span>
+      </div>
+
+      {cardStyle === "rail" && (
+        <div className="social-pack__tier-dots">
+          {Array.from({ length: total }).map((_, t) => (
+            <i key={t} className={t < tier ? "on" : ""} />
+          ))}
+        </div>
+      )}
+
+      <h2 className="social-pack__name">{pkg.title}</h2>
+      <p className="social-pack__desc">{pkg.description || "Pacchetto social personalizzato per la crescita del brand."}</p>
+
+      <div className="social-pack__price">
+        <span className="cur">€</span>
+        <span className="val">{formatPriceValue(pkg.base_price)}</span>
+        <span className="per">/ {periodLabel(pkg.billing_period) === "al mese" ? "mese" : periodLabel(pkg.billing_period)}</span>
+      </div>
+      <div className="social-pack__price-note">{priceNote}</div>
+
+      <div className="social-pack__feat-label">Incluso per te</div>
+      <ul className="social-pack__feat">
+        {included.map((row, idx) => (
+          <li key={idx}><CheckIcon size={16} /><span>{row}</span></li>
+        ))}
+      </ul>
+
+      <button
+        type="button"
+        className={`social-pack__expand-btn${open ? " open" : ""}`}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+      >
+        <span>{open ? "Nascondi dettagli mensili" : "Cosa realizziamo ogni mese"}</span>
+        <ChevronIcon size={16} />
+      </button>
+      <MonthlyBlock items={monthly} open={open} />
+
+      <button
+        type="button"
+        className={`social-pack__cta${reco || selected ? " primary" : ""}`}
+        onClick={() => onSelect(pkg.id)}
+      >
+        Personalizza <ArrowRightIcon size={15} />
+      </button>
+    </article>
+  );
 }
 
 function accentFromPackage(item: SocialPackageDetail, index: number): Accent {
@@ -105,6 +243,7 @@ export function SocialPackagesPresentationPage() {
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<SocialPresentationPackage[]>([]);
+  const [cardStyle, setCardStyle] = useState<SocialPackageCardStyle>("sober");
 
   // Configuratore state
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -115,6 +254,25 @@ export function SocialPackagesPresentationPage() {
   const [notes, setNotes] = useState("");
   const { createQuote, isSubmitting: creating } = useCreateQuoteFromConfigurator();
   const configRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [presentationMode, setPresentationMode] = useState(false);
+  // In presentazione la barra sconto/preventivo parte abbassata: si tira su con la freccetta.
+  const [quotebarOpen, setQuotebarOpen] = useState(false);
+
+  const togglePresentation = () => {
+    const next = !presentationMode;
+    setPresentationMode(next);
+    if (next) setQuotebarOpen(false); // entra in presentazione con la barra abbassata
+    if (next) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  };
+
+  // Esc dal fullscreen → esci dalla modalità presentazione.
+  useEffect(() => {
+    const onFs = () => { if (!document.fullscreenElement) setPresentationMode(false); };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +303,22 @@ export function SocialPackagesPresentationPage() {
     };
   }, [toast, user?.company_id]);
 
+  // Stile card scelto dall'azienda (leggibile da tutti via /companies/me).
+  useEffect(() => {
+    let cancelled = false;
+    getMyCompaniesApi()
+      .then((companies) => {
+        if (cancelled) return;
+        const flat: Company[] = [];
+        const walk = (list: Company[]) => list.forEach((c) => { flat.push(c); if (c.children?.length) walk(c.children); });
+        walk(companies);
+        const mine = flat.find((c) => c.id === user?.company_id) ?? flat[0];
+        if (mine?.social_packages_card_style) setCardStyle(mine.social_packages_card_style);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.company_id]);
+
   const orderedPackages = useMemo(
     () => [...packages].sort((a, b) => (a.base_price ?? 0) - (b.base_price ?? 0)),
     [packages]
@@ -154,6 +328,15 @@ export function SocialPackagesPresentationPage() {
     () => orderedPackages.find((p) => p.id === selectedId) ?? null,
     [orderedPackages, selectedId]
   );
+
+  // Pacchetto consigliato ("Il più scelto"): preferisci accent "growth",
+  // altrimenti quello centrale. Deterministico.
+  const recoId = useMemo(() => {
+    if (orderedPackages.length === 0) return null;
+    const growth = orderedPackages.find((p) => p.accent === "growth");
+    if (growth) return growth.id;
+    return orderedPackages[Math.floor(orderedPackages.length / 2)].id;
+  }, [orderedPackages]);
 
   // Totali identici al prototipo
   const STRATEGY_PRICE = 500;
@@ -223,12 +406,20 @@ export function SocialPackagesPresentationPage() {
   }
 
   return (
-    <div className="social-presentation-page">
+    <div ref={pageRef} className={`social-presentation-page${presentationMode ? " is-presentation" : ""}${presentationMode && quotebarOpen ? " qbar-open" : ""}`}>
+
+      {presentationMode && (
+        <button type="button" className="social-present-exit" onClick={togglePresentation}>
+          Esci dalla presentazione ✕
+        </button>
+      )}
 
       {/* ── Hero scuro ── */}
       <div className="social-hero-section">
-        <div className="social-hero__title">Pacchetti Social Media</div>
-        <div className="social-hero__sub">
+        {/* key legata a presentationMode: al passaggio gli elementi si rimontano e
+            l'animazione di ingresso (CSS) riparte da capo. */}
+        <div key={`t-${presentationMode}`} className="social-hero__title">Pacchetti Social Media</div>
+        <div key={`s-${presentationMode}`} className="social-hero__sub">
           <strong>Durata minima: 6 mesi</strong> · IVA esclusa
         </div>
 
@@ -239,38 +430,29 @@ export function SocialPackagesPresentationPage() {
         ) : orderedPackages.length === 0 ? (
           <div className="social-presentation-empty">Nessun pacchetto attivo disponibile per questa azienda.</div>
         ) : (
-          <section className="social-hero__deck">
-            {orderedPackages.map((item) => (
-              <article
+          <section key={`d-${presentationMode}`} className={`social-hero__deck social-deck--${cardStyle}`}>
+            {orderedPackages.map((item, index) => (
+              <PackageCard
                 key={item.id}
-                className={`social-pack social-pack--${item.accent}${selectedId === item.id ? " is-selected" : ""}`}
-                onClick={() => selectPack(item.id)}
-              >
-                <h2 className="social-pack__name">{item.title}</h2>
-                <p className="social-pack__desc">{item.description || "Pacchetto social personalizzato per la crescita del brand."}</p>
-
-                <div className="social-pack__group-title">Incluso per te:</div>
-                <ul className="social-pack__list">
-                  {(item.included.length ? item.included : ["Definizione strategica iniziale"]).map((row, idx) => (
-                    <li key={`${item.id}-inc-${idx}`}>{row}</li>
-                  ))}
-                </ul>
-
-                <div className="social-pack__group-title">Cosa realizziamo ogni mese:</div>
-                <ul className="social-pack__list">
-                  {(item.monthly.length ? item.monthly : ["Produzione contenuti ricorrenti"]).map((row, idx) => (
-                    <li key={`${item.id}-mon-${idx}`}>{row}</li>
-                  ))}
-                </ul>
-
-                <div className="social-pack__price">
-                  {formatCurrency(item.base_price, item.currency)}
-                  <small>{periodLabel(item.billing_period)}</small>
-                  {item.price_badge && <div className="social-pack__badge">{item.price_badge}</div>}
-                </div>
-              </article>
+                pkg={item}
+                index={index}
+                total={orderedPackages.length}
+                cardStyle={cardStyle}
+                reco={item.id === recoId}
+                selected={selectedId === item.id}
+                onSelect={selectPack}
+              />
             ))}
           </section>
+        )}
+
+        {!loading && orderedPackages.length > 0 && !presentationMode && (
+          <div className="social-deck__actions">
+            <button type="button" className="social-present-btn" onClick={togglePresentation}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              Modalità presentazione
+            </button>
+          </div>
         )}
       </div>
 
@@ -301,14 +483,34 @@ export function SocialPackagesPresentationPage() {
 
               <div className="field">
                 <label>Durata (mesi)</label>
-                <input
-                  type="number"
-                  className="input"
-                  min={6}
-                  max={36}
-                  value={months}
-                  onChange={(e) => setMonths(Math.max(6, parseInt(e.target.value) || 6))}
-                />
+                <div className="cfg-stepper">
+                  <button
+                    type="button"
+                    className="cfg-stepper__btn"
+                    onClick={() => setMonths((m) => Math.max(6, m - 1))}
+                    disabled={months <= 6}
+                    aria-label="Diminuisci mesi"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    className="cfg-stepper__val"
+                    min={6}
+                    max={36}
+                    value={months}
+                    onChange={(e) => setMonths(Math.min(36, Math.max(6, parseInt(e.target.value) || 6)))}
+                  />
+                  <button
+                    type="button"
+                    className="cfg-stepper__btn"
+                    onClick={() => setMonths((m) => Math.min(36, m + 1))}
+                    disabled={months >= 36}
+                    aria-label="Aumenta mesi"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -419,6 +621,64 @@ export function SocialPackagesPresentationPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Barra preventivo sticky in basso ── */}
+      {!loading && orderedPackages.length > 0 && (
+        <div
+          className={`social-quotebar${presentationMode ? " is-present-bar" : ""}${
+            presentationMode && !quotebarOpen ? " is-collapsed" : ""
+          }`}
+        >
+          {presentationMode && (
+            <button
+              type="button"
+              className="social-quotebar__handle"
+              onClick={() => setQuotebarOpen((o) => !o)}
+              aria-label={quotebarOpen ? "Nascondi barra preventivo" : "Mostra barra preventivo"}
+              title={quotebarOpen ? "Nascondi" : "Mostra prezzo e sconto"}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 15l6-6 6 6" />
+              </svg>
+            </button>
+          )}
+          <div className="social-quotebar__info">
+            {selectedPack ? (
+              <>
+                <span className="social-quotebar__pkg">{selectedPack.title} · {months} mesi</span>
+                <span className="social-quotebar__price">{formatCurrency(total, selectedPack.currency)}</span>
+                {discountAmount > 0 && (
+                  <span className="social-quotebar__disc">sconto −{formatCurrency(discountAmount, selectedPack.currency)}</span>
+                )}
+              </>
+            ) : (
+              <span className="social-quotebar__hint">Seleziona un pacchetto per vedere il prezzo</span>
+            )}
+          </div>
+          <div className="social-quotebar__controls">
+            <label className="social-quotebar__field">
+              <span>Sconto %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={discountPct}
+                disabled={!selectedPack}
+                onChange={(e) => setDiscountPct(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn--magenta"
+              onClick={generateQuote}
+              disabled={!selectedPack || creating}
+            >
+              {creating ? "Creazione..." : "Salva come preventivo →"}
+            </button>
           </div>
         </div>
       )}

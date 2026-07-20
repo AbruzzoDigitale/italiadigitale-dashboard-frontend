@@ -1,9 +1,16 @@
 .wl-toolbar-shell {
-  border-radius: 16px;
-  padding: 16px;
+  /* Headbar (titolo + bottoni) separata dal contenuto da un bordo a tutta larghezza,
+     nero in tema chiaro / bianco in tema scuro (come nel prototipo).
+     Full-bleed: margini negativi per arrivare ai bordi, padding interno per
+     mantenere i bottoni allineati al titolo. */
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  padding: 16px 1.5rem;
+  border-bottom: 1px solid rgba(27, 28, 27, 0.1);
 }
 
 .dark .wl-toolbar-shell {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
 }
 
 .wl-toolbar-row {
@@ -27,10 +34,48 @@
   gap: 6px;
 }
 
+/* Righe toolbar a due estremità: gruppo sinistra · gruppo destra */
+.wl-toolbar-bar {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wl-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Riga verticale di separazione (es. tra cerca/operatore e i CTA) */
+.wl-toolbar-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 24px;
+  background: #d8d4cb;
+  margin: 0 4px;
+}
+
+.dark .wl-toolbar-divider {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Variante quadrata icon-only del bottone outline (es. Aggiorna) */
+.wl-outline-btn--icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+
+/* Segmented switch — stile prototipo .seg: contenitore a pillola (bg superficie + bordo),
+   bottoni a pillola, attivo = antracite pieno con testo bianco.
+   Condiviso da range (Giorno/Settimana/Mese), viste, densità e tray.
+   Versione globale riutilizzabile: .seg-switch (vedi index.css). */
 .wl-segmented {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   padding: 3px;
   border: 1px solid theme(colors.line.DEFAULT);
   border-radius: 999px;
@@ -42,47 +87,22 @@
   background: theme(colors.ink.2);
 }
 
-.wl-segmented--range {
-  border-color: transparent;
-  background: transparent;
-  padding: 0;
-}
-
-.dark .wl-segmented--range {
-  border-color: transparent;
-  background: transparent;
-}
-
-.wl-segmented--view {
-  border-color: rgba(10, 10, 10, 0.45);
-  border-radius: 8px;
-  background: transparent;
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-}
-
-.dark .wl-segmented--view {
-  border-color: theme(colors.line.dark);
-  background: transparent;
-}
-
 .wl-segmented-btn {
-  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
   border-radius: 999px;
-  background: transparent;
+  background: none;
   color: theme(colors.muted.DEFAULT);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 6px 10px;
-  transition: all .15s ease;
-}
-
-.wl-toolbar-row--left .wl-segmented-btn {
-  padding: 5px 8px;
-  font-size: 10px;
+  padding: 7px 15px;
+  white-space: nowrap;
+  transition: all .14s ease;
 }
 
 .dark .wl-segmented-btn {
@@ -98,57 +118,71 @@
 }
 
 .wl-segmented-btn.is-active {
-  border-color: theme(colors.ink.DEFAULT);
   background: theme(colors.ink.DEFAULT);
   color: theme(colors.paper);
 }
 
 .dark .wl-segmented-btn.is-active {
-  border-color: theme(colors.paper);
   background: theme(colors.paper);
   color: theme(colors.ink.DEFAULT);
 }
 
-.wl-segmented-btn--range.is-active {
-  border-color: theme(colors.ink.DEFAULT);
-  background: transparent;
-  color: theme(colors.ink.DEFAULT);
+/* Bottoni icon-only (densità): pillola più stretta */
+.wl-segmented-btn.wl-icon-btn {
+  padding: 7px 11px;
 }
 
-.dark .wl-segmented-btn--range.is-active {
-  border-color: theme(colors.paper);
-  background: transparent;
-  color: theme(colors.paper);
-}
-
-.wl-segmented-btn--view.is-active {
-  border-color: #ffffff;
-  background: #ffffff;
-  color: theme(colors.ink.DEFAULT);
-}
-
-.dark .wl-segmented-btn--view.is-active {
-  border-color: #ffffff;
-  background: #ffffff;
-  color: theme(colors.ink.DEFAULT);
-}
-
-.wl-segmented--view .wl-segmented-btn--view {
-  border-radius: 0;
-  border: 0;
-  border-right: 1px solid rgba(10, 10, 10, 0.45);
-  min-height: 30px;
+/* Selettore vista (Accordion/Completa/Heatmap/Calendario) — stile prototipo .vchip:
+   chip singole separate, radius 8px, attiva = antracite pieno. */
+.wl-vchips {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.wl-segmented--view .wl-segmented-btn--view:last-child {
-  border-right: 0;
+.wl-vchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #d8d4cb;
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all .14s ease;
 }
 
-.dark .wl-segmented--view .wl-segmented-btn--view {
-  border-right-color: theme(colors.line.dark);
+.wl-vchip:hover {
+  color: theme(colors.ink.DEFAULT);
+  border-color: #c7c2b7;
+}
+
+.wl-vchip.is-active {
+  background: theme(colors.ink.DEFAULT);
+  border-color: theme(colors.ink.DEFAULT);
+  color: #fff;
+}
+
+.dark .wl-vchip {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: theme(colors.ink.2);
+  color: theme(colors.muted.dark);
+}
+
+.dark .wl-vchip:hover {
+  color: theme(colors.paper);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.dark .wl-vchip.is-active {
+  background: theme(colors.ink.soft);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 
 .wl-nav-btn {
@@ -218,6 +252,86 @@
   color: theme(colors.paper);
 }
 
+/* Navigazione data riutilizzabile — stile prototipo .tgroup (‹ · etichetta · ›) */
+.wl-datenav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 4px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 8px;
+  background: theme(colors.paper);
+}
+
+.dark .wl-datenav {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wl-datenav-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: theme(colors.ink.DEFAULT);
+  border-radius: 6px;
+  transition: background .14s ease, color .14s ease;
+}
+
+.wl-datenav-arrow:hover {
+  background: theme(colors.cream);
+}
+
+.dark .wl-datenav-arrow {
+  color: theme(colors.paper);
+}
+
+.dark .wl-datenav-arrow:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Drag in corso: entrambe le frecce diventano verdi (resta visibile mentre cambi data) */
+.wl-datenav-arrow.is-dragready,
+.wl-datenav-arrow.is-dragready:hover {
+  background: rgba(22, 163, 74, 0.12);
+  color: theme(colors.success);
+  box-shadow: inset 0 0 0 1px theme(colors.success);
+}
+
+.wl-datenav-arrow.is-dragready svg {
+  color: theme(colors.success);
+}
+
+/* Freccia "armata": sosti sopra durante il drag e pagina automaticamente */
+.wl-datenav-arrow.is-armed,
+.wl-datenav-arrow.is-armed:hover {
+  background: theme(colors.success);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px theme(colors.success);
+}
+
+.wl-datenav-arrow.is-armed svg {
+  color: #fff;
+}
+
+.wl-datenav-label {
+  min-width: 130px;
+  padding: 0 8px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wl-datenav-label {
+  color: theme(colors.paper);
+}
+
 .wl-ghost-btn {
   display: inline-flex;
   align-items: center;
@@ -233,33 +347,77 @@
   text-transform: uppercase;
 }
 
+/* Variante quadrata icon-only del ghost button (azioni standard: Aggiorna) */
+.wl-ghost-btn--icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+
 .wl-new-task-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid theme(colors.line.DEFAULT);
-  border-radius: 999px;
-  background: transparent;
-  color: theme(colors.ink.DEFAULT);
-  padding: 7px 11px;
-  font-size: 11px;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid theme(colors.brand.magenta);
+  border-radius: 8px;
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: color .15s ease, border-color .15s ease;
+  letter-spacing: normal;
+  text-transform: none;
+  transition: background .15s ease, border-color .15s ease;
 }
+
+.wl-new-task-btn svg { color: #fff; }
 
 .wl-new-task-btn:hover {
-  border-color: theme(colors.ink.DEFAULT);
+  background: #a30f6e;
+  border-color: #a30f6e;
 }
 
-.dark .wl-new-task-btn {
-  border-color: theme(colors.line.dark);
+/* Bottone outline (stile prototipo .tbtn): superficie chiara, bordo sottile,
+   testo scuro, icona in colore secondario. Stile dei CTA secondari del Workload. */
+.wl-outline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid #d8d4cb;
+  border-radius: 8px;
+  background: theme(colors.paper);
+  color: theme(colors.ink.DEFAULT);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  transition: background .14s ease, border-color .14s ease;
+}
+
+.wl-outline-btn svg { color: theme(colors.muted.DEFAULT); }
+
+.wl-outline-btn:hover {
+  border-color: #c7c2b7;
+  background: theme(colors.cream);
+}
+
+.dark .wl-outline-btn {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: theme(colors.ink.2);
   color: theme(colors.paper);
 }
 
-.dark .wl-new-task-btn:hover {
-  border-color: theme(colors.paper);
+.dark .wl-outline-btn svg { color: theme(colors.muted.dark); }
+
+.dark .wl-outline-btn:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: theme(colors.ink.soft);
 }
 
 .wl-ghost-btn:hover {
@@ -278,10 +436,10 @@
 .wl-search-field {
   flex: 1;
   min-width: 240px;
-  height: 40px;
-  border-radius: 999px;
-  border: 1px solid theme(colors.line.DEFAULT);
-  background: transparent;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #d8d4cb;
+  background: theme(colors.paper);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -309,7 +467,8 @@
 }
 
 .dark .wl-search-field {
-  border-color: theme(colors.line.dark);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: theme(colors.ink.2);
   color: theme(colors.muted.dark);
 }
 
@@ -348,199 +507,319 @@
   color: theme(colors.paper);
 }
 
+/* Bottone "Ordina per carico" nell'accordion — stile prototipo .acc-sort */
+.wl-acc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid #d8d4cb;
+  border-radius: 8px;
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color .14s ease, color .14s ease;
+}
+.wl-acc-sort:hover { border-color: #c7c2b7; color: theme(colors.ink.DEFAULT); }
+.dark .wl-acc-sort { background: #16171a; border-color: theme(colors.line.dark); color: theme(colors.muted.dark); }
+.dark .wl-acc-sort:hover { border-color: rgba(255, 255, 255, 0.22); color: theme(colors.paper); }
+
 /* ============================================================
    ACCORDION LIST (vista ibrida)
    ============================================================ */
 
+/* Area scroll dell'accordion: sfondo "cream" come .acc-wrap del prototipo, così le lane
+   bianche risaltano; padding attorno alle schede. */
+.wl-acc-scroll {
+  background: theme(colors.cream);
+  padding: 16px 22px 28px;
+}
+.dark .wl-acc-scroll {
+  background: #0e0f0e;
+}
+
 .wl-acc-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* ---------------------------------------------------------------- lane ---- */
 .wl-acc-lane {
+  --wl-area: transparent;
+  position: relative;
   background: theme(colors.paper);
-  border: 0.5px solid theme(colors.line.DEFAULT);
-  border-radius: 16px;
-  padding: 12px 14px;
+  border: 1px solid #d8d4cb;
+  border-radius: 12px;
+  overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .dark .wl-acc-lane {
-  background: #131316;
+  background: #16171a;
   border-color: theme(colors.line.dark);
 }
-
-.wl-acc-lane:hover {
-  border-color: rgba(0, 0, 0, 0.25);
-}
-.dark .wl-acc-lane:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.wl-acc-lane.is-expanded {
-  border-color: theme(colors.ink.DEFAULT);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
-}
+.wl-acc-lane:hover { border-color: #c7c2b7; }
+.dark .wl-acc-lane:hover { border-color: rgba(255, 255, 255, 0.2); }
+.wl-acc-lane.is-expanded { box-shadow: 0 6px 18px rgba(27, 28, 27, 0.08); }
 .dark .wl-acc-lane.is-expanded {
-  border-color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+
+/* Lane "Non assegnate" — stile prototipo .acc-lane--un:
+   bordo tratteggiato ambra, sfondo ambra tenue. */
+.wl-acc-lane--unassigned {
+  border-style: dashed;
+  border-color: color-mix(in srgb, #f5b800 50%, #d8d4cb);
+  background: color-mix(in srgb, #f5b800 5%, theme(colors.paper));
+}
+.wl-acc-lane--unassigned:hover {
+  border-color: color-mix(in srgb, #f5b800 62%, #c7c2b7);
+}
+.dark .wl-acc-lane--unassigned {
+  border-color: color-mix(in srgb, #f5b800 40%, rgba(255, 255, 255, 0.14));
+  background: color-mix(in srgb, #f5b800 8%, #16171a);
+}
+.dark .wl-acc-lane--unassigned:hover {
+  border-color: color-mix(in srgb, #f5b800 50%, rgba(255, 255, 255, 0.2));
+}
+
+/* Avatar non assegnate — ambra pieno, testo/icona antracite (.acc-av--un). */
+.wl-acc-avatar--un {
+  background: #f5b800;
+  color: #1b1c1b;
 }
 
 .wl-acc-lane__row {
   display: grid;
-  grid-template-columns: 200px 1fr auto 28px;
+  grid-template-columns: minmax(190px, 1.1fr) minmax(220px, 2.4fr) 104px 34px;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
+  padding: 13px 16px;
   cursor: pointer;
-  user-select: none;
 }
 
-/* Operatore */
-.wl-acc-lane__op {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
+/* ------------------------------------------------------------ operatore --- */
+.wl-acc-lane__op { display: flex; align-items: center; gap: 11px; min-width: 0; }
 
 .wl-acc-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: theme(colors.ink.DEFAULT);
-  color: theme(colors.paper);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: theme(fontFamily.display);
+  width: 38px; height: 38px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
   font-weight: 700;
-  font-size: 12px;
   letter-spacing: 0.02em;
+  /* Antracite pieno (come .acc-av del prototipo). */
+  background: #1b1c1b;
+  color: #fff;
 }
-.dark .wl-acc-avatar {
-  background: rgba(255, 255, 255, 0.15);
-  color: theme(colors.paper);
-}
-
-.wl-acc-avatar--photo {
-  overflow: hidden;
-  padding: 0;
-}
-.wl-acc-avatar--photo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 50%;
-  display: block;
-}
+.wl-acc-avatar--photo { overflow: hidden; padding: 0; }
+.wl-acc-avatar--photo img { width: 100%; height: 100%; object-fit: cover; }
 
 .wl-acc-lane__name {
-  font-size: 13px;
-  font-weight: 600;
-  color: theme(colors.ink.DEFAULT);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dark .wl-acc-lane__name {
-  color: theme(colors.paper);
-}
-
-.wl-acc-lane__role {
-  font-size: 11px;
-  color: theme(colors.muted.DEFAULT);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-top: 1px;
-}
-.dark .wl-acc-lane__role {
-  color: theme(colors.muted.dark);
-}
-
-/* Progress bar */
-.wl-acc-lane__bar-wrap {
-  min-width: 0;
-}
-
-.wl-acc-lane__bar-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 5px;
-}
-
-.wl-acc-lane__bar-label {
-  font-size: 11px;
-  color: theme(colors.muted.DEFAULT);
-}
-.dark .wl-acc-lane__bar-label {
-  color: theme(colors.muted.dark);
-}
-
-.wl-acc-load {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: theme(colors.ink.DEFAULT);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.wl-acc-load--ok        { color: #3B6D11; }
-.wl-acc-load--warning   { color: #854F0B; }
-.wl-acc-load--overload  { color: #A32D2D; }
+.dark .wl-acc-lane__name { color: theme(colors.paper); }
+.wl-acc-lane__role {
+  font-size: 11.5px;
+  color: theme(colors.muted.DEFAULT);
+  margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dark .wl-acc-lane__role { color: theme(colors.muted.dark); }
+
+/* ------------------------------------------------------------ progress ---- */
+.wl-acc-lane__bar-wrap { min-width: 0; }
+.wl-acc-lane__bar-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 6px;
+}
+.wl-acc-lane__bar-label {
+  font-size: 12px;
+  color: theme(colors.muted.DEFAULT);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dark .wl-acc-lane__bar-label { color: theme(colors.muted.dark); }
+.wl-acc-lane__bar-label strong { color: theme(colors.ink.DEFAULT); font-weight: 700; }
+.dark .wl-acc-lane__bar-label strong { color: theme(colors.paper); }
+
+.wl-acc-load { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wl-acc-load--ok        { color: #10a86b; }
+.wl-acc-load--warning   { color: #b07d00; }
+.wl-acc-load--overload  { color: #ef3a65; }
 .wl-acc-load--underload { color: theme(colors.info); }
 .wl-acc-load--empty     { color: theme(colors.muted.DEFAULT); }
+.dark .wl-acc-load--ok      { color: #16eb96; }
+.dark .wl-acc-load--warning { color: #f5b800; }
 
 .wl-acc-bar-track {
   position: relative;
   height: 7px;
-  background: theme(colors.cream);
-  border-radius: 4px;
+  border-radius: 999px;
+  background: #f1efea;
   overflow: hidden;
 }
-.dark .wl-acc-bar-track {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.wl-acc-bar {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.25s ease;
-}
-.wl-acc-bar--ok        { background: #97C459; }
-.wl-acc-bar--warning   { background: #EF9F27; }
-.wl-acc-bar--overload  { background: #E24B4A; }
-.wl-acc-bar--underload { background: #97C459; opacity: 0.6; }
+.dark .wl-acc-bar-track { background: rgba(255, 255, 255, 0.08); }
+.wl-acc-bar { height: 100%; border-radius: 999px; transition: width 0.3s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.wl-acc-bar--ok        { background: #16eb96; }
+.wl-acc-bar--warning   { background: #f5b800; }
+.wl-acc-bar--overload  { background: #ef3a65; }
+.wl-acc-bar--underload { background: #16eb96; opacity: 0.6; }
 .wl-acc-bar--empty     { background: theme(colors.line.DEFAULT); width: 0 !important; }
 
-/* Badge */
-.wl-acc-lane__badge {
-  text-align: right;
-  flex-shrink: 0;
+/* --------------------------------------------------------------- badge ---- */
+.wl-acc-lane__badge { justify-self: start; flex-shrink: 0; }
+
+/* --------------------------------------------------------------- caret ---- */
+.wl-acc-lane__toggle {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s ease;
+}
+.wl-acc-lane__toggle:hover { border-color: #c7c2b7; color: theme(colors.ink.DEFAULT); }
+.dark .wl-acc-lane__toggle { background: #16171a; border-color: theme(colors.line.dark); color: theme(colors.muted.dark); }
+.dark .wl-acc-lane__toggle:hover { color: theme(colors.paper); }
+
+/* ------------------------------------------------- task del giorno (new) -- */
+.wl-acc-day-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+  padding: 13px 0 9px;
+  margin: 13px 16px 0;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+}
+.dark .wl-acc-day-label { color: theme(colors.muted.dark); border-color: theme(colors.line.dark); }
+
+.wl-acc-tasks { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 15px; }
+
+.wl-acc-empty {
+  margin: 0 16px 15px;
+  border: 1px dashed theme(colors.line.DEFAULT);
+  border-radius: 9px;
+  padding: 14px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: theme(colors.muted.DEFAULT);
+}
+.dark .wl-acc-empty { border-color: theme(colors.line.dark); color: theme(colors.muted.dark); }
+
+/* Task card */
+.wl-acc-task {
+  --wl-area: theme(colors.ink.DEFAULT);
+  position: relative;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #d8d4cb;
+  border-radius: 9px;
+  padding: 10px 13px 10px 15px;
+  background: #faf9f6;
+  cursor: grab;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dark .wl-acc-task { background: #1f211f; border-color: theme(colors.line.dark); }
+.wl-acc-task::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 9px; bottom: 9px;
+  width: 3px; border-radius: 999px;
+  background: var(--wl-area);
+}
+.wl-acc-task:hover { border-color: #c7c2b7; box-shadow: 0 1px 2px rgba(27,28,27,0.06); }
+.dark .wl-acc-task:hover { border-color: rgba(255,255,255,0.2); }
+.wl-acc-task:active { cursor: grabbing; }
+.wl-acc-task.is-dragging { opacity: 0.6; }
+
+/* variante "non assegnate" */
+.wl-acc-task--unassigned {
+  border-color: color-mix(in srgb, #f5b800 45%, theme(colors.line.DEFAULT));
+  background: color-mix(in srgb, #f5b800 7%, theme(colors.paper));
 }
 
-/* Toggle caret */
-.wl-acc-lane__toggle {
-  background: transparent;
-  border: none;
+/* Rimandi da revisione: 1 rimando → giallo, 2+ → rosso (gravità crescente).
+   Tinge la card e la stripe (--wl-area). Definite dopo le altre varianti così vincono. */
+.wl-acc-task.rework-warn {
+  --wl-area: #f5b800;
+  border-color: color-mix(in srgb, #f5b800 55%, theme(colors.line.DEFAULT));
+  background: color-mix(in srgb, #f5b800 12%, theme(colors.paper));
+}
+.dark .wl-acc-task.rework-warn { background: color-mix(in srgb, #f5b800 16%, #1f211f); }
+.wl-acc-task.rework-danger {
+  --wl-area: #e5484d;
+  border-color: color-mix(in srgb, #e5484d 55%, theme(colors.line.DEFAULT));
+  background: color-mix(in srgb, #e5484d 12%, theme(colors.paper));
+}
+.dark .wl-acc-task.rework-danger { background: color-mix(in srgb, #e5484d 18%, #1f211f); }
+
+.wl-acc-task__main { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.wl-acc-task__title { font-size: 13.5px; font-weight: 700; line-height: 1.3; color: theme(colors.ink.DEFAULT); }
+.dark .wl-acc-task__title { color: theme(colors.paper); }
+.wl-acc-task__hours {
+  flex: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 700;
   color: theme(colors.muted.DEFAULT);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
-.wl-acc-lane__toggle:hover {
-  background: theme(colors.cream);
-  color: theme(colors.ink.DEFAULT);
+.dark .wl-acc-task__hours { color: theme(colors.muted.dark); }
+
+.wl-acc-task__meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
+.wl-acc-task__time {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--wl-area);
+  background: color-mix(in srgb, var(--wl-area) 12%, transparent);
+  padding: 2px 7px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
-.dark .wl-acc-lane__toggle {
-  color: theme(colors.muted.dark);
-}
-.dark .wl-acc-lane__toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: theme(colors.paper);
-}
+.wl-acc-task__client { font-size: 12px; font-weight: 500; color: theme(colors.muted.DEFAULT); }
+.dark .wl-acc-task__client { color: theme(colors.muted.dark); }
+.wl-acc-task__status { font-size: 11px; color: theme(colors.muted.DEFAULT); }
+.dark .wl-acc-task__status { color: theme(colors.muted.dark); }
+.wl-acc-task__status::before { content: "· "; }
+
+/* ----------------------------------------------------- densità compatta -- */
+.wl-acc-list--compact { gap: 7px; }
+.wl-acc-list--compact .wl-acc-lane__row { padding: 9px 14px; gap: 14px; grid-template-columns: 180px 1fr 96px 32px; }
+.wl-acc-list--compact .wl-acc-avatar { width: 31px; height: 31px; font-size: 12px; border-radius: 8px; }
+.wl-acc-list--compact .wl-acc-lane__name { font-size: 13px; }
+.wl-acc-list--compact .wl-acc-day-label { padding: 10px 0 7px; }
+.wl-acc-list--compact .wl-acc-tasks { gap: 6px; padding-bottom: 12px; }
+.wl-acc-list--compact .wl-acc-task { padding: 7px 12px 7px 14px; }
+.wl-acc-list--compact .wl-acc-task__title { font-size: 12.5px; }
+
+/* Densità compatta per le viste tabellari (completa + heatmap). */
+.wlfull-shell--compact .wlfull-sub { padding: 7px 16px; }
+.wlfull-shell--compact .wlfull-sub-title { font-size: 13.5px; }
+.wlfull-shell--compact .wlfull-dh { padding: 5px 6px; }
+.wlfull-shell--compact .wlfull-corner { padding: 5px 10px; }
+.wlfull-shell--compact .wlfull-op { padding: 7px 10px; }
+.wlfull-shell--compact .wlfull-op-av { width: 26px; height: 26px; border-radius: 7px; }
+.wlfull-shell--compact .wlfull-op-in { gap: 8px; }
+.wlfull-shell--compact .wlfull-area-fill { padding-top: 4px; padding-bottom: 4px; }
+.wlfull-shell--compact .wlfull-cell,
+.wlfull-shell--compact .wlfull-heatcell { min-width: 150px; }
+.wlfull-shell--compact .wlfull-cell { padding: 5px; }
+.wlfull-shell--compact .wlfull-cellbox { min-height: 44px; gap: 4px; }
+.wlfull-shell--compact .wlfull-chips { gap: 4px; }
+.wlfull-shell--compact .wlfull-chip { padding: 4px 8px; gap: 6px; }
+.wlfull-shell--compact .wlfull-chip-t { font-size: 11.5px; }
+.wlfull-shell--compact .wlfull-heat { margin: 3px; width: calc(100% - 6px); min-height: 44px; }
+.wlfull-shell--compact .wlfull-heat-h { font-size: 12.5px; }
 
 .wl-day-strip {
   display: flex;
@@ -651,6 +930,63 @@
   color: theme(colors.ink.DEFAULT);
 }
 
+/* ── Calendario: box giorni grandi e separati (stile AD4) ─────────────────── */
+.wl-day-strip--cal {
+  gap: 8px;
+}
+
+.wl-day-strip--cal .wl-day-chip {
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(10, 10, 10, 0.18);
+  border-radius: 12px;
+}
+
+/* Annulla l'aspetto "connesso" della strip compatta quando i box sono grandi */
+.wl-day-strip--cal .wl-day-chip,
+.wl-day-strip--cal .wl-day-chip:first-child,
+.wl-day-strip--cal .wl-day-chip:last-child {
+  border-right: 1px solid rgba(10, 10, 10, 0.18);
+  border-radius: 12px;
+}
+
+.dark .wl-day-strip--cal .wl-day-chip,
+.dark .wl-day-strip--cal .wl-day-chip:first-child,
+.dark .wl-day-strip--cal .wl-day-chip:last-child {
+  border-color: theme(colors.line.dark);
+}
+
+.wl-day-chip__meta {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  white-space: nowrap;
+}
+
+.dark .wl-day-chip__meta {
+  color: theme(colors.muted.dark);
+}
+
+.wl-day-chip__overdue {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.dark .wl-day-chip__overdue {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.18);
+}
+
 @media (max-width: 900px) {
   .wl-day-row {
     flex-direction: column;
@@ -662,3 +998,2252 @@
     justify-content: center;
   }
 }
+
+/* ============================================================
+   Calendario workload — animazioni completion task
+   ============================================================ */
+
+.wl-cal-check-anim {
+  animation: wl-cal-check-pop 260ms ease-out;
+}
+
+@keyframes wl-cal-check-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.24);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.wl-cal-task-exit {
+  pointer-events: none;
+  animation: wl-cal-task-slide-out 320ms ease-in forwards;
+}
+
+@keyframes wl-cal-task-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+/* ============================================================
+   Calendario workload single-operatore — restyle (giorno/settimana)
+   Adattato dal prototipo, usa i token tema dell'app. Light + Dark.
+   --area = colore dell'area di competenza (variabile inline per evento).
+   ============================================================ */
+
+.wlcal {
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  background: theme(colors.paper);
+}
+
+.dark .wlcal {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  min-width: 100%;
+}
+
+/* ---- intestazione giorni ---- */
+.wlcal-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: grid;
+  background: theme(colors.paper);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-head {
+  background: theme(colors.ink.soft);
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-corner {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-corner {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-dcol {
+  padding: 9px 10px;
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+}
+
+.dark .wlcal-dcol {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-dcol.is-today {
+  background: color-mix(in srgb, theme(colors.brand.magenta) 6%, transparent);
+}
+
+.wlcal-dow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-dow {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-dnum {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-dnum {
+  color: theme(colors.paper);
+}
+
+.wlcal-dcol.is-today .wlcal-dnum {
+  color: theme(colors.brand.magenta);
+}
+
+.wlcal-todayflag {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.brand.magenta);
+  letter-spacing: 0.1em;
+}
+
+.wlcal-dmeta {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-dmeta {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-loadbar {
+  margin-top: 7px;
+  height: 5px;
+  border-radius: 999px;
+  background: theme(colors.cream);
+  overflow: hidden;
+}
+
+.dark .wlcal-loadbar {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-loadbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.wlcal-load-ok {
+  background: theme(colors.success);
+}
+
+.wlcal-load-warn {
+  background: theme(colors.warning);
+}
+
+.wlcal-load-over {
+  background: theme(colors.danger);
+}
+
+.wlcal-pct {
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+.wlcal-pct.wlcal-load-ok {
+  color: theme(colors.success);
+  background: none;
+}
+
+.wlcal-pct.wlcal-load-warn {
+  color: theme(colors.warning);
+  background: none;
+}
+
+.wlcal-pct.wlcal-load-over {
+  color: theme(colors.danger);
+  background: none;
+}
+
+/* ---- corpo: gutter + colonne giorno ---- */
+.wlcal-body {
+  display: grid;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.wlcal-gutter {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+  height: 100%;
+}
+
+.dark .wlcal-gutter {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-hslot {
+  position: absolute;
+  right: 8px;
+  text-align: right;
+}
+
+.wlcal-hslot span {
+  font-size: 11px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  position: relative;
+  top: -7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-hslot span {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-gmark {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
+  transform: translateY(-50%);
+}
+
+.wlcal-gmark b {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wlcal-gmark span {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wlcal-gmark.is-start b,
+.wlcal-gmark.is-start span {
+  color: theme(colors.success);
+}
+
+.wlcal-gmark.is-limit b,
+.wlcal-gmark.is-limit span {
+  color: theme(colors.danger);
+}
+
+.wlcal-daycol {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* min-height degli eventi così restano leggibili anche molto corti */
+.wlcal-evlayer .wlcal-ev {
+  min-height: 16px;
+}
+
+/* day view (1 colonna): card un filo più ariose, come il prototipo */
+.wlcal-shell.is-single .wlcal-ev {
+  padding: 8px 12px 8px 13px;
+}
+
+.wlcal-shell.is-single .wlcal-ev-client {
+  font-size: 12px;
+  white-space: normal;
+}
+
+.wlcal-shell.is-single .wlcal-ev-type {
+  font-size: 13px;
+}
+
+.dark .wlcal-daycol {
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-daycol.is-today {
+  background: color-mix(in srgb, theme(colors.brand.magenta) 4%, transparent);
+}
+
+.wlcal-daycol.is-drop {
+  background: color-mix(in srgb, theme(colors.success) 10%, transparent);
+}
+
+/* Task in fase di trascinamento (pointer-based): attenuata al suo posto originale. */
+.wlcal-ev.is-dragging,
+.wlcal-tcard.is-dragging {
+  opacity: 0.4;
+}
+
+/* Fantasma che segue il cursore durante il drag.
+   Esterno = posizione (transform) con trailing "fisico"; interno = dondolamento. */
+.wlcal-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 4000;
+  pointer-events: none;
+  will-change: transform;
+  transition: transform 90ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  animation: wl-ghost-fade 130ms ease-out;
+}
+
+.wlcal-drag-ghost__in {
+  /* offset rispetto al cursore (prima era dentro il transform) */
+  margin: -16px 0 0 -46px;
+  width: 180px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: theme(colors.paper);
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-left: 3px solid var(--area, theme(colors.brand.magenta));
+  box-shadow: 0 18px 48px rgba(27, 28, 27, 0.22);
+  transform-origin: 30px 16px;
+  animation: wlcal-ghost-wobble 900ms ease-in-out infinite;
+}
+
+.dark .wlcal-drag-ghost__in {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+}
+
+@keyframes wlcal-ghost-wobble {
+  0%, 100% { transform: rotate(-3deg); }
+  50%      { transform: rotate(3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wlcal-drag-ghost { transition: none; animation: none; }
+  .wlcal-drag-ghost__in { animation: none; }
+}
+
+.wlcal-gline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-gline {
+  border-top-color: theme(colors.line.dark);
+}
+
+/* fuori orario */
+.wlcal-offhours {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-color: color-mix(in srgb, theme(colors.ink.DEFAULT) 4%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.ink.DEFAULT) 6%, transparent) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+.dark .wlcal-offhours {
+  background-color: color-mix(in srgb, theme(colors.paper) 4%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.paper) 7%, transparent) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+.wlcal-offhours span {
+  position: absolute;
+  right: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+  opacity: 0.7;
+}
+
+.dark .wlcal-offhours span {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-offhours:not(.is-bot) span {
+  bottom: 5px;
+}
+
+.wlcal-offhours.is-bot span {
+  top: 5px;
+}
+
+/* linea inizio orario */
+.wlcal-workline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px dashed theme(colors.success);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.wlcal-workline span {
+  position: absolute;
+  left: 6px;
+  top: -9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: theme(colors.paper);
+  background: theme(colors.success);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* limite orario */
+.wlcal-limite {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px dashed theme(colors.danger);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.wlcal-limite span {
+  position: absolute;
+  right: 6px;
+  top: -9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: theme(colors.paper);
+  background: theme(colors.danger);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* linea unica inizio/limite (spanning su tutte le colonne giorno) */
+.wlcal-workline-full,
+.wlcal-limite-full {
+  position: absolute;
+  right: 0;
+  height: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.wlcal-workline-full { border-top: 1.5px dashed theme(colors.success); }
+.wlcal-limite-full { border-top: 1.5px dashed theme(colors.danger); }
+.wlcal-workline-full span,
+.wlcal-limite-full span {
+  position: absolute;
+  top: -9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: theme(colors.paper);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.wlcal-workline-full span { left: 6px; background: theme(colors.success); }
+.wlcal-limite-full span { right: 6px; background: theme(colors.danger); }
+
+/* ora corrente */
+.wlcal-nowline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid theme(colors.brand.magenta);
+  z-index: 8;
+  pointer-events: none;
+}
+
+.wlcal-nowline::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: theme(colors.brand.magenta);
+}
+
+/* layer eventi */
+.wlcal-evlayer {
+  position: absolute;
+  inset: 0;
+}
+
+.wlcal-ev {
+  position: absolute;
+  border-radius: 7px;
+  padding: 6px 9px 6px 11px;
+  overflow: hidden;
+  cursor: grab;
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 12%, theme(colors.paper));
+  border: 1px solid color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 38%, theme(colors.line.DEFAULT));
+  box-shadow: theme(boxShadow.1);
+  transition: box-shadow 0.15s ease, transform 0.12s ease, filter 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dark .wlcal-ev {
+  background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 22%, theme(colors.ink.soft));
+  border-color: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 42%, theme(colors.line.dark));
+}
+
+.wlcal-ev::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-ev:hover {
+  box-shadow: theme(boxShadow.2);
+  z-index: 5;
+  filter: brightness(1.02);
+}
+
+.wlcal-ev:active {
+  cursor: grabbing;
+}
+
+.wlcal-ev.is-done {
+  opacity: 0.6;
+}
+
+/* Ghost: traccia sbiadita/tratteggiata sul giorno d'assegnazione originale. Solo visuale. */
+.wlcal-ev.is-ghost {
+  cursor: default;
+  background: transparent;
+  border: 1.5px dashed color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 65%, theme(colors.muted.DEFAULT));
+  box-shadow: none;
+  opacity: 0.65;
+}
+.wlcal-ev.is-ghost::before { opacity: 0.35; }
+.wlcal-ev.is-ghost:hover { box-shadow: none; filter: none; }
+.dark .wlcal-ev.is-ghost {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 65%, theme(colors.muted.dark));
+}
+
+/* task in revisione: aspetto "fantasma" dedicato — sbiadito, tratteggiato cyan, NON
+   interattivo (non si apre né si trascina). Il carico per l'utente è già 0 (operatore)
+   o 0.25 (revisore) via schedule_state, e non occupa lo slot per nuovi inserimenti. */
+.wlcal-ev.is-review {
+  background: color-mix(in srgb, theme(colors.info) 8%, transparent);
+  border: 1.5px dashed color-mix(in srgb, theme(colors.info) 45%, transparent);
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+  /* Fantasma non interattivo: lascia passare il pointer così il rettangolo di
+     creazione può comparire anche sopra le task in revisione. */
+  pointer-events: none;
+}
+.wlcal-ev.is-review::before {
+  opacity: 0.35;
+  background: theme(colors.info);
+}
+.wlcal-ev.is-review:hover {
+  box-shadow: none;
+  filter: none;
+  z-index: 1;
+}
+.dark .wlcal-ev.is-review {
+  background: color-mix(in srgb, theme(colors.info) 14%, transparent);
+}
+
+/* Vista REVISORE: la task in revisione è sua → piena opacità e interattiva
+   (mantiene il bordo cyan tratteggiato come segnale "in revisione"). */
+.wlcal-ev.is-review.is-review-mine {
+  opacity: 1;
+  cursor: grab;
+  box-shadow: var(--shadow-1);
+  pointer-events: auto;
+}
+.wlcal-ev.is-review.is-review-mine::before {
+  opacity: 0.9;
+}
+.wlcal-ev.is-review.is-review-mine:active {
+  cursor: grabbing;
+}
+
+
+.wlcal-ev.is-over {
+  outline: 2px dashed theme(colors.danger);
+  outline-offset: -3px;
+}
+
+/* task arretrata (carried over / overdue): bordo ambra + badge ⟲ */
+.wlcal-ev.is-overdue {
+  outline: 1.5px solid #f5b800;
+  outline-offset: -1.5px;
+  box-shadow: inset 3px 0 0 #f5b800;
+}
+.wlcal-ev-late {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 2;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  color: #b07d00;
+}
+.dark .wlcal-ev-late { color: #f5b800; }
+
+/* target dello swap (drop di una task su un'altra) */
+.wlcal-ev.is-swap-target {
+  outline: 2px solid theme(colors.brand.magenta);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, theme(colors.brand.magenta) 35%, transparent);
+  z-index: 9;
+}
+
+/* anteprima swap in attesa della conferma dell'endpoint */
+.wlcal-ev.is-swap-pending {
+  outline: 1.5px dashed theme(colors.brand.magenta);
+  outline-offset: -2px;
+  animation: wlcal-swap-pulse 1s ease-in-out infinite;
+}
+@keyframes wlcal-swap-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+.wlcal-ev-client {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: theme(colors.ink.DEFAULT);
+  line-height: 1.12;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-ev-client {
+  color: theme(colors.paper);
+}
+
+.wlcal-ev-type {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: theme(colors.muted.DEFAULT);
+  line-height: 1.18;
+  overflow: hidden;
+}
+
+.dark .wlcal-ev-type {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev.is-done .wlcal-ev-type,
+.wlcal-ev.is-done .wlcal-ev-client {
+  text-decoration: line-through;
+}
+
+.wlcal-ev-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wlcal-ev-dur {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--area, theme(colors.muted.DEFAULT));
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wlcal-ev-dur i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-ev-range {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .wlcal-ev-range {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev.is-compact {
+  padding: 4px 8px 4px 11px;
+}
+
+.wlcal-ev.is-compact .wlcal-ev-type {
+  display: none;
+}
+
+/* pulsante completa */
+.wlcal-ev-check {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+
+.wlcal-ev-check:hover {
+  transform: scale(1.12);
+}
+
+.dark .wlcal-ev-check {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.2);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-ev-check.is-done {
+  border-color: theme(colors.success);
+  background: theme(colors.success);
+  color: theme(colors.paper);
+}
+
+/* pausa pranzo / break — strisce ambra */
+.wlcal-ev.is-lunch {
+  cursor: default;
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, theme(colors.warning) 24%, theme(colors.paper)) 0 8px,
+    color-mix(in srgb, theme(colors.warning) 14%, theme(colors.paper)) 8px 16px
+  );
+  border: 1px solid color-mix(in srgb, theme(colors.warning) 32%, theme(colors.line.DEFAULT));
+}
+
+.dark .wlcal-ev.is-lunch {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.22) 0 8px,
+    rgba(245, 158, 11, 0.1) 8px 16px
+  );
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.wlcal-ev.is-lunch::before {
+  display: none;
+}
+
+.wlcal-ev.is-lunch .wlcal-ev-client,
+.wlcal-ev.is-lunch .wlcal-ev-type {
+  color: #a9842b;
+}
+
+.dark .wlcal-ev.is-lunch .wlcal-ev-client,
+.dark .wlcal-ev.is-lunch .wlcal-ev-type {
+  color: #e7c25a;
+}
+
+/* indicatore drop / create */
+.wlcal-dropind {
+  position: absolute;
+  border-radius: 7px;
+  border: 2px dashed theme(colors.success);
+  background: color-mix(in srgb, theme(colors.success) 14%, transparent);
+  z-index: 9;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wlcal-dropind span {
+  font-size: 11px;
+  font-weight: 700;
+  color: theme(colors.success);
+  background: theme(colors.paper);
+  padding: 2px 8px;
+  border-radius: 999px;
+  box-shadow: theme(boxShadow.1);
+}
+
+.dark .wlcal-dropind span {
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-createind {
+  position: absolute;
+  border-radius: 7px;
+  border: 2px dashed theme(colors.success);
+  background: color-mix(in srgb, theme(colors.success) 10%, transparent);
+  z-index: 9;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+}
+
+.wlcal-createind span {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.success);
+  font-variant-numeric: tabular-nums;
+}
+
+/* toggle densità */
+.wlcal-density {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wlcal-density__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-density__label {
+  color: theme(colors.muted.dark);
+}
+
+/* ============================================================
+   CALENDARIO — shell + tray "Da pianificare" (sidebar)
+   ============================================================ */
+/* Contenitore "flush" del calendario: cornice unica + altezza fissa (no scroll di pagina). */
+.wlcal-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* flush: annulla il padding orizzontale della colonna contenuto (px-6 = 1.5rem) per andare
+     a tutta larghezza, edge-to-edge, fino alla tray. */
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  overflow: hidden;
+  background: theme(colors.paper);
+}
+
+.dark .wlcal-area {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-shell {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.wlcal-shell > .wlcal {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wlcal-tray {
+  flex: 0 0 300px;
+  width: 300px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Tono distinto dallo sfondo pagina (cream) e dal contenuto (bianco): la sidebar
+     si separa visivamente anche in tema chiaro. */
+  border-left: 1px solid #d9d5cc;
+  background: #ece9e0;
+  box-shadow: -10px 0 28px rgba(27, 28, 27, 0.05);
+  overflow: hidden;
+}
+
+/* Pulsante di chiusura nell'header della tray */
+.wlcal-tray-close {
+  margin-left: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  border-radius: 7px;
+  color: theme(colors.muted.DEFAULT);
+  cursor: pointer;
+}
+
+.wlcal-tray-close:hover {
+  background: theme(colors.line.DEFAULT);
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-close:hover {
+  background: theme(colors.line.dark);
+  color: theme(colors.paper);
+}
+
+/* ── Tray in modalità DOCK: bottone flottante + drawer (RightSidebarPanel) ── */
+/* Dentro il drawer la tray riempie il contenitore: niente larghezza/bordo/sfondo propri. */
+.wlcal-tray.wlcal-tray--drawer {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.wl-dockbtn {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 18px 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  box-shadow: 0 18px 48px rgba(27, 28, 27, 0.28);
+  transition: transform .15s ease;
+}
+.wl-dockbtn:hover { transform: translateY(-2px); }
+.wl-dockbtn .n {
+  background: rgba(255, 255, 255, .25);
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+
+/* Linguetta per riaprire la tray quando è chiusa */
+.wlcal-tray-reopen {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 12px;
+  background: theme(colors.cream);
+  color: theme(colors.ink.DEFAULT);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  cursor: pointer;
+  height: 100%;
+}
+
+.dark .wlcal-tray-reopen {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-reopen:hover {
+  border-color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-reopen:hover {
+  border-color: theme(colors.paper);
+}
+
+.wlcal-tray-reopen .wlcal-tray-reopen__cnt {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  border-radius: 99px;
+  min-width: 18px;
+  padding: 2px 5px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.dark .wlcal-tray {
+  border-left-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-tray-head {
+  padding: 14px 14px 11px;
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-tray-head {
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-tray-tt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wlcal-tray-tt h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-tt h3 {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-cnt {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-tray-cnt {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-head p {
+  font-size: 11px;
+  color: theme(colors.muted.DEFAULT);
+  margin: 7px 0 0;
+  line-height: 1.4;
+}
+
+.dark .wlcal-tray-head p {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-filterbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 0;
+}
+.wlcal-tray-mine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #d8d4cb;
+  border-radius: 999px;
+  background: theme(colors.paper);
+  color: theme(colors.muted.DEFAULT);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+.wlcal-tray-mine:hover { border-color: #c7c2b7; color: theme(colors.ink.DEFAULT); }
+.wlcal-tray-mine.is-on {
+  border-color: theme(colors.brand.magenta);
+  background: color-mix(in srgb, theme(colors.brand.magenta) 12%, transparent);
+  color: theme(colors.brand.magenta);
+}
+.dark .wlcal-tray-mine { background: #16171a; border-color: theme(colors.line.dark); color: theme(colors.muted.dark); }
+.dark .wlcal-tray-mine.is-on { color: theme(colors.brand.magenta); border-color: theme(colors.brand.magenta); }
+
+.wlcal-tray-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  /* Con molte schede la barra scrolla orizzontalmente invece di comprimersi. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wlcal-tray-tabs::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
+.wlcal-tray-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 8px 8px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: theme(colors.muted.DEFAULT);
+  position: relative;
+  cursor: pointer;
+}
+
+.wlcal-tray-tabs button .b {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 99px;
+  background: theme(colors.line.DEFAULT);
+  font-size: 9.5px;
+  margin-left: 4px;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-tray-tabs button .b {
+  background: theme(colors.line.dark);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-tabs button.on {
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-tabs button.on {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-tabs button.on .b {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+}
+
+.wlcal-tray-tabs button.on::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: theme(colors.brand.magenta);
+  border-radius: 2px;
+}
+
+/* Vista operatore: poche schede inline + menu "···". Niente scroll orizzontale, così
+   il dropdown non viene tagliato dall'overflow della barra. */
+.wlcal-tray-tabs--priority {
+  overflow: visible;
+}
+
+.wlcal-tray-more {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+}
+
+.wlcal-tray-more-dots {
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+/* Backdrop trasparente a tutto schermo: chiude il menu al click fuori. */
+.wlcal-tray-more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.wlcal-tray-more-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 31;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  gap: 2px;
+  background: theme(colors.paper);
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(27, 28, 27, 0.16);
+}
+
+.dark .wlcal-tray-more-menu {
+  background: #26251f;
+  border-color: theme(colors.line.dark);
+}
+
+.wlcal-tray-more-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: theme(colors.muted.DEFAULT);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wlcal-tray-more-menu button:hover {
+  background: theme(colors.line.DEFAULT);
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-tray-more-menu button:hover {
+  background: theme(colors.line.dark);
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-more-menu button.on {
+  color: theme(colors.brand.magenta);
+}
+
+.wlcal-tray-more-menu button .b {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 99px;
+  background: theme(colors.line.DEFAULT);
+  font-size: 9.5px;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-tray-more-menu button .b {
+  background: theme(colors.line.dark);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tray-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: color-mix(in srgb, theme(colors.warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, theme(colors.warning) 28%, transparent);
+  font-size: 11.5px;
+  color: theme(colors.ink.DEFAULT);
+  line-height: 1.35;
+}
+
+.dark .wlcal-tray-note {
+  color: theme(colors.paper);
+}
+
+.wlcal-tray-note svg {
+  color: theme(colors.warning);
+}
+
+.wlcal-tray-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Raggruppamento per operatore (vista azienda admin) */
+.wlcal-tray-group { display: flex; flex-direction: column; gap: 6px; }
+.wlcal-tray-group + .wlcal-tray-group { margin-top: 6px; }
+.wlcal-tray-ophead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 4px;
+  position: sticky;
+  top: -10px;
+  background: inherit;
+  z-index: 1;
+}
+.wlcal-tray-opname {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: theme(colors.ink.DEFAULT);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dark .wlcal-tray-opname { color: theme(colors.paper); }
+.wlcal-tray-opcnt {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.muted.DEFAULT);
+  background: rgba(27, 28, 27, 0.06);
+}
+.dark .wlcal-tray-opcnt { color: theme(colors.muted.dark); background: rgba(255, 255, 255, 0.08); }
+
+.wlcal-tray-empty {
+  text-align: center;
+  color: theme(colors.muted.DEFAULT);
+  font-size: 13px;
+  padding: 28px 12px;
+  font-style: italic;
+}
+
+.wlcal-tcard {
+  position: relative;
+  background: theme(colors.paper);
+  border: 1px solid theme(colors.line.DEFAULT);
+  border-radius: 9px;
+  padding: 9px 10px 9px 13px;
+  cursor: grab;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dark .wlcal-tcard {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+}
+
+.wlcal-tcard:hover {
+  border-color: theme(colors.ink.DEFAULT);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.dark .wlcal-tcard:hover {
+  border-color: theme(colors.paper);
+}
+
+.wlcal-tcard:active {
+  cursor: grabbing;
+}
+
+.wlcal-tcard::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 99px;
+  background: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-tc-client {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  color: theme(colors.ink.DEFAULT);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-tc-client {
+  color: theme(colors.paper);
+}
+
+.wlcal-tc-type {
+  font-size: 12px;
+  color: theme(colors.muted.DEFAULT);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .wlcal-tc-type {
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-tc-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wlcal-tc-dur {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--area, theme(colors.muted.DEFAULT));
+}
+
+.wlcal-tc-dur i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--area, currentColor);
+}
+
+.wlcal-tc-over {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: theme(colors.brand.magenta);
+  background: color-mix(in srgb, theme(colors.brand.magenta) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+/* Badge "scaduta" (oltre la deadline) sui card della tray */
+.wlcal-tc-overdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: theme(colors.danger);
+  background: color-mix(in srgb, theme(colors.danger) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+.wlcal-tc-overdue.is-hard {
+  color: #fff;
+  background: theme(colors.danger);
+}
+
+/* Nota della tray in variante "danger" (tab Scadute) */
+.wlcal-tray-note--danger {
+  background: color-mix(in srgb, theme(colors.danger) 10%, transparent);
+  border-color: color-mix(in srgb, theme(colors.danger) 26%, transparent);
+}
+
+.wlcal-tray-note--danger svg {
+  color: theme(colors.danger);
+}
+
+/* Badge "in revisione" sui card della tray */
+.wlcal-tc-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: theme(colors.info);
+  background: color-mix(in srgb, theme(colors.info) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+/* Nota della tray in variante "revisione" (info/cyan) */
+.wlcal-tray-note--review {
+  background: color-mix(in srgb, theme(colors.info) 10%, transparent);
+  border-color: color-mix(in srgb, theme(colors.info) 26%, transparent);
+}
+
+.wlcal-tray-note--review svg {
+  color: theme(colors.info);
+}
+
+/* ============================================================
+   CALENDARIO — vista MESE (griglia)
+   ============================================================ */
+.wlcal-month {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: theme(colors.paper);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.wlcal-month-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dark .wlcal-month {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlcal-month-dows {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+}
+
+.dark .wlcal-month-dows {
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-mdow {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+  border-right: 1px solid theme(colors.line.DEFAULT);
+}
+
+.wlcal-mdow:last-child {
+  border-right: 0;
+}
+
+.dark .wlcal-mdow {
+  color: theme(colors.muted.dark);
+  border-right-color: theme(colors.line.dark);
+}
+
+.wlcal-mdow.we {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mdow.we {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.wlcal-mcell {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  position: relative;
+  transition: background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dark .wlcal-mcell {
+  border-right-color: theme(colors.line.dark);
+  border-bottom-color: theme(colors.line.dark);
+}
+
+.wlcal-mcell.is-blank {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mcell.is-blank {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-mcell.is-we {
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-mcell.is-we {
+  background: theme(colors.ink.2);
+}
+
+.wlcal-mcell.is-click {
+  cursor: pointer;
+}
+
+.wlcal-mcell.is-click:hover {
+  background: color-mix(in srgb, theme(colors.success) 9%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, theme(colors.success) 45%, transparent);
+}
+
+.wlcal-mtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wlcal-mnum {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-mnum {
+  color: theme(colors.paper);
+}
+
+.wlcal-mcell.is-we .wlcal-mnum {
+  color: theme(colors.muted.DEFAULT);
+  font-weight: 600;
+}
+
+.wlcal-mcell.is-today .wlcal-mnum {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+}
+
+.wlcal-mflag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: theme(colors.brand.magenta);
+  background: color-mix(in srgb, theme(colors.brand.magenta) 12%, transparent);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.wlcal-mflag.is-today {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+}
+
+.wlcal-mwe {
+  color: theme(colors.muted.DEFAULT);
+  font-size: 20px;
+  text-align: center;
+  margin: auto;
+}
+
+.wlcal-mempty {
+  color: theme(colors.muted.DEFAULT);
+  font-size: 12px;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.wlcal-mdots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wlcal-mdots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.wlcal-mmore {
+  font-size: 10px;
+  font-weight: 700;
+  color: theme(colors.muted.DEFAULT);
+}
+
+.wlcal-mfoot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.wlcal-mtasks {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-mtasks {
+  color: theme(colors.paper);
+}
+
+.wlcal-mload {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wlcal-mload.wlcal-load-ok {
+  color: theme(colors.success);
+  background: none;
+}
+
+.wlcal-mload.wlcal-load-warn {
+  color: theme(colors.warning);
+  background: none;
+}
+
+.wlcal-mload.wlcal-load-over {
+  color: theme(colors.brand.magenta);
+  background: none;
+}
+
+.wlcal-mbar {
+  height: 4px;
+  border-radius: 99px;
+  background: theme(colors.line.DEFAULT);
+  overflow: hidden;
+}
+
+.dark .wlcal-mbar {
+  background: theme(colors.line.dark);
+}
+
+.wlcal-mbar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+}
+
+/* ============================================================
+   CALENDARIO — striscia info operatore selezionato (.op)
+   ============================================================ */
+.wlcal-op {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 11px 16px;
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.cream);
+}
+
+.dark .wlcal-op {
+  border-bottom-color: theme(colors.line.dark);
+  background: theme(colors.ink.2);
+}
+
+.wlcal-op-av {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 10px;
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.wlcal-op-av--img {
+  object-fit: cover;
+}
+
+.wlcal-op-who {
+  min-width: 0;
+}
+
+.wlcal-op-who b {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: theme(colors.ink.DEFAULT);
+}
+
+.dark .wlcal-op-who b {
+  color: theme(colors.paper);
+}
+
+.wlcal-op-who span {
+  font-size: 12px;
+  color: theme(colors.muted.DEFAULT);
+  text-transform: capitalize;
+}
+
+.wlcal-op-stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.wlcal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.wlcal-badge.is-neutral {
+  background: theme(colors.paper);
+  border: 1px solid theme(colors.line.DEFAULT);
+  color: theme(colors.muted.DEFAULT);
+}
+
+.dark .wlcal-badge.is-neutral {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+  color: theme(colors.muted.dark);
+}
+
+.wlcal-badge.is-warn {
+  background: color-mix(in srgb, theme(colors.warning) 16%, transparent);
+  color: theme(colors.warning);
+}
+
+.wlcal-badge.is-over {
+  background: color-mix(in srgb, theme(colors.danger) 16%, transparent);
+  color: theme(colors.danger);
+}
+
+.wlcal-badge.is-conf {
+  background: theme(colors.brand.magenta);
+  color: #fff;
+  cursor: pointer;
+}
+
+.wlcal-badge.is-conf .n {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 99px;
+  min-width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+
+/* ============================================================
+   Vista completa workload — matrice aree × giorni (stile prototipo)
+   Adattata da WLFull.jsx + workload.css con i token tema (light+dark).
+   --area = colore dell'area (variabile inline per riga/cella).
+   ============================================================ */
+.wlfull-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.paper);
+}
+.dark .wlfull-shell {
+  border-color: theme(colors.line.dark);
+  background: theme(colors.ink.soft);
+}
+
+.wlfull-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 22px;
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  background: theme(colors.cream);
+  flex: none;
+}
+.dark .wlfull-sub {
+  background: theme(colors.ink.2);
+  border-bottom-color: theme(colors.line.dark);
+}
+.wlfull-sub-title { font-size: 15px; font-weight: 700; color: theme(colors.ink.DEFAULT); }
+.dark .wlfull-sub-title { color: theme(colors.paper); }
+.wlfull-sub-hint { font-size: 12px; color: theme(colors.muted.DEFAULT); }
+.dark .wlfull-sub-hint { color: theme(colors.muted.dark); }
+
+.wlfull {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.wlfull-tbl {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: max-content;
+  width: 100%;
+}
+
+/* intestazioni */
+.wlfull-corner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  background: theme(colors.paper);
+  border-right: 1.5px solid theme(colors.line.DEFAULT);
+  border-bottom: 1.5px solid theme(colors.line.DEFAULT);
+  padding: 9px 16px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+.dark .wlfull-corner {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+  color: theme(colors.muted.dark);
+}
+
+.wlfull-dh {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: theme(colors.paper);
+  border-bottom: 1.5px solid theme(colors.line.DEFAULT);
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  padding: 9px 14px;
+  min-width: 186px;
+  text-align: left;
+  vertical-align: bottom;
+}
+.dark .wlfull-dh {
+  background: theme(colors.ink.soft);
+  border-color: theme(colors.line.dark);
+}
+.wlfull-dh .dow {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: theme(colors.muted.DEFAULT);
+}
+.dark .wlfull-dh .dow { color: theme(colors.muted.dark); }
+.wlfull-dh .num {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: theme(colors.ink.DEFAULT);
+}
+.dark .wlfull-dh .num { color: theme(colors.paper); }
+.wlfull-dh.is-today { background: color-mix(in srgb, theme(colors.brand.magenta) 7%, theme(colors.paper)); }
+.dark .wlfull-dh.is-today { background: color-mix(in srgb, theme(colors.brand.magenta) 14%, theme(colors.ink.soft)); }
+.wlfull-dh.is-today .num { color: theme(colors.brand.magenta); }
+
+/* banda area (riga a tutta larghezza) */
+.wlfull-area {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding: 9px 16px;
+  border-top: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 14%, theme(colors.cream));
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+}
+.dark .wlfull-area {
+  background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 20%, theme(colors.ink.2));
+  border-color: theme(colors.line.dark);
+}
+.wlfull-area-fill {
+  border-top: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 14%, theme(colors.cream));
+}
+.dark .wlfull-area-fill {
+  background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 20%, theme(colors.ink.2));
+  border-color: theme(colors.line.dark);
+}
+.wlfull-area-in { display: flex; align-items: center; gap: 10px; }
+.wlfull-area-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--area, theme(colors.muted.DEFAULT)); flex: none; }
+.wlfull-area-name { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: theme(colors.ink.DEFAULT); }
+.dark .wlfull-area-name { color: theme(colors.paper); }
+.wlfull-area-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 28%, theme(colors.paper));
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: theme(colors.ink.DEFAULT);
+}
+.dark .wlfull-area-count { color: theme(colors.paper); background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 34%, theme(colors.ink.soft)); }
+
+/* cella operatore (sticky a sinistra) */
+.wlfull-op {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: theme(colors.paper);
+  border-right: 1.5px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  padding: 9px 14px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  vertical-align: top;
+}
+.dark .wlfull-op { background: theme(colors.ink.soft); border-color: theme(colors.line.dark); }
+.wlfull-op-in { display: flex; align-items: center; gap: 10px; }
+.wlfull-op-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--area, theme(colors.ink.DEFAULT)) 88%, #1b1c1b);
+  color: #fff;
+  overflow: hidden;
+}
+.wlfull-op-av img { width: 100%; height: 100%; object-fit: cover; }
+.wlfull-op-info { flex: 1; min-width: 0; }
+.wlfull-op-info b {
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: theme(colors.ink.DEFAULT);
+}
+.dark .wlfull-op-info b { color: theme(colors.paper); }
+.wlfull-op-info span {
+  font-size: 10.5px;
+  color: theme(colors.muted.DEFAULT);
+  white-space: nowrap;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dark .wlfull-op-info span { color: theme(colors.muted.dark); }
+.wlfull-op-cap { font-size: 11px; font-weight: 700; color: theme(colors.muted.DEFAULT); font-variant-numeric: tabular-nums; flex: none; }
+.dark .wlfull-op-cap { color: theme(colors.muted.dark); }
+
+/* celle giorno */
+.wlfull-cell {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  padding: 8px;
+  vertical-align: top;
+  min-width: 186px;
+}
+.dark .wlfull-cell { border-color: theme(colors.line.dark); }
+.wlfull-cell.is-today { background: color-mix(in srgb, theme(colors.brand.magenta) 4%, transparent); }
+
+/* Heatmap: stessa griglia della vista completa, ma celle "calore" per carico (stile prototipo) */
+.wlfull-heatcell {
+  border-right: 1px solid theme(colors.line.DEFAULT);
+  border-bottom: 1px solid theme(colors.line.DEFAULT);
+  min-width: 186px;
+  padding: 0;
+}
+.dark .wlfull-heatcell { border-color: theme(colors.line.dark); }
+.wlfull-heatcell.is-today { background: color-mix(in srgb, theme(colors.brand.magenta) 4%, transparent); }
+.wlfull-heatcell.is-drop { box-shadow: inset 0 0 0 2px theme(colors.brand.magenta); }
+.wlfull-heat {
+  margin: 5px;
+  width: calc(100% - 10px);
+  min-height: 58px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+  transition: filter .14s ease, box-shadow .14s ease;
+}
+.wlfull-heat:hover { filter: brightness(0.97); }
+.wlfull-heat.is-sel { box-shadow: 0 0 0 2px theme(colors.ink.DEFAULT); }
+.dark .wlfull-heat.is-sel { box-shadow: 0 0 0 2px theme(colors.paper); }
+.wlfull-heat-h { font-size: 14px; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.wlfull-heat-pct { font-size: 11px; font-weight: 700; opacity: .85; }
+.wlfull-heat-tasks { font-size: 10px; font-weight: 600; opacity: .7; }
+.wlfull-heat-we { font-size: 16px; opacity: .4; }
+.wlfull-heat.is-ok { background: #d8f3e6; color: #0c6b46; border-color: #b9e8d2; }
+.wlfull-heat.is-warn { background: #fbeec2; color: #8a6300; border-color: #f3e0a4; }
+.wlfull-heat.is-over { background: #fbd6df; color: #b01b3f; border-color: #f4bac8; }
+.wlfull-heat.is-empty { background: theme(colors.cream); color: theme(colors.muted.DEFAULT); border-color: theme(colors.line.DEFAULT); cursor: default; }
+.dark .wlfull-heat.is-ok { background: #15402e; color: #3fe9a0; border-color: #1d5a40; }
+.dark .wlfull-heat.is-warn { background: #3c3413; color: #f5c64a; border-color: #574a1c; }
+.dark .wlfull-heat.is-over { background: #491421; color: #ff859f; border-color: #6a1d2e; }
+.dark .wlfull-heat.is-empty { background: rgba(255, 255, 255, .04); color: theme(colors.muted.dark); border-color: theme(colors.line.dark); }
+
+.wlfull-cellbox { display: flex; flex-direction: column; gap: 6px; min-height: 64px; height: 100%; position: relative; }
+.wlfull-chips { display: flex; flex-direction: column; gap: 5px; }
+.wlfull-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: grab;
+  background: color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 9%, theme(colors.paper));
+  border: 1px solid color-mix(in srgb, var(--area, theme(colors.muted.DEFAULT)) 24%, theme(colors.line.DEFAULT));
+  border-left: 3px solid var(--area, theme(colors.muted.DEFAULT));
+  transition: filter 0.12s ease;
+}
+.dark .wlfull-chip {
+  background: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 16%, theme(colors.ink.soft));
+  border-color: color-mix(in srgb, var(--area, theme(colors.muted.dark)) 32%, theme(colors.line.dark));
+}
+.wlfull-chip:hover { filter: brightness(0.97); }
+.dark .wlfull-chip:hover { filter: brightness(1.12); }
+.wlfull-chip:active { cursor: grabbing; }
+.wlfull-chip.is-dragging { opacity: 0.5; }
+.wlfull-chip-main { flex: 1; min-width: 0; }
+.wlfull-chip-t {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: theme(colors.ink.DEFAULT);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.dark .wlfull-chip-t { color: theme(colors.paper); }
+.wlfull-chip-time { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: theme(colors.muted.DEFAULT); }
+.dark .wlfull-chip-time { color: theme(colors.muted.dark); }
+.wlfull-chip-h { font-size: 10.5px; font-weight: 700; color: var(--area, theme(colors.muted.DEFAULT)); font-variant-numeric: tabular-nums; flex: none; }
+
+/* variante "da distribuire" (task non assegnate) */
+.wlfull-chip.is-unassigned {
+  --area: theme(colors.warning);
+  border-style: dashed;
+}
+
+.wlfull-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 2px; }
+.wlfull-foot-h { font-size: 11px; font-weight: 600; color: theme(colors.muted.DEFAULT); font-variant-numeric: tabular-nums; }
+.dark .wlfull-foot-h { color: theme(colors.muted.dark); }
+.wlfull-foot-load { font-size: 11px; font-weight: 700; }
+.wlfull-foot-load.is-ok { color: theme(colors.success); }
+.wlfull-foot-load.is-warn { color: theme(colors.warning); }
+.wlfull-foot-load.is-over { color: theme(colors.brand.magenta); }
+
+/* pulsante quick-add */
+.wlfull-add {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: theme(colors.ink.DEFAULT);
+  color: theme(colors.paper);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 2;
+}
+.dark .wlfull-add { background: theme(colors.paper); color: theme(colors.ink.DEFAULT); }
+.wlfull-cell:hover .wlfull-add { opacity: 1; }
+.wlfull-add-empty {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px dashed theme(colors.line.DEFAULT);
+  color: theme(colors.muted.DEFAULT);
+  display: grid;
+  place-items: center;
+  margin: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.dark .wlfull-add-empty { border-color: theme(colors.line.dark); color: theme(colors.muted.dark); }
+.wlfull-cell:hover .wlfull-add-empty { opacity: 1; }
+.wlfull-add-empty:hover { border-color: theme(colors.brand.magenta); color: theme(colors.brand.magenta); }
+
+/* stati drop */
+.wlfull-cell.is-drop { background: color-mix(in srgb, theme(colors.warning) 12%, transparent); box-shadow: inset 0 0 0 1px theme(colors.warning); }
+.wlfull-cell.is-drop-hot { background: color-mix(in srgb, theme(colors.warning) 22%, transparent); box-shadow: inset 0 0 0 2px theme(colors.warning); }
+.wlfull-op.is-drop, .wlfull-area.is-drop { box-shadow: inset 0 0 0 1px color-mix(in srgb, theme(colors.ink.DEFAULT) 25%, transparent); }
