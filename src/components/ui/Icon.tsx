@@ -54,7 +54,13 @@ export type IconName =
   | "minimize"
   | "image"
   | "minus"
-  | "arrows-v";
+  | "arrows-v"
+  | "dots-horizontal"
+  | "dots-vertical"
+  | "link"
+  | "canva"
+  | "drive"
+  | "nas";
 
 interface IconProps {
   name: IconName;
@@ -391,6 +397,51 @@ const paths: Record<IconName, React.ReactNode> = {
       <polyline points="8 7 12 3 16 7" />
       <polyline points="8 17 12 21 16 17" />
       <line x1="12" y1="3" x2="12" y2="21" />
+    </>
+  ),
+  // Pallini pieni (l'svg è stroke-only: forzo fill per avere dot solidi, non anelli).
+  "dots-horizontal": (
+    <>
+      <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  "dots-vertical": (
+    <>
+      <circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Collegamento generico (catena, stile feather "link").
+  link: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  // Canva: badge circolare con una "C" stilizzata (monocromatico, non il logo a colori).
+  canva: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 9.6a3.6 3.6 0 0 0-6 2.4 3.6 3.6 0 0 0 6 2.4" />
+    </>
+  ),
+  // Google Drive: triangolo con la piega a tre spicchi (monocromatico).
+  drive: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4 3 19h18z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v9.5M12 13.5 3.7 18.3M12 13.5l8.3 4.8" />
+    </>
+  ),
+  // NAS / server di rete (due unità impilate con LED).
+  nas: (
+    <>
+      <rect x="3" y="4" width="18" height="7" rx="2" />
+      <rect x="3" y="13" width="18" height="7" rx="2" />
+      <line x1="7" y1="7.5" x2="7.01" y2="7.5" />
+      <line x1="7" y1="16.5" x2="7.01" y2="16.5" />
     </>
   ),
 };

@@ -1680,12 +1680,14 @@ export function CompanyBrandPage() {
                 {canEditSettings && (
                   <Button
                     variant="ghost"
+                    iconOnly
+                    loading={holidaySyncing}
                     onClick={() => void handleSyncItalianHolidays()}
                     disabled={holidaySyncing}
-                    leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}
-                  >
-                    {holidaySyncing ? "Sincronizzazione..." : "Sync festivita IT"}
-                  </Button>
+                    title={holidaySyncing ? "Sincronizzazione..." : "Sincronizza festività italiane"}
+                    aria-label="Sincronizza festività italiane"
+                    leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+                  />
                 )}
                 <div className="w-full sm:w-[220px]">
                   <SearchableSelect

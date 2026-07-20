@@ -56,3 +56,6 @@ wetransfer_*
 
 # Vite cache
 .vite/
+
+# Firebase hosting deploy cache
+.firebase/

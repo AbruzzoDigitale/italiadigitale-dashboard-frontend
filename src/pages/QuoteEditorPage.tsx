@@ -7,7 +7,6 @@ import {
   createQuoteApi,
   createQuoteFromConfiguratorApi,
   formatEur,
-  getAllowedTransitions,
   getQuoteHistoryLabel,
   getQuoteLinkedContractsApi,
   getQuoteApi,
@@ -19,12 +18,14 @@ import {
   type QuotePreviewResponse,
 } from "../api/quotes";
 import {
+  convertRequestToQuoteApi,
   createRequestApi,
   createRequestFromConfiguratorApi,
   getRequestApi,
   updateRequestApi,
   updateRequestStatusApi,
 } from "../api/requests";
+import { getUsersApi, type User as CompanyUser } from "../api/users";
 import { getSocialPackageApi, listSocialPackagesApi, type SocialPackageBase, type SocialPackageDetail } from "../api/socialPackages";
 import { CONTRACT_STAGE_LABELS, createContractApi } from "../api/contracts";
 import { Button } from "../components/ui/Button";
@@ -265,8 +266,9 @@ function sanitizeLineForApi(line: EditableQuoteLine): QuoteLineItem {
   };
 }
 
-function validateLines(lines: EditableQuoteLine[]): string | null {
-  if (lines.length === 0) return "Aggiungi almeno una riga";
+function validateLines(lines: EditableQuoteLine[], allowEmpty = false): string | null {
+  // Nelle richieste le righe sono facoltative: si può inviare anche senza prodotti.
+  if (lines.length === 0) return allowEmpty ? null : "Aggiungi almeno una riga";
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = sanitizeLineForApi(lines[i]);
@@ -418,6 +420,12 @@ export function QuoteEditorPage({
 
   const [clients, setClients] = useState<Client[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
+  // Destinatario della richiesta: utenti dell'azienda tra cui scegliere.
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([]);
+  const [recipientUserId, setRecipientUserId] = useState<number | null>(null);
+  const [converting, setConverting] = useState(false);
+  // Stato corrente della richiesta caricata (serve per i pulsanti del flusso).
+  const [loadedStatus, setLoadedStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [creatingContract, setCreatingContract] = useState(false);
   const [linkedContractsLoading, setLinkedContractsLoading] = useState(false);
@@ -517,6 +525,8 @@ export function QuoteEditorPage({
           setAppuntiCommerciali(quote.appunti_commerciali ?? "");
           setBriefOperativo(quote.brief_operativo ?? "");
           setClientId(quote.client_id ?? null);
+          setRecipientUserId(quote.recipient_user_id ?? null);
+          setLoadedStatus(quote.status ?? null);
           setDiscountPct(quote.discount_pct ?? 0);
           setDiscountEur(quote.discount_eur ?? 0);
           if (!hasLocalLineEditsRef.current) {
@@ -563,6 +573,23 @@ export function QuoteEditorPage({
       cancelled = true;
     };
   }, [quoteCompanyId, selectedCompanyId, toast, user?.company_id]);
+
+  // Utenti dell'azienda: servono per scegliere il destinatario della richiesta.
+  useEffect(() => {
+    if (!isRequestMode && !useOperatorRequestTerminology) return;
+    let cancelled = false;
+    const cid = selectedCompanyId ?? quoteCompanyId ?? user?.company_id ?? undefined;
+    getUsersApi(cid)
+      .then((list) => {
+        if (!cancelled) setCompanyUsers(list.filter((u) => u.id !== user?.id));
+      })
+      .catch(() => {
+        /* silenzioso: il campo resta vuoto */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRequestMode, useOperatorRequestTerminology, quoteCompanyId, selectedCompanyId, user?.company_id, user?.id]);
 
   useEffect(() => {
     if (!quoteId || isRequestMode || !isAdmin) {
@@ -858,7 +885,7 @@ export function QuoteEditorPage({
     }
   };
 
-  const save = async (opts?: { submit?: boolean }) => {
+  const save = async (opts?: { submit?: boolean; approve?: boolean }) => {
     if (isReadOnly) {
       toast.error((isRequestMode || useOperatorRequestTerminology) ? "Richiesta in sola lettura per questo stato o permesso" : "Preventivo in sola lettura per questo stato o permesso");
       return;
@@ -868,7 +895,7 @@ export function QuoteEditorPage({
       return;
     }
 
-    const lineValidationError = validateLines(lines);
+    const lineValidationError = validateLines(lines, isRequestMode || useOperatorRequestTerminology);
     if (lineValidationError) {
       toast.error(lineValidationError);
       return;
@@ -890,6 +917,8 @@ export function QuoteEditorPage({
       const requestPayload: CreateQuotePayload = {
         ...companyPayload,
         kind: isRequestMode ? "richiesta" : (previewPayload?.kind ?? "preventivo"),
+        // Destinatario: solo per le richieste.
+        ...(isRequestMode || useOperatorRequestTerminology ? { recipient_user_id: recipientUserId } : {}),
       };
 
       const effectivePayload: CreateQuotePayload = previewPayload
@@ -949,17 +978,23 @@ export function QuoteEditorPage({
             }
       }
 
-      // "Invia richiesta": creata la bozza, la si porta subito allo stato di invio
-      // (così esce dalle bozze private e diventa visibile a PM/admin).
+      // "Invia richiesta": creata la bozza, la si porta subito a "da approvare"
+      // (esce dalle bozze private e notifica il destinatario scelto).
       if (opts?.submit && createdId != null) {
-        const target = getAllowedTransitions("bozza", isAdmin)[0];
-        if (target) {
-          try {
-            await updateRequestStatusApi(createdId, target);
-            toast.success("Richiesta inviata");
-          } catch {
-            toast.error("Richiesta creata, ma l'invio non è riuscito: resta in bozza.");
-          }
+        try {
+          await updateRequestStatusApi(createdId, "da_approvare");
+          toast.success("Richiesta inviata");
+        } catch {
+          toast.error("Richiesta creata, ma l'invio non è riuscito: resta in bozza.");
+        }
+      } else if (opts?.approve && quoteId) {
+        // "Approva e salva": salvate le modifiche, segna la richiesta approvata.
+        try {
+          await updateRequestStatusApi(quoteId, "accettato");
+          setLoadedStatus("accettato");
+          toast.success("Richiesta approvata");
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Salvata, ma approvazione non riuscita");
         }
       } else if (quoteId && isCompanyChanged) {
             toast.success(isRequestMode ? "Richiesta salvata nella nuova company" : "Preventivo salvato nella nuova company");
@@ -986,6 +1021,21 @@ export function QuoteEditorPage({
       setSaving(false);
     }
       };
+
+  // Converte la richiesta approvata in un preventivo e apre quest'ultimo (solo admin).
+  const convertToQuote = async () => {
+    if (!quoteId) return;
+    setConverting(true);
+    try {
+      const created = await convertRequestToQuoteApi(quoteId);
+      toast.success(`Convertita nel preventivo ${created.number}`);
+      navigate({ pathname: "/preventivo", search: `?quote_id=${created.id}` }, { state: { quoteId: created.id } });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore nella conversione in preventivo");
+    } finally {
+      setConverting(false);
+    }
+  };
 
   const createContractFromQuote = async () => {
     if (isRequestMode) {
@@ -1071,6 +1121,25 @@ export function QuoteEditorPage({
                 emptyOptionLabel={clientsLoading ? "Caricamento in corso..." : "- Seleziona cliente -"}
               />
             </div>
+
+            {(isRequestMode || useOperatorRequestTerminology) && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                  Invia a
+                </label>
+                <SearchableSelect
+                  value={recipientUserId != null ? String(recipientUserId) : ""}
+                  onChange={(v) => setRecipientUserId(v ? Number(v) : null)}
+                  options={companyUsers.map((u) => ({ value: String(u.id), label: u.full_name || u.username }))}
+                  placeholder="- Scegli destinatario -"
+                  searchPlaceholder="Cerca utente…"
+                  disabled={isReadOnly}
+                />
+                <span className="text-[11px] text-muted dark:text-muted-dark">
+                  Riceverà la notifica e potrà approvare la richiesta. Se vuoto, notifica tutti gli admin/PM.
+                </span>
+              </div>
+            )}
 
             {!hideTagAndDiscount && canSeePricing && (
               <>
@@ -1409,6 +1478,30 @@ export function QuoteEditorPage({
             ) : (
               <Button variant="primary" onClick={() => void save()} loading={saving} disabled={isReadOnly}>{primaryActionLabel}</Button>
             )}
+
+            {/* Flusso richiesta lato revisore/admin: approva, poi (a parte) converti. */}
+            {isRequestMode && isAdmin && quoteId && loadedStatus === "in_revisione" && (
+              <Button
+                variant="primary"
+                onClick={() => void save({ approve: true })}
+                loading={saving}
+                disabled={isReadOnly}
+                leftIcon={<Icon name="check-circle" className="w-4 h-4" />}
+              >
+                Approva e salva richiesta
+              </Button>
+            )}
+            {isRequestMode && isAdmin && quoteId && loadedStatus === "accettato" && (
+              <Button
+                variant="secondary"
+                onClick={() => void convertToQuote()}
+                loading={converting}
+                leftIcon={<Icon name="document-text" className="w-4 h-4" />}
+              >
+                Converti in preventivo
+              </Button>
+            )}
+
             {!isRequestMode && isAdmin && (
               <Button
                 variant="secondary"

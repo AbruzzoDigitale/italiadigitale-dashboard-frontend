@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { getClientsApi, type Client } from "../api/clients";
+import { createLeadApi, getClientsApi, type Client } from "../api/clients";
 import {
   bulkDeleteContractsApi,
   CONTRACT_STAGE_LABELS,
@@ -41,10 +41,13 @@ import { QuoteQuickCreateModal } from "../components/contracts/QuoteQuickCreateM
 import { ClientSelectorWithCreate } from "../components/clients/ClientSelectorWithCreate";
 import { Icon } from "../components/ui/Icon";
 import { Button } from "../components/ui/Button";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
 import { Checkbox } from "../components/ui/Checkbox";
+import { FieldLabel } from "../components/ui/FieldLabel";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { MultiSelect } from "../components/ui/MultiSelect";
+import { hasRichTextContent } from "../components/ui/RichTextEditor";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { Textarea } from "../components/ui/Textarea";
 import { Spinner } from "../components/ui/Spinner";
@@ -69,6 +72,31 @@ const STAGE_BAR: Record<ContractCommercialStage, string> = {
   completato: "oklch(0.64 0.15 142)",
   perso: "oklch(0.62 0.17 18)",
 };
+
+/** Data odierna in formato ISO "YYYY-MM-DD" (locale, non UTC: evita lo slittamento di un giorno). */
+function todayIso(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Formatta una data ISO "YYYY-MM-DD" in gg/mm/aaaa senza passare da Date (niente shift di timezone). */
+function formatIsoDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+/** Le note del lead arrivano dal Textarea (RichTextEditor) come HTML: nella card serve testo semplice. */
+function richTextToPlain(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new DOMParser().parseFromString(value, "text/html");
+  return (parsed.body.textContent ?? "").replace(/\u00A0/g, " ").trim();
+}
+
+const EMPTY_LEAD_FORM = { name: "", notes: "", lead_date: "" };
 
 const CARD_ICON_ACTION_CLASS = "pipe-c-act";
 
@@ -410,8 +438,18 @@ export function ContractsPipelinePage() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
   const [bulkDeleteResult, setBulkDeleteResult] = useState<BulkDeleteResponse | null>(null);
 
+  // ── Lead (colonna Bozza) ──
+  const [leads, setLeads] = useState<Client[]>([]);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
+  const [leadForm, setLeadForm] = useState(EMPTY_LEAD_FORM);
+  const [leadSaving, setLeadSaving] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [createQuoteOpen, setCreateQuoteOpen] = useState(false);
+  // Cliente preselezionato all'apertura del preventivo (conversione di un lead).
+  const [quoteInitialClientId, setQuoteInitialClientId] = useState<string | null>(null);
   const [editQuoteOpen, setEditQuoteOpen] = useState(false);
   const [editQuoteData, setEditQuoteData] = useState<Quote | null>(null);
   const [editQuoteLoadingId, setEditQuoteLoadingId] = useState<number | null>(null);
@@ -460,6 +498,16 @@ export function ContractsPipelinePage() {
     })),
     [clients]
   );
+
+  // Il lead è già in anagrafica ma la lista clienti standard lo esclude: lo uniamo
+  // così il selettore del preventivo può mostrarlo e preselezionarlo.
+  const clientsWithLeads = useMemo(() => {
+    if (leads.length === 0) return clients;
+    const byId = new Map<number, Client>();
+    clients.forEach((client) => byId.set(client.id, client));
+    leads.forEach((lead) => byId.set(lead.id, lead));
+    return Array.from(byId.values());
+  }, [clients, leads]);
 
   const clientDisplayNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -614,6 +662,48 @@ export function ContractsPipelinePage() {
     };
   }, [currentCompanyId, reloadSeq]);
 
+  // I lead non sono item di pipeline: vivono in anagrafica con is_lead=true e li
+  // impaginiamo a parte come card della sola colonna Bozza.
+  useEffect(() => {
+    if (!currentCompanyId) {
+      setLeads([]);
+      return;
+    }
+
+    let active = true;
+    void getClientsApi({ is_lead: true, company_id: currentCompanyId, per_page: 200 })
+      .then((response) => {
+        if (active) setLeads(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        toast.error(err instanceof Error ? err.message : "Errore caricamento lead");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentCompanyId, reloadSeq, toast]);
+
+  // Chiusura del menu "+" al click fuori e con Esc.
+  useEffect(() => {
+    if (!addMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [addMenuOpen]);
+
   useEffect(() => {
     if (!quoteContractPreviewOpen) return;
     const targetCompanyId = quoteContractForm?.company_id ? Number(quoteContractForm.company_id) : currentCompanyId;
@@ -713,6 +803,52 @@ export function ContractsPipelinePage() {
     } finally {
       setGroupActionId(null);
     }
+  };
+
+  // ── Lead ──
+  const openLeadForm = () => {
+    setLeadForm({ ...EMPTY_LEAD_FORM, lead_date: todayIso() });
+    setLeadFormOpen(true);
+    setAddMenuOpen(false);
+  };
+
+  const closeLeadForm = () => {
+    if (leadSaving) return;
+    setLeadFormOpen(false);
+    setLeadForm(EMPTY_LEAD_FORM);
+  };
+
+  const saveLead = async () => {
+    if (!leadForm.name.trim()) {
+      toast.error("Il nome del cliente è obbligatorio");
+      return;
+    }
+
+    setLeadSaving(true);
+    try {
+      await createLeadApi({
+        name: leadForm.name.trim(),
+        // L'editor lascia markup vuoto (es. "<p><br></p>") anche a testo cancellato.
+        notes: hasRichTextContent(leadForm.notes) ? leadForm.notes.trim() : null,
+        lead_date: leadForm.lead_date || null,
+        company_id: currentCompanyId,
+      });
+      toast.success("Lead salvato");
+      setLeadFormOpen(false);
+      setLeadForm(EMPTY_LEAD_FORM);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore salvataggio lead");
+    } finally {
+      setLeadSaving(false);
+    }
+  };
+
+  // La conversione è automatica lato server: alla creazione del preventivo il
+  // backend spegne is_lead. Qui basta aprire il flusso col cliente preselezionato.
+  const convertLeadToQuote = (lead: Client) => {
+    setQuoteInitialClientId(String(lead.id));
+    setCreateQuoteOpen(true);
   };
 
   const openDetail = (contractId: number) => {
@@ -1136,29 +1272,44 @@ export function ContractsPipelinePage() {
             placeholder="Filtra tipo"
           />
 
-          <label className="inline-flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5 text-sm text-ink dark:text-paper">
-            <Checkbox checked={includeInactive} onChange={setIncludeInactive} />
-            Include inattivi
-          </label>
+          <Button
+            variant="ghost"
+            iconOnly
+            onClick={reloadPipeline}
+            title="Aggiorna"
+            aria-label="Aggiorna"
+            leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+          />
 
-          <label className="inline-flex items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5 text-sm text-ink dark:text-paper">
-            <Checkbox checked={includeDeleted} onChange={setIncludeDeleted} />
-            Include eliminati
-          </label>
-
-          <Button variant="ghost" onClick={reloadPipeline} leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}>
-            Aggiorna
-          </Button>
-
-          {isAdmin && selectedContractIds.length > 0 && (
-            <Button
-              variant="danger-ghost"
-              onClick={() => setBulkDeleteOpen(true)}
-              leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            >
-              Elimina contratti selezionati ({selectedContractIds.length})
-            </Button>
-          )}
+          {/* Opzioni di inclusione + azioni bulk accorpate: niente seconda riga. */}
+          <DropdownMenu
+            label="Opzioni e azioni"
+            items={[
+              {
+                key: "inactive",
+                label: "Include inattivi",
+                icon: "eye",
+                active: includeInactive,
+                onClick: () => setIncludeInactive(!includeInactive),
+              },
+              {
+                key: "deleted",
+                label: "Include eliminati",
+                icon: "trash",
+                active: includeDeleted,
+                onClick: () => setIncludeDeleted(!includeDeleted),
+              },
+              isAdmin && selectedContractIds.length > 0 && {
+                key: "bulk-delete",
+                label: "Elimina selezionati",
+                icon: "trash",
+                danger: true,
+                trailing: String(selectedContractIds.length),
+                onClick: () => setBulkDeleteOpen(true),
+                separatorBefore: true,
+              },
+            ]}
+          />
 
           {isAdmin && selectedQuoteIds.length > 0 && (
             <Button
@@ -1221,7 +1372,8 @@ export function ContractsPipelinePage() {
                 >
                   <div className="pipe-col-head">
                     <span className="pipe-col-name">{CONTRACT_STAGE_LABELS[stage]}</span>
-                    <span className="pipe-col-count">{items.length}</span>
+                    {/* In Bozza il contatore include i lead, che sono card a tutti gli effetti. */}
+                    <span className="pipe-col-count">{items.length + (stage === "bozza" ? leads.length : 0)}</span>
                   </div>
                   <div className="pipe-col-tot">
                     <b>Tot {formatEur(stageTotal)}</b>
@@ -1229,40 +1381,119 @@ export function ContractsPipelinePage() {
                   </div>
                   <div className="pipe-col-body">
                     {stage === "bozza" && isAdmin && (
-                      <>
+                      <div ref={addMenuRef} className={`pipe-add${addMenuOpen ? " is-open" : ""}`}>
                         <button
                           type="button"
-                          onClick={() => setCreateQuoteOpen(true)}
-                          className="pipe-create pipe-create-quote"
+                          className="pipe-add-fab"
+                          onClick={() => setAddMenuOpen((open) => !open)}
+                          aria-expanded={addMenuOpen}
+                          aria-label={addMenuOpen ? "Chiudi opzioni di creazione" : "Apri opzioni di creazione"}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
-                              <Icon name="plus" className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="text-sm font-semibold text-ink dark:text-paper">Nuovo preventivo</span>
-                          </div>
-                          <p className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            Crea rapidamente un preventivo senza uscire dalla pipeline.
-                          </p>
+                          <span className="pipe-add-plus">
+                            <Icon name="plus" className="w-4 h-4" />
+                          </span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setCreateFromQuoteOpen(true)}
-                          className="pipe-create pipe-create-contract"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info/15 text-info">
-                              <Icon name="plus" className="w-3.5 h-3.5" />
-                            </span>
-                            <span className="text-sm font-semibold text-ink dark:text-paper">Genera contratto da preventivo</span>
+                        {/* Voci sempre montate: l'apertura è una transizione CSS, non un mount. */}
+                        <div className="pipe-add-opts" aria-hidden={!addMenuOpen}>
+                          <div className="pipe-add-opts-inner">
+                            <button
+                              type="button"
+                              style={{ "--i": 0 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={() => {
+                                setAddMenuOpen(false);
+                                setCreateQuoteOpen(true);
+                              }}
+                              className="pipe-create pipe-create-quote pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
+                                  <Icon name="document-text" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Nuovo preventivo</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Crea rapidamente un preventivo senza uscire dalla pipeline.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              style={{ "--i": 1 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={() => {
+                                setAddMenuOpen(false);
+                                setCreateFromQuoteOpen(true);
+                              }}
+                              className="pipe-create pipe-create-contract pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-info/15 text-info">
+                                  <Icon name="copy" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Genera contratto da preventivo</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Anteprima guidata, avvisi e conferma finale senza uscire dalla pipeline.
+                              </p>
+                            </button>
+
+                            <button
+                              type="button"
+                              style={{ "--i": 2 } as CSSProperties}
+                              tabIndex={addMenuOpen ? 0 : -1}
+                              onClick={openLeadForm}
+                              className="pipe-create pipe-create-lead pipe-add-opt"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-warning/15 text-warning">
+                                  <Icon name="user-circle" className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="text-sm font-semibold text-ink dark:text-paper">Lead</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                                Appunta al volo una richiesta: nome, note e data.
+                              </p>
+                            </button>
                           </div>
-                          <p className="mt-1 text-xs text-muted dark:text-muted-dark">
-                            Anteprima guidata, avvisi e conferma finale senza uscire dalla pipeline.
-                          </p>
-                        </button>
-                      </>
+                        </div>
+                      </div>
                     )}
+
+                    {stage === "bozza" && leads.map((lead) => {
+                      const leadNotes = richTextToPlain(lead.notes);
+
+                      return (
+                        <div
+                          key={`lead-${lead.id}`}
+                          className="pipe-card is-lead"
+                          style={{ "--area": STAGE_BAR.in_trattativa } as CSSProperties}
+                        >
+                          <div className="pipe-c-top">
+                            <span className="pipe-c-client" title={lead.commercial_name || lead.name}>
+                              {lead.commercial_name || lead.name}
+                            </span>
+                            <span className="pipe-c-kind is-lead">Lead</span>
+                          </div>
+
+                          {leadNotes && <p className="pipe-c-lead-notes" title={leadNotes}>{leadNotes}</p>}
+
+                          <div className="pipe-c-foot">
+                            <span className="pipe-c-upd">Richiesta {formatIsoDate(lead.lead_date)}</span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="pipe-c-lead-cta"
+                                onClick={() => convertLeadToQuote(lead)}
+                              >
+                                Converti in preventivo
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
 
                     {items.length === 0 && stage !== "bozza" && (
                       <div className="pipe-col-empty">Nessun elemento</div>
@@ -2011,22 +2242,74 @@ export function ContractsPipelinePage() {
       <QuoteQuickCreateModal
         open={createQuoteOpen || editQuoteOpen}
         companyId={currentCompanyId}
-        clients={clients}
+        clients={clientsWithLeads}
         clientsLoading={clientsLoading}
         canSyncFromFic={isAdmin}
         quoteToEdit={editQuoteOpen ? editQuoteData : null}
+        initialClientId={quoteInitialClientId}
         onClose={() => {
           setCreateQuoteOpen(false);
           setEditQuoteOpen(false);
           setEditQuoteData(null);
+          setQuoteInitialClientId(null);
         }}
         onCreated={() => {
           setCreateQuoteOpen(false);
           setEditQuoteOpen(false);
           setEditQuoteData(null);
+          setQuoteInitialClientId(null);
           reloadPipeline();
         }}
       />
+
+      <Modal
+        open={leadFormOpen}
+        onClose={closeLeadForm}
+        title="Nuovo lead"
+        description="Appunta una richiesta in arrivo: diventerà un preventivo quando sarà il momento."
+        icon={<Icon name="user-circle" className="h-5 w-5" />}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeLeadForm} disabled={leadSaving}>
+              Annulla
+            </Button>
+            <Button onClick={() => void saveLead()} loading={leadSaving} leftIcon={<Icon name="check" className="h-4 w-4" />}>
+              Salva
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {/* Nome libero: al momento della chiamata il cliente può non esistere in anagrafica. */}
+          <Input
+            label="Nome cliente *"
+            labelIcon={<Icon name="user-circle" className="h-3 w-3" />}
+            value={leadForm.name}
+            onChange={(event) => setLeadForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Es. Pasticceria Rossi"
+          />
+
+          <div className="flex flex-col gap-1">
+            <FieldLabel icon={<Icon name="annotation" className="h-3 w-3" />}>Note commerciali</FieldLabel>
+            <Textarea
+              rows={3}
+              value={leadForm.notes}
+              onChange={(event) => setLeadForm((current) => ({ ...current, notes: event.target.value }))}
+              className="w-full rounded-md border border-line dark:border-line-dark bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-sm text-ink dark:text-paper"
+              placeholder="Es. Ha chiesto un preventivo per il restyling del sito"
+            />
+          </div>
+
+          <Input
+            label="Data richiesta"
+            labelIcon={<Icon name="calendar" className="h-3 w-3" />}
+            type="date"
+            value={leadForm.lead_date}
+            onChange={(event) => setLeadForm((current) => ({ ...current, lead_date: event.target.value }))}
+          />
+        </div>
+      </Modal>
 
       <ContractFromQuoteModal
         open={createFromQuoteOpen}

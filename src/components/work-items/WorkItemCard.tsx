@@ -1,5 +1,6 @@
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icon";
+import { WorkItemResourceChips } from "./WorkItemResourceChips";
 import { WorkAreaBadge } from "../work-areas/WorkAreaBadge";
 import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/workItems";
 import { type User } from "../../api/users";
@@ -161,6 +162,18 @@ export function WorkItemCard({
         </span>
         <div className="lv-flags">
           {item.is_priority && <Icon name="star" className="lv-star h-3.5 w-3.5" />}
+          {item.trello_card_url && (
+            <a
+              href={item.trello_card_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="lv-badge soft"
+              title="Vedi su Trello"
+            >
+              <Icon name="trello" className="h-2.5 w-2.5" /> Trello
+            </a>
+          )}
           {sentToClient && (
             <span className="lv-badge sent" title="In revisione · inviata al cliente">
               <Icon name="check-circle" className="h-2.5 w-2.5" /> Al cliente
@@ -289,6 +302,10 @@ export function WorkItemCard({
             </span>
           ))}
         </div>
+      )}
+
+      {item.resources && item.resources.length > 0 && (
+        <WorkItemResourceChips resources={item.resources} className="mt-1" />
       )}
 
       {item.is_left_behind && (

@@ -187,6 +187,26 @@ function NotifItemRow({ item, actions }: { item: NotifItem; actions: RowActions 
         <span className="nt-time">{item.time}</span>
         {item.unread && <span className="nt-dot" />}
       </div>
+
+      {/* Su desktop (mouse) le stesse azioni delle gesture sono anche pulsanti:
+          compaiono al passaggio del mouse. Su touch restano le gesture. */}
+      <div className="nt-actions">
+        {[readAction, openAction, archiveAction].map((a) => (
+          <button
+            key={a.label}
+            type="button"
+            className={`nt-act tone-${a.tone}`}
+            title={a.label}
+            aria-label={a.label}
+            onClick={(e) => {
+              e.stopPropagation();
+              a.run();
+            }}
+          >
+            <Icon name={a.icon} className="h-[15px] w-[15px]" />
+          </button>
+        ))}
+      </div>
     </SwipeRow>
   );
 }
@@ -240,7 +260,8 @@ function EmptyState({ label }: { label?: string }) {
 function routeForItem(item: NotifItem): string | null {
   const isTask = item.tab === "task" || item.entity_type === "work_item";
   if (isTask && item.entity_id != null) return `/work-items?open=${item.entity_id}`;
-  if (item.tab === "richieste") return item.entity_id != null ? `/requests?open=${item.entity_id}` : "/requests";
+  // Richiesta: apre direttamente l'editor di QUELLA richiesta, non la lista.
+  if (item.tab === "richieste") return item.entity_id != null ? `/requests/edit?quote_id=${item.entity_id}` : "/requests";
   if (item.tab === "contratti") return "/contracts-pipeline";
   if (item.tab === "comunicazioni") return "/comunicazioni";
   return null;

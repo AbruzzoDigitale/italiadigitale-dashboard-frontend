@@ -280,3 +280,51 @@
 .dark .nt-swipe > .nt-item:hover { background: #1c1c20; }
 .nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 8%, #ffffff); }
 .dark .nt-swipe > .nt-item.unread:hover { background: color-mix(in srgb, #c41284 16%, #131316); }
+
+/* ── Azioni come pulsanti (desktop) ───────────────────────────────────────────
+   Su mouse le gesture sono scomode: le stesse azioni compaiono come pulsanti al
+   passaggio del mouse. Su touch restano solo le gesture. */
+.nt-actions { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  /* Fuori dal flusso: da fermi non occupano spazio e non spostano il contenuto. */
+  .nt-actions {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) translateX(10px);
+    transition: opacity 0.16s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* In hover il contenuto scorre a sinistra (padding animato) e i pulsanti
+     entrano da destra: è lo "spazio" che si apre per loro. */
+  .nt-swipe > .nt-item { transition: background 0.12s ease, padding-right 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+  .nt-swipe > .nt-item:hover,
+  .nt-swipe > .nt-item:focus-within { padding-right: 108px; }
+  .nt-swipe > .nt-item:hover .nt-actions,
+  .nt-swipe > .nt-item:focus-within .nt-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+.nt-act {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8d4cb;
+  background: #ffffff;
+  color: #6b6b6b;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.dark .nt-act { border-color: #34343a; background: #1c1c20; color: #c9c9d0; }
+.nt-act.tone-mint:hover { border-color: #17b26a; color: #17b26a; }
+.nt-act.tone-amber:hover { border-color: #d98b2b; color: #d98b2b; }
+.nt-act.tone-indigo:hover { border-color: #5b6ef5; color: #5b6ef5; }
+.nt-act.tone-slate:hover { border-color: #64748b; color: #64748b; }

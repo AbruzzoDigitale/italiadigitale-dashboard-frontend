@@ -35,6 +35,7 @@ import {
 import type { WorkTag } from "../api/workItems";
 import type { QuoteLineItem } from "../api/quotes";
 import { Button } from "../components/ui/Button";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -46,6 +47,7 @@ import { RightSidebarPanel } from "../components/ui/RightSidebarPanel";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
+import { TrelloImportModal } from "../components/work-items/TrelloImportModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { ReviewTab } from "../components/review/ReviewTab";
 import { WorkItemCard } from "../components/work-items/WorkItemCard";
@@ -558,6 +560,7 @@ export function WorkItemsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
+  const [trelloImportOpen, setTrelloImportOpen] = useState(false);
   const [taskAiSourceContractId, setTaskAiSourceContractId] = useState<number | null>(null);
   const [aiContractId, setAiContractId] = useState<number | null>(null);
   const [aiSplitOpen, setAiSplitOpen] = useState(false);
@@ -1131,49 +1134,58 @@ export function WorkItemsPage() {
             Per cliente
           </button>
         </div>
+        {/* Filtri secondari: sola icona; variante "secondary" quando ce ne sono di attivi. */}
         <Button
-          variant="ghost"
-          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+          variant={secondaryFiltersCount > 0 ? "secondary" : "ghost"}
+          iconOnly
           onClick={() => setFiltersPanelOpen(true)}
-        >
-          Filtri {secondaryFiltersCount > 0 ? `(${secondaryFiltersCount})` : ""}
-        </Button>
-        {canManageWorkItems && (
-          <Button
-            variant="ghost"
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            onClick={openArchive}
-          >
-            Archivio
-          </Button>
-        )}
-                <Button
-                  variant="secondary"
-                  leftIcon={<Icon name="plus" className="w-4 h-4" />}
-                  onClick={() => setQuickTaskModalOpen(true)}
-                  disabled={companyId == null}
-                >
-                  Task rapida
-                </Button>
-        {canManageWorkItems && selectedItemIds.length > 0 && (
-          <Button
-            variant="danger-ghost"
-            leftIcon={<Icon name="trash" className="w-4 h-4" />}
-            onClick={() => setBulkDeleteOpen(true)}
-          >
-            Archivia selezionate ({selectedItemIds.length})
-          </Button>
-        )}
-        {isAdmin && (
-          <Button
-            variant="secondary"
-            leftIcon={<Icon name="document-text" className="w-4 h-4" />}
-            onClick={openTemplatePanel}
-            disabled={companyId == null}
-          >
-            Template
-          </Button>
-        )}
+          title={secondaryFiltersCount > 0 ? `Filtri (${secondaryFiltersCount})` : "Filtri"}
+          aria-label="Filtri"
+          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+        />
+        {/* Azioni secondarie accorpate: evita righe di bottoni in testata. */}
+        <DropdownMenu
+          label="Altre azioni"
+          items={[
+            {
+              key: "quick",
+              label: "Task rapida",
+              icon: "plus",
+              onClick: () => setQuickTaskModalOpen(true),
+              disabled: companyId == null,
+            },
+            isAdmin && {
+              key: "template",
+              label: "Template",
+              icon: "document-text",
+              onClick: openTemplatePanel,
+              disabled: companyId == null,
+            },
+            isAdmin && {
+              key: "trello-import",
+              label: "Importa da Trello",
+              icon: "trello",
+              onClick: () => setTrelloImportOpen(true),
+              disabled: companyId == null,
+            },
+            canManageWorkItems && {
+              key: "archive",
+              label: "Archivio",
+              icon: "trash",
+              onClick: openArchive,
+              separatorBefore: true,
+            },
+            canManageWorkItems && selectedItemIds.length > 0 && {
+              key: "bulk-archive",
+              label: "Archivia selezionate",
+              icon: "trash",
+              danger: true,
+              trailing: String(selectedItemIds.length),
+              onClick: () => setBulkDeleteOpen(true),
+              separatorBefore: true,
+            },
+          ]}
+        />
         {canUseManualTasks && (
           <Button
             variant="primary"
@@ -2190,6 +2202,16 @@ export function WorkItemsPage() {
           />
         ) : null}
       </Modal>
+
+      {companyId != null && (
+        <TrelloImportModal
+          open={trelloImportOpen}
+          onClose={() => setTrelloImportOpen(false)}
+          companyId={companyId}
+          users={users}
+          onImported={() => void refetch(true)}
+        />
+      )}
 
       <QuickTaskModal
         open={quickTaskModalOpen}

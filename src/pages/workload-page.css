@@ -347,6 +347,15 @@
   text-transform: uppercase;
 }
 
+/* Variante quadrata icon-only del ghost button (azioni standard: Aggiorna) */
+.wl-ghost-btn--icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+
 .wl-new-task-btn {
   display: inline-flex;
   align-items: center;

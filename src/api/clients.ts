@@ -82,6 +82,10 @@ export interface Client {
   // Note e stato
   notes: string | null;
   is_active: boolean;
+  /** Lead: cliente appuntato al volo, in attesa di conversione in preventivo. */
+  is_lead?: boolean;
+  /** Data della richiesta/contatto (default: giorno di creazione). */
+  lead_date?: string | null;
   assigned_user_ids?: number[] | null;
   /** Numero di contratti attivi del cliente (calcolato dalla lista clienti). */
   active_contract_count?: number;
@@ -164,6 +168,8 @@ export interface GetClientsParams {
   country?: string;
   e_invoice?: boolean;
   has_intent_declaration?: boolean;
+  /** true = solo i lead (card della colonna Bozza); false = solo i clienti "veri". */
+  is_lead?: boolean;
   sort_by?: string;
   sort_dir?: "asc" | "desc";
 }
@@ -400,6 +406,7 @@ export async function getClientsApi(params?: GetClientsParams): Promise<ClientsL
   if (params?.country) qs.set("country", params.country);
   if (params?.e_invoice != null) qs.set("e_invoice", String(params.e_invoice));
   if (params?.has_intent_declaration != null) qs.set("has_intent_declaration", String(params.has_intent_declaration));
+  if (params?.is_lead != null) qs.set("is_lead", String(params.is_lead));
   if (params?.sort_by) qs.set("sort_by", params.sort_by);
   if (params?.sort_dir) qs.set("sort_dir", params.sort_dir);
   const suffix = qs.toString() ? `?${qs}` : "";
@@ -447,6 +454,29 @@ export async function createClientApi(payload: CreateClientPayload): Promise<Cli
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Errore nella creazione cliente")}`);
+  }
+  return res.json();
+}
+
+/** Payload del lead: cliente minimale appuntato al volo (nome libero + note). */
+export interface CreateLeadPayload {
+  name: string;
+  commercial_name?: string | null;
+  notes?: string | null;
+  /** Data richiesta; se omessa il backend usa oggi. */
+  lead_date?: string | null;
+  company_id?: number | null;
+}
+
+/** Crea un LEAD: entra in anagrafica con `is_lead=true` e compare in colonna Bozza. */
+export async function createLeadApi(payload: CreateLeadPayload): Promise<Client> {
+  const res = await authFetch(`${API_BASE}/api/v1/clients/lead`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Errore nella creazione del lead")}`);
   }
   return res.json();
 }

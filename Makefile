@@ -18,6 +18,10 @@ preview:
 deploy:
 	bash deploy.sh
 
+# Deploy del frontend statico su Firebase Hosting (dominio dashboard.italiadigitale.agency).
+deploy-hosting:
+	bash deploy-hosting.sh
+
 # Deploy del backend: riusa il target del repo backend (deploy.sh + migrazione DB prod).
 deploy-backend:
 	$(MAKE) -C $(BACKEND_DIR) deploy
@@ -29,4 +33,4 @@ deploy-all: deploy-backend deploy
 clean:
 	rm -rf dist node_modules
 
-.PHONY: install dev build preview deploy deploy-backend deploy-all clean
+.PHONY: install dev build preview deploy deploy-hosting deploy-backend deploy-all clean

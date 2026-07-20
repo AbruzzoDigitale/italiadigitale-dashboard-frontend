@@ -100,6 +100,9 @@ export interface Quote {
   /** Preventivo scartato (perso a favore del vincitore): nascosto dalla pipeline. */
   group_archived?: boolean;
   requested_by: number | null;
+  /** Destinatario della richiesta (chi la riceve e la approva) + nome per la UI. */
+  recipient_user_id?: number | null;
+  recipient_name?: string | null;
   created_at: string;
   updated_at: string;
   totals: QuoteTotals | null;
@@ -123,6 +126,8 @@ export interface CreateQuotePayload {
   fic_id?: string | null;
   duplicated_from?: string | null;
   kind?: "preventivo" | "richiesta";
+  /** Destinatario della richiesta (utente dell'azienda che la riceve/approva). */
+  recipient_user_id?: number | null;
 }
 
 export interface QuotePreviewResponse {

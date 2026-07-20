@@ -572,9 +572,14 @@ export function DailyTasksPage() {
               Oggi
             </button>
 
-            <button type="button" className="wl-ghost-btn" onClick={() => void loadData()}>
+            <button
+              type="button"
+              className="wl-ghost-btn wl-ghost-btn--icon"
+              onClick={() => void loadData()}
+              title="Aggiorna"
+              aria-label="Aggiorna"
+            >
               <Icon name="refresh-cw" className="w-3.5 h-3.5" />
-              Aggiorna
             </button>
 
             <Button

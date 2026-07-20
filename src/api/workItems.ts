@@ -164,6 +164,23 @@ export interface ChecklistInput {
   items?: ChecklistItemInput[];
 }
 
+export interface WorkItemResource {
+  id: number;
+  type: string;
+  title: string;
+  url: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Payload risorsa in creazione/aggiornamento (l'ordine dell'array = ordine mostrato). */
+export interface WorkItemResourceInput {
+  type: string;
+  title: string;
+  url: string;
+}
+
 export interface WorkItemHistoryEvent {
   id: number;
   actor_user_id: number | null;
@@ -223,11 +240,16 @@ export interface WorkItem {
   rework_interna?: number;
   last_review_source?: "interna" | "cliente" | null;
   delivered_to_client_at?: string | null;
+  // Collegamento Trello
+  trello_card_id?: string | null;
+  trello_card_url?: string | null;
+  trello_board_id?: string | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
   time_slots: TimeSlot[];
   checklists?: Checklist[];
+  resources?: WorkItemResource[];
   history?: WorkItemHistoryEvent[];
   is_PED?: boolean;
   ped_configuration_id?: number | null;
@@ -355,6 +377,7 @@ export interface CreateWorkItemPayload {
   generate_recurrences?: boolean;
   generation_end_date?: string | null;
   checklists?: ChecklistInput[];
+  resources?: WorkItemResourceInput[];
 }
 
 export type UpdateWorkItemPayload = Partial<CreateWorkItemPayload> & {
@@ -409,6 +432,7 @@ export interface InstantiateTemplatePayload {
   generate_recurrences?: boolean;
   generation_end_date?: string | null;
   checklists?: ChecklistInput[];
+  resources?: WorkItemResourceInput[];
 }
 
 export interface GenerateWorkItemRecurrencesPayload {

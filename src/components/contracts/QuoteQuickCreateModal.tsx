@@ -271,6 +271,7 @@ export function QuoteQuickCreateModal({
   clientsLoading = false,
   canSyncFromFic = false,
   quoteToEdit = null,
+  initialClientId = null,
   onClose,
   onCreated,
 }: {
@@ -280,6 +281,8 @@ export function QuoteQuickCreateModal({
   clientsLoading?: boolean;
   canSyncFromFic?: boolean;
   quoteToEdit?: Quote | null;
+  /** Cliente da preselezionare in creazione (es. conversione di un lead in preventivo). */
+  initialClientId?: string | null;
   onClose: () => void;
   onCreated: (quote: Quote) => void;
 }) {
@@ -334,6 +337,13 @@ export function QuoteQuickCreateModal({
     resetFicSync();
     setForm(mapped);
   }, [open, quoteToEdit, resetFicSync]);
+
+  // Preselezione cliente: solo in creazione, così non sovrascrive il cliente di un
+  // preventivo esistente aperto in modifica.
+  useEffect(() => {
+    if (!open || quoteToEdit || !initialClientId) return;
+    setForm((current) => ({ ...current, client_id: initialClientId }));
+  }, [initialClientId, open, quoteToEdit]);
 
   const historyEvents = useMemo(
     () => [...(quoteToEdit?.history ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),

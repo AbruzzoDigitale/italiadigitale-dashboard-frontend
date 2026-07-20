@@ -50,6 +50,8 @@ import { OverbookingModal } from "./OverbookingModal";
 import { useToast } from "../../context/ToastContext";
 import { useWorkItemDetail } from "../../hooks/useWorkItemDetail";
 import { ReviewTab, type ReviewTabHandle } from "../review/ReviewTab";
+import { detectResourceType } from "../../utils/taskResources";
+import { ResourceIcon } from "./ResourceIcon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -259,6 +261,14 @@ interface WorkItemFormState {
   ped_reels_per_month: string;
   ped_stories_per_month: string;
   checklists: ChecklistFormState[];
+  resources: ResourceFormState[];
+}
+
+/** Riga risorsa nel form (stessa forma del payload; l'ordine dell'array = ordine mostrato). */
+interface ResourceFormState {
+  type: string;
+  title: string;
+  url: string;
 }
 
 interface ChecklistItemSlotFormState {
@@ -324,6 +334,7 @@ const EMPTY_FORM: WorkItemFormState = {
   ped_reels_per_month: "0",
   ped_stories_per_month: "0",
   checklists: [],
+  resources: [],
 };
 
 // ── Slot form ─────────────────────────────────────────────────────────────────
@@ -759,6 +770,10 @@ export function WorkItemFormModal({
             })),
           })),
         })),
+        resources: (baseItem.resources ?? [])
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((resource) => ({ type: resource.type, title: resource.title, url: resource.url })),
       });
       setSlots(isInstantiateMode ? [] : (baseItem.time_slots ?? []));
     } else {
@@ -1009,6 +1024,18 @@ export function WorkItemFormModal({
             })),
           })),
         }));
+      }
+
+      // Risorse: solo righe con URL non vuoto (il tipo, se assente, è dedotto dall'URL).
+      // Gestite come le checklist: inviate quando presenti, sia in creazione sia in modifica.
+      if (form.resources.length > 0) {
+        payload.resources = form.resources
+          .filter((resource) => resource.url.trim())
+          .map((resource) => ({
+            type: (resource.type || detectResourceType(resource.url)).trim(),
+            title: resource.title.trim(),
+            url: resource.url.trim(),
+          }));
       }
 
       let createdItem: WorkItem | null = null;
@@ -1307,6 +1334,37 @@ export function WorkItemFormModal({
           }),
         };
       }),
+    }));
+  };
+
+  // ── Risorse / Collegamenti handlers (il tipo è SEMPRE dedotto dall'URL: niente selettore)
+  const addResource = () => {
+    setForm((current) => ({
+      ...current,
+      resources: [...current.resources, { type: "link", title: "", url: "" }],
+    }));
+  };
+
+  const removeResource = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      resources: current.resources.filter((_, i) => i !== index),
+    }));
+  };
+
+  const updateResourceUrl = (index: number, url: string) => {
+    setForm((current) => ({
+      ...current,
+      resources: current.resources.map((resource, i) =>
+        i === index ? { ...resource, url, type: detectResourceType(url) } : resource
+      ),
+    }));
+  };
+
+  const updateResourceTitle = (index: number, title: string) => {
+    setForm((current) => ({
+      ...current,
+      resources: current.resources.map((resource, i) => (i === index ? { ...resource, title } : resource)),
     }));
   };
 
@@ -1734,6 +1792,71 @@ export function WorkItemFormModal({
     </SectionCard>
   );
 
+  const renderResourcesSection = () => (
+    <SectionCard
+      icon="link"
+      title="Risorse / Collegamenti"
+      count={form.resources.length}
+      actions={
+        <button
+          type="button"
+          onClick={addResource}
+          className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted dark:text-paper dark:hover:text-muted-dark"
+        >
+          <Icon name="plus" className="h-3 w-3" />
+          Aggiungi risorsa
+        </button>
+      }
+    >
+      {form.resources.length === 0 ? (
+        <p className="text-sm text-muted dark:text-muted-dark">
+          Nessuna risorsa. Aggiungi link a Canva, Google Drive, percorsi NAS o altri collegamenti.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {form.resources.map((resource, index) => (
+            <div
+              key={`resource-${index}`}
+              className="rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]"
+            >
+              <div className="flex items-start gap-2">
+                <span
+                  className="mt-6 flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]"
+                  title="Tipo rilevato automaticamente dall'URL"
+                >
+                  <ResourceIcon type={detectResourceType(resource.url)} className="h-4 w-4" />
+                </span>
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    label="URL o percorso"
+                    value={resource.url}
+                    onChange={(event) => updateResourceUrl(index, event.target.value)}
+                    placeholder="https://…  oppure  \\server\cartella"
+                  />
+                  <Input
+                    label="Titolo"
+                    value={resource.title}
+                    onChange={(event) => updateResourceTitle(index, event.target.value)}
+                    placeholder="Es. Canva post, Brief Drive…"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeResource(index)}
+                  className="mt-6 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
+                  aria-label="Rimuovi risorsa"
+                  title="Rimuovi risorsa"
+                >
+                  <Icon name="trash" className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+
   // Scorciatoia: se il titolo contiene "PED" (Piano Editoriale Digitale) come parola,
   // portiamo la sezione PED accanto al titolo per impostarla al volo senza cambiare tab.
   const titleSuggestsPed = /\bped\b/i.test(form.title);
@@ -2078,6 +2201,8 @@ export function WorkItemFormModal({
           />
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderChecklistSection()}
+          <div className="h-px bg-line dark:bg-line-dark" />
+          {renderResourcesSection()}
         </div>
       )}
 
@@ -2200,6 +2325,17 @@ export function WorkItemFormModal({
                   >
                     ↪ dal {sourceItem.work_date.slice(8, 10)}/{sourceItem.work_date.slice(5, 7)}
                   </span>
+                )}
+                {sourceItem.trello_card_url && (
+                  <a
+                    href={sourceItem.trello_card_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-pill border border-[#0079bf]/40 bg-[#0079bf]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#0079bf] hover:bg-[#0079bf]/20"
+                    title="Apri la card su Trello"
+                  >
+                    <Icon name="trello" className="h-3 w-3" /> Vedi su Trello
+                  </a>
                 )}
               </div>
 
@@ -2707,6 +2843,11 @@ export function WorkItemFormModal({
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Checklist — */}
           {renderChecklistSection()}
+
+          <div className="h-px bg-line dark:bg-line-dark" />
+
+          {/* — Risorse / Collegamenti — */}
+          {renderResourcesSection()}
 
           <div className="h-px bg-line dark:bg-line-dark" />
 

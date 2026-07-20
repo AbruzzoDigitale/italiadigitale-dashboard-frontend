@@ -634,9 +634,15 @@ export function CatalogPage() {
             </label>
           )}
 
-          <Button variant="secondary" size="sm" onClick={loadCatalog} leftIcon={<Icon name="activity" />}>
-            Aggiorna
-          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            iconOnly
+            onClick={loadCatalog}
+            title="Aggiorna"
+            aria-label="Aggiorna"
+            leftIcon={<Icon name="refresh-cw" className="w-4 h-4" />}
+          />
         </div>
       </div>
 
