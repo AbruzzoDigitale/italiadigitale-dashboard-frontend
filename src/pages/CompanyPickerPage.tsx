@@ -56,7 +56,7 @@ export function CompanyPickerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090909] text-white px-6 py-10 flex items-center justify-center">
+    <div className="h-dvh overflow-y-auto bg-[#090909] text-white px-6 py-10 flex items-center justify-center">
       <div className="w-full max-w-6xl">
         <div className="flex items-center justify-between gap-3 mb-8">
           <div>

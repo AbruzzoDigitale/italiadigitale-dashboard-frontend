@@ -72,7 +72,7 @@ export function FieldHelpPopover({ title, shortText, longText }: FieldHelpPopove
       {open && position && createPortal(
         <div
           ref={popupRef}
-          className="fixed z-[4000] rounded-lg border border-line bg-paper px-3 py-2.5 text-left shadow-xl dark:border-line-dark dark:bg-[#131316]"
+          className="dd-pop fixed z-[4000] rounded-lg border border-line bg-paper px-3 py-2.5 text-left shadow-xl dark:border-line-dark dark:bg-[#131316]"
           style={{ top: position.top, left: position.left, width: position.width }}
         >
           <p className="text-[11px] font-semibold uppercase tracking-wider text-ink dark:text-paper">{title}</p>

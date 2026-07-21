@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import "./review-tab.css";
 import { useToast } from "../../context/ToastContext";
 import { Input } from "../ui/Input";
+import { Linkify } from "../ui/Linkify";
 import { updateWorkItemApi, type UpdateWorkItemPayload } from "../../api/workItems";
 import {
   listReviewCommentsApi,
@@ -85,7 +86,7 @@ function CommentRow({ c, me }: { c: ReviewComment; me: boolean }) {
         ) : (
           <span className="rv-cm-tag generic">Nota generica</span>
         )}
-        <div className="rv-cm-text">{c.text}</div>
+        <div className="rv-cm-text"><Linkify text={c.text} linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]" /></div>
         {badge === "cliente" ? (
           <div className="rv-proxy">↳ inserito da {c.author_name ?? "—"} per conto del cliente</div>
         ) : null}

@@ -114,10 +114,10 @@ export function DropdownMenu({
       <div
         role="menu"
         style={style}
-        className="min-w-[210px] max-w-[320px] overflow-hidden rounded-md border border-line bg-paper py-1 shadow-lg dark:border-[#2a2a2e] dark:bg-[#1c1c20]"
+        className={`${openUp ? "dd-pop-up" : "dd-pop"} min-w-[210px] max-w-[320px] overflow-hidden rounded-md border border-line bg-paper py-1 shadow-lg dark:border-[#2a2a2e] dark:bg-[#1c1c20]`}
       >
-        {visible.map((it) => (
-          <div key={it.key}>
+        {visible.map((it, i) => (
+          <div key={it.key} className="dd-item" style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
             {it.separatorBefore ? <div className="my-1 h-px bg-line dark:bg-[#2a2a2e]" /> : null}
             <button
               type="button"

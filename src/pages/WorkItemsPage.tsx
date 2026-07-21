@@ -54,6 +54,14 @@ import { WorkItemCard } from "../components/work-items/WorkItemCard";
 import { ContractDetailModal } from "../components/contracts/ContractDetailModal";
 import { ContractAiWorkItemsSliderModal, type ContractQuoteLinePrecompile } from "../components/work-items/ContractAiWorkItemsSliderModal";
 import { getCommercialStageTone } from "../utils/commercialStageTone";
+import {
+  getWorkboardPreferencesApi,
+  updateWorkboardPreferencesApi,
+  type BoardSortMode,
+  type ColumnSort,
+} from "../api/workboardPreferences";
+import { sortColumnItems, DEFAULT_SORT_MODE } from "../utils/workboardSort";
+import type { IconName } from "../components/ui/Icon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +71,20 @@ const KANBAN_COLUMNS: { id: WorkItemStatus; label: string; color: string }[] = [
   { id: "review", label: "Revisione", color: "#EF9F27" },
   { id: "completed", label: "Completato", color: "#639922" },
 ];
+
+// Modalità di ordinamento colonna (etichette + icone per il menu in testata).
+const SORT_MODE_META: { mode: BoardSortMode; label: string; icon: IconName }[] = [
+  { mode: "deadline_asc", label: "Scadenza ↑ (prima le vicine)", icon: "calendar" },
+  { mode: "deadline_desc", label: "Scadenza ↓ (prima le lontane)", icon: "calendar" },
+  { mode: "urgency", label: "Per urgenza", icon: "alert-triangle" },
+  { mode: "custom", label: "Manuale (trascina)", icon: "arrows-v" },
+];
+const SORT_MODE_SHORT: Record<BoardSortMode, string> = {
+  deadline_asc: "Scadenza ↑",
+  deadline_desc: "Scadenza ↓",
+  urgency: "Urgenza",
+  custom: "Manuale",
+};
 
 const STATUS_OPTIONS: { value: WorkItemStatus; label: string }[] = [
   { value: "planned", label: "Da fare" },
@@ -160,6 +182,14 @@ interface KanbanColumnProps {
   onInstantiateFromTemplate: (item: WorkItem) => void;
   onOpenAiSourceContract: (contractId: number) => void;
   onDrop: (status: WorkItemStatus) => void;
+  // Ordinamento colonna (mostrato solo in vista globale).
+  sortMode?: BoardSortMode;
+  showSortControl?: boolean;
+  onSetSortMode?: (status: WorkItemStatus, mode: BoardSortMode) => void;
+  /** Status della card attualmente trascinata (per abilitare il riordino intra-colonna). */
+  draggingStatus?: WorkItemStatus | null;
+  /** Riordino manuale: inserisce i trascinati prima di `beforeId` (null = in coda). */
+  onReorderCustom?: (status: WorkItemStatus, beforeId: number | null) => void;
 }
 
 interface TemplateSidebarCardProps {
@@ -322,8 +352,21 @@ function KanbanColumn({
   onInstantiateFromTemplate,
   onOpenAiSourceContract,
   onDrop,
+  sortMode = DEFAULT_SORT_MODE,
+  showSortControl = false,
+  onSetSortMode,
+  draggingStatus = null,
+  onReorderCustom,
 }: KanbanColumnProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
+  // Indice di inserimento durante il riordino manuale (custom).
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // Riordino intra-colonna abilitato solo quando: modalità manuale, il controllo
+  // è visibile (vista globale) e si sta trascinando una card DELLA STESSA colonna.
+  const canReorder = showSortControl && sortMode === "custom" && draggingStatus === column.id && !!onReorderCustom;
+
+  const clearReorder = () => setDropIndex(null);
 
   return (
     <div
@@ -332,11 +375,13 @@ function KanbanColumn({
       onDragOver={(e) => {
         if (!hasWorkItemDragType(e.dataTransfer?.types)) return;
         e.preventDefault();
+        if (canReorder) return; // durante il riordino non evidenziare il drop di stato
         setIsDropTarget(true);
       }}
       onDragLeave={() => setIsDropTarget(false)}
       onDrop={() => {
         setIsDropTarget(false);
+        if (canReorder) return; // il drop di riordino è gestito nel body
         onDrop(column.id);
       }}
     >
@@ -344,27 +389,64 @@ function KanbanColumn({
         <span className="lv-col-dot" style={{ background: column.color }} />
         <span className="lv-col-name">{column.label}</span>
         <span className="lv-col-count">{items.length}</span>
-      </div>
-      <div className="lv-col-body">
-        {items.map((item) => (
-          <WorkItemCard
-            key={item.id}
-            item={item}
-            clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
-            users={users}
-            workAreas={workAreas}
-            workTags={workTags}
-            isAdmin={isAdmin}
-            isSelected={selectedItemIds.includes(item.id)}
-            onToggleSelect={onToggleSelect}
-            onDragStartItem={onDragStartItem}
-            onDragEndItem={onDragEndItem}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onRegenerateRecurrences={onRegenerateRecurrences}
-            onInstantiateFromTemplate={onInstantiateFromTemplate}
-            onOpenAiSourceContract={onOpenAiSourceContract}
+        {showSortControl && onSetSortMode && (
+          <DropdownMenu
+            label={`Ordina: ${SORT_MODE_SHORT[sortMode]}`}
+            icon="arrows-v"
+            variant="ghost"
+            size="sm"
+            align="right"
+            className="lv-col-sort"
+            items={SORT_MODE_META.map((m) => ({
+              key: m.mode,
+              label: m.label,
+              icon: m.icon,
+              active: sortMode === m.mode,
+              onClick: () => onSetSortMode(column.id, m.mode),
+            }))}
           />
+        )}
+      </div>
+      <div
+        className="lv-col-body"
+        onDragOver={canReorder ? (e) => { e.preventDefault(); e.stopPropagation(); setDropIndex(items.length); } : undefined}
+        onDrop={canReorder ? (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const idx = dropIndex ?? items.length;
+          onReorderCustom?.(column.id, idx < items.length ? items[idx].id : null);
+          clearReorder();
+        } : undefined}
+      >
+        {items.map((item, idx) => (
+          <div
+            key={item.id}
+            className={`lv-reorder-slot${canReorder && dropIndex === idx ? " insert-before" : ""}${canReorder && dropIndex === items.length && idx === items.length - 1 ? " insert-after" : ""}`}
+            onDragOver={canReorder ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              setDropIndex(e.clientY > r.top + r.height / 2 ? idx + 1 : idx);
+            } : undefined}
+          >
+            <WorkItemCard
+              item={item}
+              clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
+              users={users}
+              workAreas={workAreas}
+              workTags={workTags}
+              isAdmin={isAdmin}
+              isSelected={selectedItemIds.includes(item.id)}
+              onToggleSelect={onToggleSelect}
+              onDragStartItem={onDragStartItem}
+              onDragEndItem={(e) => { onDragEndItem(e); clearReorder(); }}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onRegenerateRecurrences={onRegenerateRecurrences}
+              onInstantiateFromTemplate={onInstantiateFromTemplate}
+              onOpenAiSourceContract={onOpenAiSourceContract}
+            />
+          </div>
         ))}
         {items.length === 0 && <div className="lv-col-empty">Nessuna lavorazione</div>}
       </div>
@@ -459,6 +541,9 @@ export function WorkItemsPage() {
   );
   const { workItems, isLoading, error, refetch } = useWorkItems(filterParams);
   const [displayedWorkItems, setDisplayedWorkItems] = useState<WorkItem[]>([]);
+  // Ordinamento delle colonne (per operatore × azienda) + status della card trascinata.
+  const [boardSort, setBoardSort] = useState<Record<string, ColumnSort>>({});
+  const [draggingStatus, setDraggingStatus] = useState<WorkItemStatus | null>(null);
   const [focusContracts, setFocusContracts] = useState<ContractListItemResponse[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
   const [contractsError, setContractsError] = useState<string | null>(null);
@@ -976,6 +1061,7 @@ export function WorkItemsPage() {
     // Se la card trascinata è nella selezione multipla, sposta tutta la selezione.
     const ids = selectedItemIds.includes(itemId) && selectedItemIds.length > 1 ? [...selectedItemIds] : [itemId];
     dragIdsRef.current = ids;
+    setDraggingStatus(displayedWorkItems.find((w) => w.id === itemId)?.status ?? null);
     if (event.dataTransfer) {
       event.dataTransfer.setData("application/work-item-id", String(itemId));
       event.dataTransfer.setData("text/plain", String(itemId));
@@ -997,7 +1083,66 @@ export function WorkItemsPage() {
   const handleDragEndItem = (event: React.DragEvent<HTMLDivElement>) => {
     dragIdsRef.current = [];
     setDragCount(0);
+    setDraggingStatus(null);
     event.currentTarget.style.opacity = "";
+  };
+
+  // ── Ordinamento board (per operatore × azienda) ──────────────────────────────
+  useEffect(() => {
+    if (companyId == null) return;
+    let alive = true;
+    getWorkboardPreferencesApi(companyId)
+      .then((p) => { if (alive) setBoardSort(p.column_sort ?? {}); })
+      .catch(() => { if (alive) setBoardSort({}); });
+    return () => { alive = false; };
+  }, [companyId]);
+
+  const persistBoardSort = (next: Record<string, ColumnSort>) => {
+    setBoardSort(next);
+    if (companyId == null) return;
+    void updateWorkboardPreferencesApi({ company_id: companyId, column_sort: next }).catch((e: Error) =>
+      toast.error(e.message),
+    );
+  };
+
+  const setColumnSortMode = (status: WorkItemStatus, mode: BoardSortMode) => {
+    const prevConf = boardSort[status] ?? { mode: DEFAULT_SORT_MODE, order: [] };
+    let order = prevConf.order ?? [];
+    if (mode === "custom") {
+      // Alla prima attivazione del manuale, "congela" l'ordine attualmente mostrato.
+      order = sortColumnItems(
+        displayedWorkItems.filter((w) => w.status === status && !w.is_template),
+        prevConf,
+      ).map((w) => w.id);
+    }
+    persistBoardSort({ ...boardSort, [status]: { mode, order } });
+  };
+
+  const reorderColumnCustom = (status: WorkItemStatus, beforeId: number | null) => {
+    const dragged = dragIdsRef.current.length ? [...dragIdsRef.current] : [];
+    if (!dragged.length) return;
+    const conf = boardSort[status] ?? { mode: "custom" as BoardSortMode, order: [] };
+    // Ordine completo (non filtrato) della colonna, così i filtri non perdono posizioni.
+    const fullOrder = sortColumnItems(
+      displayedWorkItems.filter((w) => w.status === status && !w.is_template),
+      conf,
+    ).map((w) => w.id);
+    const draggingSet = new Set(dragged);
+    const draggedOrdered = fullOrder.filter((id) => draggingSet.has(id));
+    const without = fullOrder.filter((id) => !draggingSet.has(id));
+    // Àncora = primo id NON trascinato a partire da beforeId (se beforeId è a sua
+    // volta trascinato, scorri avanti fino al prossimo stabile).
+    let anchorId: number | null = beforeId;
+    if (anchorId != null && draggingSet.has(anchorId)) {
+      anchorId = null;
+      for (let i = fullOrder.indexOf(beforeId as number); i < fullOrder.length; i++) {
+        if (!draggingSet.has(fullOrder[i])) { anchorId = fullOrder[i]; break; }
+      }
+    }
+    const anchor = anchorId != null ? without.indexOf(anchorId) : -1;
+    const insertPos = anchor === -1 ? without.length : anchor;
+    const newOrder = [...without.slice(0, insertPos), ...draggedOrdered, ...without.slice(insertPos)];
+    persistBoardSort({ ...boardSort, [status]: { mode: "custom", order: newOrder } });
   };
 
   // ── Filtered items
@@ -1563,7 +1708,8 @@ export function WorkItemsPage() {
                             key={`${group.label}-${col.id}`}
                             column={col}
                             compact
-                            items={group.items.filter((w) => w.status === col.id)}
+                            items={sortColumnItems(group.items.filter((w) => w.status === col.id), boardSort[col.id])}
+                            sortMode={boardSort[col.id]?.mode ?? DEFAULT_SORT_MODE}
                             users={users}
                             workAreas={workAreas}
                             workTags={workTags}
@@ -1592,12 +1738,17 @@ export function WorkItemsPage() {
             <div ref={boardRef} className="wi-board">
               <div className="wi-board-inner">
                 {KANBAN_COLUMNS.map((col) => {
-                  const colItems = filteredItems.filter((w) => w.status === col.id);
+                  const colItems = sortColumnItems(filteredItems.filter((w) => w.status === col.id), boardSort[col.id]);
                   return (
                     <KanbanColumn
                       key={col.id}
                       column={col}
                       items={colItems}
+                      sortMode={boardSort[col.id]?.mode ?? DEFAULT_SORT_MODE}
+                      showSortControl
+                      onSetSortMode={setColumnSortMode}
+                      draggingStatus={draggingStatus}
+                      onReorderCustom={reorderColumnCustom}
                       users={users}
                       workAreas={workAreas}
                       workTags={workTags}

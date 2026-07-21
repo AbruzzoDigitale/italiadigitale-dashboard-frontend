@@ -35,8 +35,12 @@ export async function listTrelloBoardsApi(companyId: number): Promise<ClientTrel
   return res.json();
 }
 
-export async function listLiveTrelloBoardsApi(companyId: number, includeClosed = false): Promise<TrelloLiveBoard[]> {
-  const qs = new URLSearchParams({ company_id: String(companyId) });
+export async function listLiveTrelloBoardsApi(
+  companyId: number,
+  includeClosed = false,
+  source: "workspace" | "member" = "workspace"
+): Promise<TrelloLiveBoard[]> {
+  const qs = new URLSearchParams({ company_id: String(companyId), source });
   if (includeClosed) qs.set("include_closed", "true");
   const res = await authFetch(`${API_BASE}/api/v1/trello-boards/live?${qs.toString()}`);
   if (!res.ok) {

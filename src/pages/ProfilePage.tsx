@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
 import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
+import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
 import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
@@ -280,6 +281,9 @@ export function ProfilePage() {
 
           {/* Email di invio (per organizzazione) */}
           <EmailAccountsSection companies={myCompanies} defaultCompanyId={activeCompanyId} />
+
+          {/* Collegamento account Canva */}
+          <CanvaConnectSection />
 
           {/* Save bar */}
           <div className="flex justify-end">

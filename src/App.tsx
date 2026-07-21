@@ -10,6 +10,7 @@ import { FullPageSpinner } from "./components/ui/Spinner";
 import { LoginPage } from "./pages/LoginPage";
 import { CompanyPickerPage } from "./pages/CompanyPickerPage";
 import { DashboardLayout } from "./layouts/DashboardLayout";
+import { MobileAppBanner } from "./components/MobileAppBanner";
 import { DashboardHome } from "./pages/DashboardHome";
 import { UsersPage } from "./pages/UsersPage";
 import { CompaniesPage } from "./pages/CompaniesPage";
@@ -128,6 +129,7 @@ export default function App() {
           <AuthProvider>
             <BrandProvider>
               <AppRoutes />
+              <MobileAppBanner />
             </BrandProvider>
           </AuthProvider>
         </UndoProvider>

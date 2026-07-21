@@ -44,6 +44,7 @@ import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
 import { Textarea } from "../ui/Textarea";
+import { Linkify } from "../ui/Linkify";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { OverbookingModal } from "./OverbookingModal";
@@ -598,6 +599,9 @@ export function WorkItemFormModal({
 
   // ── Form
   const [form, setForm] = useState<WorkItemFormState>(EMPTY_FORM);
+  // Descrizione: vista in lettura (link cliccabili) di default quando c'è già del
+  // testo; textarea in modifica. Impostata all'hydration del form.
+  const [descEditing, setDescEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -776,6 +780,8 @@ export function WorkItemFormModal({
           .map((resource) => ({ type: resource.type, title: resource.title, url: resource.url })),
       });
       setSlots(isInstantiateMode ? [] : (baseItem.time_slots ?? []));
+      // testo già presente → parti in lettura (link formattati); vuoto → modifica
+      setDescEditing(!(baseItem.description ?? "").trim());
     } else {
       setForm({
         ...EMPTY_FORM,
@@ -790,6 +796,7 @@ export function WorkItemFormModal({
       // delle opzioni dell'azienda, così le aree sono filtrate su quella visualizzata.
       autofilledRef.current = false;
       setSlots([]);
+      setDescEditing(true);
     }
     hydratedFormKeyRef.current = hydrationKey;
     setFormError(null);
@@ -1876,6 +1883,47 @@ export function WorkItemFormModal({
   };
 
   // Marcatore visibile che la task è un PED, mostrato accanto al titolo.
+  // Campo Descrizione: in lettura mostra i link cliccabili (Linkify), con matita
+  // per passare in modifica (textarea). Condiviso dai due layout del form.
+  const renderDescriptionField = (rows: number) => {
+    const hasDesc = !!form.description.trim();
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            Descrizione
+          </label>
+          {hasDesc && (
+            <button
+              type="button"
+              onClick={() => setDescEditing((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-magenta hover:underline"
+            >
+              <Icon name={descEditing ? "eye" : "pencil"} className="h-3 w-3" /> {descEditing ? "Anteprima" : "Modifica"}
+            </button>
+          )}
+        </div>
+        {!descEditing && hasDesc ? (
+          <div
+            onClick={() => setDescEditing(true)}
+            title="Clicca per modificare"
+            className="min-h-[40px] cursor-text whitespace-pre-line break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+          >
+            <Linkify text={form.description} linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]" />
+          </div>
+        ) : (
+          <Textarea
+            value={form.description}
+            onChange={(e) => updateForm("description", e.target.value)}
+            placeholder="Descrizione opzionale..."
+            rows={rows}
+            className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
+          />
+        )}
+      </div>
+    );
+  };
+
   const renderPedTitleBadge = () =>
     form.is_ped ? (
       <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
@@ -2108,18 +2156,7 @@ export function WorkItemFormModal({
             options={userOptions}
             placeholder="Seleziona operatori..."
           />
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-              Descrizione
-            </label>
-            <Textarea
-              value={form.description}
-              onChange={(e) => updateForm("description", e.target.value)}
-              placeholder="Descrizione opzionale..."
-              rows={3}
-              className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
-            />
-          </div>
+          {renderDescriptionField(3)}
           <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
             <Checkbox
               checked={form.is_priority}
@@ -2547,18 +2584,7 @@ export function WorkItemFormModal({
             />
             {renderPedTitleBadge()}
             {renderPedShortcut()}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Descrizione
-              </label>
-              <Textarea
-                value={form.description}
-                onChange={(e) => updateForm("description", e.target.value)}
-                placeholder="Descrizione opzionale..."
-                rows={2}
-                className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
-              />
-            </div>
+            {renderDescriptionField(2)}
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
                 <Checkbox

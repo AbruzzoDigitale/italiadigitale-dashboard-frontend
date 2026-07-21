@@ -26,8 +26,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /* Viewport "app-like" su iOS Safari: il documento NON scrolla mai (lo scroll è
+     nei contenitori interni, es. <main>). Così la toolbar di Safari non collassa,
+     i contenuti non ci finiscono sotto e la safe-area in fondo non resta bianca
+     (serve viewport-fit=cover nel meta). */
+  html, body, #root {
+    height: 100%;
+  }
   body {
     @apply bg-cream text-ink transition-colors duration-300;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   .dark body {
     @apply bg-ink text-paper;
@@ -404,4 +413,68 @@ button:active > .nav-ico {
 }
 @media (prefers-reduced-motion: reduce) {
   .fav-burst, .fav-spark { animation: none; }
+}
+
+/* ── Skeleton loader: shimmer che scorre (import card Trello, ecc.) ────────────── */
+.skel-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(120, 120, 128, 0.14);
+}
+.dark .skel-shimmer {
+  background: rgba(255, 255, 255, 0.06);
+}
+.skel-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: skel-sweep 1.25s ease-in-out infinite;
+}
+.dark .skel-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent);
+}
+@keyframes skel-sweep {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel-shimmer::after { animation: none; }
+}
+
+/* ── Dropdown / menu: apertura fluida (fade + scale dall'origine) ──────────────── */
+@keyframes dd-pop-in {
+  0%   { opacity: 0; transform: scale(0.96) translateY(-6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes dd-pop-in-up {
+  0%   { opacity: 0; transform: scale(0.96) translateY(6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.dd-pop {
+  animation: dd-pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+.dd-pop-up {
+  animation: dd-pop-in-up 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-pop, .dd-pop-up { animation: none; }
+}
+
+/* Voci del dropdown: entrata a cascata (lo stagger è dato inline con animation-delay). */
+@keyframes dd-item-in {
+  0%   { opacity: 0; transform: translateY(-5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.dd-item {
+  animation: dd-item-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-item { animation: none; }
 }

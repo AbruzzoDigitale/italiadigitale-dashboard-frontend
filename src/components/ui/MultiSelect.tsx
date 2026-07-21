@@ -204,15 +204,18 @@ export function MultiSelect({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[13000] rounded-md border border-line bg-paper shadow-lg dark:border-line-dark dark:bg-[#1c1c20]"
+            className="fixed z-[13000]"
             style={{
               top: menuRect.top,
               left: menuRect.left,
               width: menuRect.width,
-              maxHeight: menuRect.maxHeight,
               transform: menuRect.placement === "top" ? "translateY(-100%)" : undefined,
             }}
           >
+            <div
+              className={`${menuRect.placement === "top" ? "dd-pop-up" : "dd-pop"} overflow-hidden rounded-md border border-line bg-paper shadow-lg dark:border-line-dark dark:bg-[#1c1c20]`}
+              style={{ maxHeight: menuRect.maxHeight }}
+            >
             <div className="border-b border-line p-2 dark:border-line-dark">
               <div className="flex items-center gap-2">
                 <input
@@ -260,10 +263,10 @@ export function MultiSelect({
               {filtered.length === 0 ? (
                 <li className="px-3 py-2 text-sm text-muted dark:text-muted-dark">Nessun risultato</li>
               ) : (
-                filtered.map((opt) => {
+                filtered.map((opt, i) => {
                   const checked = selectedSet.has(opt.id);
                   return (
-                    <li key={opt.id}>
+                    <li key={opt.id} className="dd-item" style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
                       <button
                         type="button"
                         role="option"
@@ -305,6 +308,7 @@ export function MultiSelect({
                 })
               )}
             </ul>
+            </div>
           </div>,
           document.body
         )}

@@ -38,29 +38,13 @@ export function LoginPage() {
     >
       {/* Box centrato — max-width 380px, padding 40px, testo centrato */}
       <div className="w-full max-w-[380px] px-4 animate-fadeIn">
-        {/* Logo SVG */}
+        {/* Logo — pittogramma Italia Digitale (bianco su sfondo nero) */}
         <div className="flex justify-center mb-6">
-          <svg
-            viewBox="0 0 100 100"
-            aria-label="Italia Digitale"
-            className="w-16 h-16"
-          >
-            <rect
-              x="2" y="2" width="96" height="96" rx="14"
-              fill="none" stroke="white" strokeWidth="3"
-              strokeDasharray="4 4" opacity="0.4"
-            />
-            <text
-              x="50" y="62"
-              textAnchor="middle"
-              fontFamily="Space Grotesk, sans-serif"
-              fontWeight="700"
-              fontSize="38"
-              fill="white"
-            >
-              ID
-            </text>
-          </svg>
+          <img
+            src="/logo-symbol-white.png"
+            alt="Italia Digitale"
+            className="h-16 w-auto object-contain"
+          />
         </div>
 
         {/* Titolo — font-display, 32px, uppercase, bianco */}

@@ -138,6 +138,14 @@
   font-weight: 700;
   color: var(--tx-2);
 }
+/* Controllo di ordinamento colonna (menu in testata). */
+.lv-col-count + .lv-col-sort {
+  margin-left: 2px;
+}
+.lv-col-sort {
+  flex: none;
+  color: var(--tx-2);
+}
 .lv-col-body {
   flex: 1;
   min-height: 0;
@@ -146,6 +154,27 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* Riordino manuale (custom): linea di inserimento tra le card. */
+.lv-reorder-slot {
+  position: relative;
+}
+.lv-reorder-slot.insert-before::before,
+.lv-reorder-slot.insert-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 99px;
+  background: #e91e8a;
+  box-shadow: 0 0 0 3px rgba(233, 30, 138, 0.18);
+}
+.lv-reorder-slot.insert-before::before {
+  top: -7px;
+}
+.lv-reorder-slot.insert-after::after {
+  bottom: -7px;
 }
 .lv-col-body::-webkit-scrollbar {
   width: 7px;
