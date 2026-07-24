@@ -33,6 +33,7 @@ export type IconName =
   | "grid"
   | "grid-compact"
   | "list"
+  | "filter"
   | "star"
   | "alert-triangle"
   | "info"
@@ -265,6 +266,11 @@ const paths: Record<IconName, React.ReactNode> = {
       <line x1="3" y1="6" x2="3.01" y2="6" />
       <line x1="3" y1="12" x2="3.01" y2="12" />
       <line x1="3" y1="18" x2="3.01" y2="18" />
+    </>
+  ),
+  filter: (
+    <>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </>
   ),
   star: (

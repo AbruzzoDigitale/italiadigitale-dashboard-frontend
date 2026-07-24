@@ -3,11 +3,11 @@ import type { BoardSortMode, ColumnSort } from "../api/workboardPreferences";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ordinamento delle card dentro una colonna della board lavorazioni.
-// Modalità: scadenza crescente/decrescente, urgenza, oppure ordine manuale
-// (custom) scelto e salvato dall'operatore.
+// Modalità: ultima aggiunta (default), scadenza crescente/decrescente, urgenza,
+// oppure ordine manuale (custom) scelto e salvato dall'operatore.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_SORT_MODE: BoardSortMode = "deadline_asc";
+export const DEFAULT_SORT_MODE: BoardSortMode = "recent";
 
 const URGENCY_RANK: Record<string, number> = { critical: 3, high: 2, normal: 1, low: 0 };
 
@@ -24,6 +24,14 @@ function cmpDeadline(a: WorkItem, b: WorkItem, dir: 1 | -1): number {
   return a.id - b.id;
 }
 
+/** Ultima aggiunta per prima: `created_at` decrescente, con fallback sull'id. */
+function cmpRecent(a: WorkItem, b: WorkItem): number {
+  const ca = a.created_at ?? "";
+  const cb = b.created_at ?? "";
+  if (ca && cb && ca !== cb) return ca < cb ? 1 : -1;
+  return b.id - a.id;
+}
+
 /** Urgenza (critica→bassa), poi priorità, poi scadenza più vicina. */
 function cmpUrgency(a: WorkItem, b: WorkItem): number {
   const ra = URGENCY_RANK[a.urgency_level ?? ""] ?? -1;
@@ -38,6 +46,8 @@ export function sortColumnItems(items: WorkItem[], conf: ColumnSort | undefined)
   const mode = conf?.mode ?? DEFAULT_SORT_MODE;
   const arr = [...items];
   switch (mode) {
+    case "deadline_asc":
+      return arr.sort((a, b) => cmpDeadline(a, b, 1));
     case "deadline_desc":
       return arr.sort((a, b) => cmpDeadline(a, b, -1));
     case "urgency":
@@ -53,8 +63,8 @@ export function sortColumnItems(items: WorkItem[], conf: ColumnSort | undefined)
         return cmpDeadline(a, b, 1);
       });
     }
-    case "deadline_asc":
+    case "recent":
     default:
-      return arr.sort((a, b) => cmpDeadline(a, b, 1));
+      return arr.sort(cmpRecent);
   }
 }

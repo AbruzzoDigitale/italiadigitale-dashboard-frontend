@@ -29,17 +29,31 @@ import { MultiSelect } from "../components/ui/MultiSelect";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { WorkAreaMultiSelect } from "../components/work-areas/WorkAreaMultiSelect";
 import { Checkbox } from "../components/ui/Checkbox";
+import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl, type CompanyLogoFields } from "../utils/companyLogo";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-interface CompanyNode {
+interface CompanyNode extends CompanyLogoFields {
   id: number;
   name: string;
   children: CompanyNode[];
 }
 
-function flattenCompanies(list: CompanyNode[]): { id: number; name: string }[] {
-  return list.flatMap((c) => [{ id: c.id, name: c.name }, ...flattenCompanies(c.children)]);
+type CompanyListItem = CompanyLogoFields & { id: number; name: string };
+
+function flattenCompanies(list: CompanyNode[]): CompanyListItem[] {
+  return list.flatMap((c) => [
+    {
+      id: c.id,
+      name: c.name,
+      logo_light: c.logo_light,
+      logo_dark: c.logo_dark,
+      logo_horizontal_light: c.logo_horizontal_light,
+      logo_horizontal_dark: c.logo_horizontal_dark,
+    },
+    ...flattenCompanies(c.children),
+  ]);
 }
 
 // ── User modal (create + edit) ───────────────────────────────────────────────
@@ -50,13 +64,14 @@ interface UserModalProps {
   onSaved: () => void;
   user?: User | null;
   defaultCompanyId?: number | null;
-  companiesList: { id: number; name: string }[];
+  companiesList: CompanyListItem[];
   workAreasList: WorkArea[];
   canAssignRoles: boolean;
 }
 
 function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesList, workAreasList, canAssignRoles }: UserModalProps) {
   const toast = useToast();
+  const { theme } = useTheme();
   const isEdit = !!user;
   const [roles, setRoles] = useState<Role[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -408,10 +423,12 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               ...companiesList.map((company) => ({
                 value: String(company.id),
                 label: company.name,
+                avatarUrl: getCompanyLogoUrl(company, theme),
               })),
             ]}
             placeholder="Nessuna azienda"
             searchPlaceholder="Cerca azienda..."
+            avatarShape="logo"
           />
         </div>
 
@@ -440,12 +457,14 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               filteredCompanies.map((company) => {
                 const value = String(company.id);
                 const checked = form.company_ids.includes(value);
+                const logo = getCompanyLogoUrl(company, theme);
                 return (
                   <label key={company.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-cream dark:hover:bg-[#1c1c20] cursor-pointer">
                     <Checkbox
                       checked={checked}
                       onChange={() => toggleCompany(value)}
                     />
+                    {logo && <img src={logo} alt="" loading="lazy" className="h-4 w-4 rounded object-contain flex-shrink-0" />}
                     <span className="text-sm font-body text-ink dark:text-[#f4f4f7]">{company.name}</span>
                   </label>
                 );
@@ -633,11 +652,8 @@ export function UsersPage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="users" className="w-3.5 h-3.5" />
-          Gestione
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="users" className="w-6 h-6" />
           Utenti
         </h1>
         <p className="section-lead">

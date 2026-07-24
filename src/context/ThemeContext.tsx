@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { flushSync } from "react-dom";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 
 type Theme = "light" | "dark";
 
@@ -19,14 +18,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     return (localStorage.getItem("app_theme") as Theme) ?? "light";
   });
+  // Tema "effettivo" (classe .dark applicata): durante il reveal lo stato React
+  // resta indietro di proposito, quindi i toggle rapidi si basano su questo ref.
+  const effectiveTheme = useRef<Theme>(theme);
 
   useEffect(() => {
+    effectiveTheme.current = theme;
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("app_theme", theme);
   }, [theme]);
 
   const toggleTheme = (origin?: { x: number; y: number }) => {
-    const next: Theme = theme === "light" ? "dark" : "light";
+    const next: Theme = effectiveTheme.current === "light" ? "dark" : "light";
+    effectiveTheme.current = next;
     const root = document.documentElement;
     const doc = document as DocumentWithViewTransition;
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -45,11 +49,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty("--vt-y", `${y}px`);
     root.style.setProperty("--vt-r", `${radius}px`);
 
-    doc.startViewTransition!(() => {
-      // Aggiorna lo stato React e applica subito la classe .dark, così lo snapshot
-      // "new" della transizione è già col tema nuovo.
-      flushSync(() => setTheme(next));
+    // Sospendi le transition CSS per-elemento (transition-colors & co.) finché dura
+    // il reveal: lo snapshot "new" deve nascere già completamente nel tema nuovo,
+    // altrimenti il cerchio rivela contenuto ancora in dissolvenza (wipe debole e scattoso).
+    root.classList.add("vt-theme-switch");
+
+    // Dentro la transizione SOLO il flip della classe .dark: è puro CSS e lo
+    // snapshot "new" è pronto in un frame. La ri-renderizzata React (layout,
+    // pagina, grafici…) è pesante e, se eseguita qui dentro o durante il reveal,
+    // blocca il main thread: l'animazione va a tempo reale, i frame saltano e il
+    // cerchio "teletrasporta" invece di partire dal bottone. Quindi lo stato
+    // React si aggiorna a reveal concluso.
+    const transition = doc.startViewTransition!(() => {
       root.classList.toggle("dark", next === "dark");
+    });
+    transition.finished.finally(() => {
+      root.classList.remove("vt-theme-switch");
+      setTheme(next);
     });
   };
 

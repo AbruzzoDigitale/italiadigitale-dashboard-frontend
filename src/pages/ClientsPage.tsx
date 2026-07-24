@@ -448,14 +448,10 @@ export function ClientsPage() {
       {/* ── Header ── */}
       <div className="mb-6 flex shrink-0 items-start justify-between gap-4">
         <div>
-          <div className="section-eyebrow">
-            <Icon name="users" className="w-3.5 h-3.5" />
-            Anagrafica
-          </div>
-          <h1 className="section-title">Clienti</h1>
-          <p className="section-lead">
-            Anagrafica clienti — dati pronti per il copia/incolla. Personalizza le colonne in base a ciò che ti serve.
-          </p>
+          <h1 className="section-title flex items-center gap-2.5">
+            <Icon name="users" className="w-6 h-6" />
+            Clienti
+          </h1>
         </div>
         <Button
           variant="primary"

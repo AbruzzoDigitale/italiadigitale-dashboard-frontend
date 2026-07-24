@@ -6,18 +6,22 @@ import {
   listEmailAccountsApi,
   setDefaultEmailAccountApi,
   testEmailAccountApi,
+  sendTestEmailApi,
   type EmailAccount,
   type EmailAccountCreate,
   type EmailSecurity,
   type IncomingProtocol,
 } from "../../api/emailAccounts";
+import { useTheme } from "../../context/ThemeContext";
 import { useToast } from "../../context/ToastContext";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
+import { SearchableSelect } from "../ui/SearchableSelect";
+import { getCompanyLogoUrl, type CompanyLogoFields } from "../../utils/companyLogo";
 
-interface Company {
+interface Company extends CompanyLogoFields {
   id: number;
   name: string;
 }
@@ -66,6 +70,7 @@ function ProviderBadge({ a }: { a: EmailAccount }) {
 }
 
 export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
+  const { theme } = useTheme();
   const toast = useToast();
   const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
@@ -73,6 +78,10 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [form, setForm] = useState<(EmailAccountCreate & { _kind: FormKind }) | null>(null);
   const [saving, setSaving] = useState(false);
+  // Prova di invio: quale account mostra il campo destinatario + valore + stato.
+  const [sendTestFor, setSendTestFor] = useState<number | null>(null);
+  const [sendTo, setSendTo] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
 
   const reload = (cid: number | null) => {
     if (cid == null) return;
@@ -150,6 +159,30 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
     }
   };
 
+  const openSendTest = (a: EmailAccount) => {
+    setSendTestFor((cur) => (cur === a.id ? null : a.id));
+    setSendTo("");
+  };
+
+  const onSendTest = async (a: EmailAccount) => {
+    const to = sendTo.trim();
+    if (!to) return toast.error("Inserisci l'indirizzo a cui inviare la prova");
+    setSendingTest(true);
+    try {
+      const r = await sendTestEmailApi(a.id, to);
+      r.ok ? toast.success(r.detail) : toast.error(r.detail);
+      if (r.ok) {
+        setSendTestFor(null);
+        setSendTo("");
+      }
+      reload(companyId);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Invio fallito");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   const onSetDefault = async (a: EmailAccount) => {
     setBusyId(a.id);
     try {
@@ -186,15 +219,14 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
       {companies.length > 1 && (
         <div className="mb-5 flex flex-col gap-1">
           <label className={labelCls}>Organizzazione</label>
-          <select
-            className={inputCls}
-            value={companyId ?? ""}
-            onChange={(e) => setCompanyId(Number(e.target.value))}
-          >
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={companyId != null ? String(companyId) : ""}
+            onChange={(v) => setCompanyId(Number(v))}
+            options={companies.map((c) => ({ value: String(c.id), label: c.name, avatarUrl: getCompanyLogoUrl(c, theme) }))}
+            placeholder="Seleziona organizzazione"
+            searchPlaceholder="Cerca organizzazione..."
+            avatarShape="logo"
+          />
         </div>
       )}
 
@@ -206,24 +238,50 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
       ) : (
         <div className="flex flex-col gap-2">
           {accounts.map((a) => (
-            <div key={a.id} className="flex flex-wrap items-center gap-3 rounded-md border border-line dark:border-line-dark px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-ink dark:text-paper">{a.email_address}</span>
-                  <ProviderBadge a={a} />
-                  {a.is_default && <span className="rounded-pill bg-brand-magenta/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand-magenta">Predefinito</span>}
-                  {a.last_test_ok === true && <Icon name="check-circle" className="h-4 w-4 text-success" />}
-                  {a.last_test_ok === false && <Icon name="alert-triangle" className="h-4 w-4 text-danger" />}
+            <div key={a.id} className="flex flex-col gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-ink dark:text-paper">{a.email_address}</span>
+                    <ProviderBadge a={a} />
+                    {a.is_default && <span className="rounded-pill bg-brand-magenta/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand-magenta">Predefinito</span>}
+                    {a.last_test_ok === true && <Icon name="check-circle" className="h-4 w-4 text-success" />}
+                    {a.last_test_ok === false && <Icon name="alert-triangle" className="h-4 w-4 text-danger" />}
+                  </div>
+                  {a.last_test_error && <div className="mt-0.5 text-[11px] text-danger">{a.last_test_error}</div>}
                 </div>
-                {a.last_test_error && <div className="mt-0.5 text-[11px] text-danger">{a.last_test_error}</div>}
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => onTest(a)} loading={busyId === a.id}>Test connessione</Button>
+                  <Button size="sm" variant="secondary" onClick={() => openSendTest(a)}>
+                    <Icon name="mail" className="h-4 w-4" /> Prova invio
+                  </Button>
+                  {!a.is_default && <Button size="sm" variant="ghost" onClick={() => onSetDefault(a)}>Predefinito</Button>}
+                  <button className="p-1.5 text-muted hover:text-danger" title="Elimina" onClick={() => onDelete(a)}>
+                    <Icon name="trash" className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="ghost" onClick={() => onTest(a)} loading={busyId === a.id}>Test</Button>
-                {!a.is_default && <Button size="sm" variant="ghost" onClick={() => onSetDefault(a)}>Predefinito</Button>}
-                <button className="p-1.5 text-muted hover:text-danger" title="Elimina" onClick={() => onDelete(a)}>
-                  <Icon name="trash" className="h-4 w-4" />
-                </button>
-              </div>
+
+              {sendTestFor === a.id && (
+                <div className="flex flex-wrap items-end gap-2 border-t border-line dark:border-line-dark pt-2.5">
+                  <div className="flex min-w-[220px] flex-1 flex-col gap-1">
+                    <label className={labelCls}>Invia un'email di prova a</label>
+                    <input
+                      className={inputCls}
+                      type="email"
+                      value={sendTo}
+                      onChange={(e) => setSendTo(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void onSendTest(a); }}
+                      placeholder="indirizzo@dominio.it"
+                      autoFocus
+                    />
+                  </div>
+                  <Button size="sm" variant="primary" onClick={() => void onSendTest(a)} loading={sendingTest}>
+                    <Icon name="mail" className="h-4 w-4" /> Invia prova
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSendTestFor(null)}>Annulla</Button>
+                </div>
+              )}
             </div>
           ))}
         </div>

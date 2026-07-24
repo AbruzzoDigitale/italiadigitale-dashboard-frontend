@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import {
   createWorkItemApi,
@@ -30,6 +30,7 @@ import {
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { getUsersApi, type User } from "../../api/users";
 import { getClientsApi, type Client } from "../../api/clients";
+import { getUiPreferencesApi, saveUiPreferenceApi } from "../../api/preferences";
 import { listPedConfigurationsApi, type PedConfiguration } from "../../api/pedConfigurations";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
@@ -45,6 +46,9 @@ import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
 import { Textarea } from "../ui/Textarea";
 import { Linkify } from "../ui/Linkify";
+import { RichTextEditor } from "../ui/RichTextEditor";
+import { toEditorHtml } from "../../utils/descriptionHtml";
+import { TaskSettingsModal } from "./TaskSettingsModal";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { OverbookingModal } from "./OverbookingModal";
@@ -507,6 +511,43 @@ export interface WorkItemFormModalProps {
   onSaved: (savedItem?: WorkItem) => void;
 }
 
+// ── Schede del modal modifica (layout affiancato personalizzabile) ─────────────
+type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline";
+const WI_TAB_LABEL: Record<WiTabId, string> = {
+  dettagli: "Dettagli",
+  assegnazioni: "Assegnazioni & Tag",
+  checklist: "Checklist & PED",
+  revisione: "Revisione",
+  timeline: "Timeline eventi",
+};
+const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline"];
+const DEFAULT_WI_LAYOUT: { left: WiTabId[]; right: WiTabId[] } = {
+  left: ["dettagli", "assegnazioni", "checklist"],
+  right: ["revisione", "timeline"],
+};
+// Sanifica il layout salvato: solo id validi, nessun duplicato, tutte le schede
+// presenti (le mancanti finiscono a sinistra).
+function normalizeWiLayout(raw: unknown): { left: WiTabId[]; right: WiTabId[] } {
+  const valid = new Set(WI_TAB_ORDER);
+  const seen = new Set<WiTabId>();
+  const clean = (arr: unknown): WiTabId[] => {
+    if (!Array.isArray(arr)) return [];
+    const out: WiTabId[] = [];
+    for (const x of arr) {
+      if (typeof x === "string" && valid.has(x as WiTabId) && !seen.has(x as WiTabId)) {
+        seen.add(x as WiTabId);
+        out.push(x as WiTabId);
+      }
+    }
+    return out;
+  };
+  const obj = raw && typeof raw === "object" ? (raw as { left?: unknown; right?: unknown }) : {};
+  const left = clean(obj.left);
+  const right = clean(obj.right);
+  for (const t of WI_TAB_ORDER) if (!seen.has(t)) left.push(t);
+  return { left, right };
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function WorkItemFormModal({
@@ -560,8 +601,54 @@ export function WorkItemFormModal({
 
   // ── Scheda attiva nel layout di creazione singola
   const [createTab, setCreateTab] = useState<"dettagli" | "tag" | "template">("dettagli");
-  // ── Scheda attiva nel layout di modifica (mostra tutto, diviso in schede)
-  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline">("dettagli");
+  // ── Scheda attiva nel layout di modifica singola (una scheda alla volta)
+  const [editTab, setEditTab] = useState<WiTabId>("dettagli");
+  // ── Vista affiancata (split) personalizzabile: le schede si assegnano alla
+  //    colonna sinistra o destra (con ordine) via drag&drop. Preferenze per-utente
+  //    in ui_preferences: work_item_modal_split (bool) + work_item_modal_layout.
+  const [splitView, setSplitView] = useState(false);
+  const [layout, setLayout] = useState<{ left: WiTabId[]; right: WiTabId[] }>(DEFAULT_WI_LAYOUT);
+  const [leftTab, setLeftTab] = useState<WiTabId | null>("dettagli");
+  const [rightTab, setRightTab] = useState<WiTabId | null>("revisione");
+  const [dragTab, setDragTab] = useState<WiTabId | null>(null);
+  // Impostazioni per-task (ingranaggio nell'header, es. sincronizzazione Trello).
+  const [taskSettingsOpen, setTaskSettingsOpen] = useState(false);
+  useEffect(() => {
+    getUiPreferencesApi()
+      .then((p) => {
+        setSplitView(!!p.work_item_modal_split);
+        setLayout(normalizeWiLayout(p.work_item_modal_layout));
+      })
+      .catch(() => {});
+  }, []);
+  // Mantiene valide le schede attive di colonna quando il layout cambia.
+  useEffect(() => {
+    setLeftTab((t) => (t && layout.left.includes(t) ? t : layout.left[0] ?? null));
+    setRightTab((t) => (t && layout.right.includes(t) ? t : layout.right[0] ?? null));
+  }, [layout]);
+  const toggleSplitView = () => {
+    setSplitView((v) => {
+      const next = !v;
+      void saveUiPreferenceApi({ work_item_modal_split: next }).catch(() => {});
+      return next;
+    });
+  };
+  const persistLayout = (next: { left: WiTabId[]; right: WiTabId[] }) => {
+    setLayout(next);
+    void saveUiPreferenceApi({ work_item_modal_layout: next }).catch(() => {});
+  };
+  // Sposta una scheda in una colonna (side) davanti a `beforeId`, o in fondo.
+  const moveTab = (tab: WiTabId, side: "left" | "right", beforeId?: WiTabId | null) => {
+    const left = layout.left.filter((t) => t !== tab);
+    const right = layout.right.filter((t) => t !== tab);
+    const target = side === "left" ? left : right;
+    const idx = beforeId ? target.indexOf(beforeId) : -1;
+    if (idx >= 0) target.splice(idx, 0, tab);
+    else target.push(tab);
+    persistLayout({ left, right });
+    if (side === "left") setLeftTab(tab);
+    else setRightTab(tab);
+  };
   // ── Commento opzionale per il cambio stato (salvato come nota nella timeline)
   const [statusComment, setStatusComment] = useState("");
   // ── Revisore selezionato (PM/Admin). Inizializzato dal dettaglio task.
@@ -599,9 +686,12 @@ export function WorkItemFormModal({
 
   // ── Form
   const [form, setForm] = useState<WorkItemFormState>(EMPTY_FORM);
-  // Descrizione: vista in lettura (link cliccabili) di default quando c'è già del
-  // testo; textarea in modifica. Impostata all'hydration del form.
+  // Anteprima → click per modificare (stile Trello) per descrizione, titolo e
+  // cliente: di default in lettura quando la task esiste già, in modifica quando è
+  // nuova/vuota. Impostati all'hydration del form.
   const [descEditing, setDescEditing] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(true);
+  const [clientEditing, setClientEditing] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -720,7 +810,8 @@ export function WorkItemFormModal({
       setForm({
         is_template: isInstantiateMode ? false : (baseItem.is_template ?? false),
         title: baseItem.title,
-        description: baseItem.description ?? "",
+        // Descrizione normalizzata in HTML pulito per l'editor rich-text (link cliccabili).
+        description: toEditorHtml(baseItem.description ?? ""),
         work_date: isInstantiateMode ? "" : (baseItem.work_date ?? ""),
         start_time: isInstantiateMode ? "" : (baseItem.start_time ?? ""),
         deadline_date: isInstantiateMode ? "" : (baseItem.deadline_date ?? ""),
@@ -780,8 +871,10 @@ export function WorkItemFormModal({
           .map((resource) => ({ type: resource.type, title: resource.title, url: resource.url })),
       });
       setSlots(isInstantiateMode ? [] : (baseItem.time_slots ?? []));
-      // testo già presente → parti in lettura (link formattati); vuoto → modifica
+      // task esistente → parti in anteprima (lettura); i campi vuoti restano in modifica
       setDescEditing(!(baseItem.description ?? "").trim());
+      setTitleEditing(!(baseItem.title ?? "").trim());
+      setClientEditing(false);
     } else {
       setForm({
         ...EMPTY_FORM,
@@ -797,6 +890,8 @@ export function WorkItemFormModal({
       autofilledRef.current = false;
       setSlots([]);
       setDescEditing(true);
+      setTitleEditing(true);
+      setClientEditing(true);
     }
     hydratedFormKeyRef.current = hydrationKey;
     setFormError(null);
@@ -815,7 +910,10 @@ export function WorkItemFormModal({
   };
 
   // ── Save
-  const handleSave = async (scheduleOverride?: { work_date: string; start_time: string }) => {
+  const handleSave = async (
+    scheduleOverride?: { work_date: string; start_time: string },
+    opts: { keepOpen?: boolean } = {},
+  ) => {
     const isGeneratedRecurringItem = sourceItem?.recurrence_parent_id != null;
     const canEditRecurrence = !isGeneratedRecurringItem;
 
@@ -1099,8 +1197,14 @@ export function WorkItemFormModal({
         }
       }
 
+      if (opts.keepOpen && sourceItem) {
+        // Salvato senza chiudere: serve quando "Salva e concludi"/"Rimanda" devono
+        // prima persistere i campi del form (es. assegnatari) e poi agire sulla revisione.
+        return true;
+      }
       onClose();
       onSaved(createdItem ?? undefined);
+      return true;
     } catch (err) {
       if (isWorkItemOverlapApiError(err)) {
         setFormError(err.backendMessage);
@@ -1120,6 +1224,15 @@ export function WorkItemFormModal({
     } finally {
       setSaving(false);
     }
+  };
+
+  // Prima salva i campi del form (senza chiudere), poi esegue l'azione di revisione:
+  // così "Salva e concludi" / "Rimanda" non perdono le modifiche (es. assegnatari),
+  // soprattutto in vista divisa dove Revisione e Assegnazioni sono visibili insieme.
+  const runReviewActionWithSave = async (action: "sendback" | "conclude") => {
+    const ok = await handleSave(undefined, { keepOpen: true });
+    if (ok !== true) return; // validazione/salvataggio fallito: non procedere
+    await runReviewAction(action);
   };
 
   // ── Overbooking: chiusura del flusso (riassegna oppure procedi in overbook) ──
@@ -1432,6 +1545,58 @@ export function WorkItemFormModal({
   const isFromTemplate = sourceItem?.template_source_id != null;
   // In creazione singola usiamo un layout a schede con i soli campi essenziali.
   const isSingleCreate = !sourceItem;
+  // Split attivo solo in modifica (in creazione le schede Revisione/Timeline non esistono).
+  const effectiveSplit = splitView && !!sourceItem;
+  // In vista divisa la Revisione può essere visibile ACCANTO ad altre schede editabili
+  // (es. Assegnazioni): in tal caso nel footer servono SIA "Salva" (per i campi del form)
+  // SIA le azioni di revisione — altrimenti le modifiche (es. assegnatari) non si salvano.
+  const splitReviewActions =
+    !!sourceItem && effectiveSplit && (leftTab === "revisione" || rightTab === "revisione") && canManageReviewer;
+
+  // Barra schede di una colonna (split) con drag&drop: trascina un chip per
+  // spostarlo tra le colonne o riordinarlo; click per attivarlo.
+  const renderSplitTabBar = (side: "left" | "right") => {
+    const ids = layout[side];
+    const active = side === "left" ? leftTab : rightTab;
+    const setActive = side === "left" ? setLeftTab : setRightTab;
+    return (
+      <div
+        onDragOver={(e) => { if (dragTab) e.preventDefault(); }}
+        onDrop={(e) => { e.preventDefault(); if (dragTab) moveTab(dragTab, side); setDragTab(null); }}
+        className="flex min-h-[38px] flex-wrap items-center gap-1 border-b border-line dark:border-line-dark"
+      >
+        {ids.length === 0 && (
+          <span className="px-2 py-2 text-[11px] italic text-muted dark:text-muted-dark">Trascina qui una scheda…</span>
+        )}
+        {ids.map((id) => (
+          <button
+            key={id}
+            type="button"
+            draggable
+            onDragStart={() => setDragTab(id)}
+            onDragEnd={() => setDragTab(null)}
+            onDragOver={(e) => { if (dragTab && dragTab !== id) e.preventDefault(); }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragTab) moveTab(dragTab, side, id); setDragTab(null); }}
+            onClick={() => setActive(id)}
+            title="Trascina per spostare o riordinare"
+            className={`-mb-px inline-flex cursor-grab items-center gap-1 border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors active:cursor-grabbing ${
+              active === id
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            } ${dragTab === id ? "opacity-40" : ""}`}
+          >
+            <Icon name="menu" className="h-3 w-3 opacity-40" /> {WI_TAB_LABEL[id]}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderEmptyPane = () => (
+    <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-line p-6 text-center text-[13px] text-muted dark:border-line-dark dark:text-muted-dark">
+      Nessuna scheda qui. Trascina una scheda dall'altra colonna.
+    </div>
+  );
 
   // ── Sezioni riutilizzabili (usate sia nel layout completo di modifica sia nelle schede di creazione)
   const renderRecurrenceSection = () => (
@@ -1883,6 +2048,91 @@ export function WorkItemFormModal({
   };
 
   // Marcatore visibile che la task è un PED, mostrato accanto al titolo.
+  // Piccolo toggle "Modifica / Anteprima" allineato alla label (stile Trello).
+  const renderEditToggle = (editing: boolean, onToggle: () => void) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-magenta hover:underline"
+    >
+      <Icon name={editing ? "eye" : "pencil"} className="h-3 w-3" /> {editing ? "Anteprima" : "Modifica"}
+    </button>
+  );
+
+  // Campo Titolo: anteprima (testo) → click per modificare (input). Il titolo è
+  // obbligatorio, quindi l'anteprima appare solo quando è valorizzato.
+  const renderTitleField = () => {
+    const hasTitle = !!form.title.trim();
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="pencil" className="h-3.5 w-3.5" /> Titolo *
+          </label>
+          {hasTitle && renderEditToggle(titleEditing, () => setTitleEditing((v) => !v))}
+        </div>
+        {!titleEditing && hasTitle ? (
+          <div
+            onClick={() => setTitleEditing(true)}
+            title="Clicca per modificare"
+            className="cursor-text break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm font-semibold text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+          >
+            {form.title}
+          </div>
+        ) : (
+          <Input
+            value={form.title}
+            onChange={(e) => updateForm("title", e.target.value)}
+            placeholder="Titolo della lavorazione"
+            autoFocus={!hasTitle ? undefined : true}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Campo Cliente: anteprima (nome cliente / "Nessun cliente") → click per il
+  // selettore. Condiviso dai due layout del form.
+  const renderClientField = () => {
+    const client = form.client_id ? clients.find((c) => String(c.id) === form.client_id) : undefined;
+    const clientLabel = client ? (client.commercial_name ?? client.name) : "";
+    return (
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="building" className="h-3.5 w-3.5" /> Cliente
+            <FieldHelpPopover {...WORKLOAD_FIELD_HELP.client} />
+          </label>
+          {renderEditToggle(clientEditing, () => setClientEditing((v) => !v))}
+        </div>
+        {!clientEditing ? (
+          <div
+            onClick={() => setClientEditing(true)}
+            title="Clicca per modificare"
+            className="flex cursor-text items-center gap-2 rounded-md border border-line bg-paper px-3 py-2.5 text-sm dark:border-line-dark dark:bg-ink-soft"
+          >
+            <Icon name="building" className="h-4 w-4 flex-none text-muted dark:text-muted-dark" />
+            <span className={`min-w-0 truncate ${client ? "text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
+              {client ? clientLabel : "Nessun cliente"}
+            </span>
+          </div>
+        ) : (
+          <ClientSelectorWithCreate
+            value={form.client_id}
+            onChange={(v) => updateForm("client_id", v)}
+            clients={clients}
+            companyId={companyId}
+            placeholder="Nessun cliente"
+            includeEmptyOption
+            emptyOptionLabel="Nessun cliente"
+            menuLayer="portal"
+            className="min-w-0 max-w-full"
+          />
+        )}
+      </div>
+    );
+  };
+
   // Campo Descrizione: in lettura mostra i link cliccabili (Linkify), con matita
   // per passare in modifica (textarea). Condiviso dai due layout del form.
   const renderDescriptionField = (rows: number) => {
@@ -1890,8 +2140,8 @@ export function WorkItemFormModal({
     return (
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-            Descrizione
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="annotation" className="h-3.5 w-3.5" /> Descrizione
           </label>
           {hasDesc && (
             <button
@@ -1912,12 +2162,11 @@ export function WorkItemFormModal({
             <Linkify text={form.description} linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]" />
           </div>
         ) : (
-          <Textarea
+          <RichTextEditor
             value={form.description}
-            onChange={(e) => updateForm("description", e.target.value)}
-            placeholder="Descrizione opzionale..."
-            rows={rows}
-            className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
+            onChange={(html) => updateForm("description", html)}
+            placeholder="Descrizione opzionale…"
+            minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
           />
         )}
       </div>
@@ -2113,32 +2362,11 @@ export function WorkItemFormModal({
       {/* — Dettagli — */}
       {createTab === "dettagli" && (
         <div className="flex flex-col gap-3">
-          <Input
-            label="Titolo *"
-            labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
-            value={form.title}
-            onChange={(e) => updateForm("title", e.target.value)}
-            placeholder="Titolo della lavorazione"
-          />
+          {renderTitleField()}
           {renderPedTitleBadge()}
           {renderPedShortcut()}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="flex min-w-0 flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Cliente
-              </label>
-              <ClientSelectorWithCreate
-                value={form.client_id}
-                onChange={(v) => updateForm("client_id", v)}
-                clients={clients}
-                companyId={companyId}
-                placeholder="Nessun cliente"
-                includeEmptyOption
-                emptyOptionLabel="Nessun cliente"
-                menuLayer="portal"
-                className="min-w-0 max-w-full"
-              />
-            </div>
+            {renderClientField()}
             <MultiSelect
               label="Area"
               value={form.work_area_ids}
@@ -2276,12 +2504,53 @@ export function WorkItemFormModal({
       title={sourceItem ? "Modifica lavorazione" : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")}
       description="Compila i dati della lavorazione. I campi con * sono obbligatori."
       size="xl"
-      dialogClassName="h-[85vh] !max-w-3xl"
-      bodyClassName="overflow-x-hidden"
+      dialogClassName={`h-[85vh] ${effectiveSplit ? "!max-w-6xl" : "!max-w-3xl"}`}
+      bodyClassName={effectiveSplit ? "overflow-x-hidden flex min-h-0 flex-col" : "overflow-x-hidden"}
+      headerActions={
+        sourceItem ? (
+          <div className="flex items-center gap-1.5">
+            {sourceItem.trello_card_id && (
+              <button
+                type="button"
+                onClick={() => setTaskSettingsOpen(true)}
+                title="Impostazioni task (sincronizzazione Trello)"
+                aria-label="Impostazioni task"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-line text-muted transition-colors hover:border-brand-magenta hover:text-brand-magenta dark:border-line-dark dark:text-muted-dark"
+              >
+                <Icon name="settings" className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                const link = `${window.location.origin}/work-items?company_id=${sourceItem.company_id}&task=${sourceItem.id}`;
+                try {
+                  await navigator.clipboard.writeText(link);
+                  toast.success("Link della lavorazione copiato");
+                } catch {
+                  toast.error("Copia non riuscita");
+                }
+              }}
+              title="Copia il link condivisibile: chi lo apre vedrà questa lavorazione già aperta"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-[11px] font-semibold uppercase tracking-wider text-brand-magenta transition-colors hover:border-brand-magenta dark:border-line-dark"
+            >
+              <Icon name="link" className="h-4 w-4" /> Copia link
+            </button>
+            <button
+              type="button"
+              onClick={toggleSplitView}
+              title={effectiveSplit ? "Torna alla vista a scheda singola" : "Affianca le schede su due colonne (trascinabili)"}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-[11px] font-semibold uppercase tracking-wider text-brand-magenta transition-colors hover:border-brand-magenta dark:border-line-dark"
+            >
+              <Icon name="grid" className="h-4 w-4" /> {effectiveSplit ? "Vista singola" : "Affianca"}
+            </button>
+          </div>
+        ) : undefined
+      }
       footer={
-        sourceItem && editTab === "revisione" ? (
-          // Sul tab Revisione le azioni sono i due pulsanti gemelli, qui nel footer
-          // accanto a "Chiudi": niente "Salva" generico.
+        sourceItem && !effectiveSplit && editTab === "revisione" ? (
+          // Vista SINGOLA sul tab Revisione: solo le azioni di revisione (non ci sono
+          // altri campi editabili a schermo, quindi niente "Salva" generico).
           <>
             <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
               Chiudi
@@ -2290,7 +2559,7 @@ export function WorkItemFormModal({
               <>
                 <Button
                   variant="secondary"
-                  onClick={() => void runReviewAction("sendback")}
+                  onClick={() => void runReviewActionWithSave("sendback")}
                   loading={reviewAction === "sendback"}
                   disabled={reviewAction != null}
                 >
@@ -2298,7 +2567,7 @@ export function WorkItemFormModal({
                 </Button>
                 <Button
                   variant="primary"
-                  onClick={() => void runReviewAction("conclude")}
+                  onClick={() => void runReviewActionWithSave("conclude")}
                   loading={reviewAction === "conclude"}
                   disabled={reviewAction != null}
                 >
@@ -2308,13 +2577,41 @@ export function WorkItemFormModal({
             )}
           </>
         ) : (
+          // Creazione, vista singola non-revisione, oppure vista DIVISA: sempre "Salva"
+          // (persiste i campi del form, es. assegnatari). In divisa, se la Revisione è
+          // visibile in una colonna, si aggiungono anche le azioni di revisione.
           <>
-            <Button variant="ghost" onClick={closeModal} disabled={saving}>
-              Annulla
+            <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
+              {sourceItem ? "Chiudi" : "Annulla"}
             </Button>
-            <Button variant="primary" onClick={() => handleSave()} loading={saving}>
+            <Button
+              variant={splitReviewActions ? "secondary" : "primary"}
+              onClick={() => handleSave()}
+              loading={saving}
+              disabled={reviewAction != null}
+            >
               Salva
             </Button>
+            {splitReviewActions && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => void runReviewActionWithSave("sendback")}
+                  loading={reviewAction === "sendback"}
+                  disabled={saving || reviewAction != null}
+                >
+                  Rimanda indietro e correggi
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void runReviewActionWithSave("conclude")}
+                  loading={reviewAction === "conclude"}
+                  disabled={saving || reviewAction != null}
+                >
+                  Salva e concludi
+                </Button>
+              </>
+            )}
           </>
         )
       }
@@ -2326,7 +2623,7 @@ export function WorkItemFormModal({
       ) : isSingleCreate ? (
         renderCreateLayout()
       ) : (
-        <div className="flex min-w-0 max-w-full flex-col gap-5 overflow-x-hidden">
+        <div className={`flex min-w-0 max-w-full flex-col gap-5 overflow-x-hidden ${effectiveSplit ? "min-h-0 flex-1" : ""}`}>
           {formError && (
             <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
               {formError}
@@ -2418,31 +2715,12 @@ export function WorkItemFormModal({
             </div>
           )}
 
-          {/* Schede modifica */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-line dark:border-line-dark">
-            {([
-              { id: "dettagli", label: "Dettagli" },
-              { id: "assegnazioni", label: "Assegnazioni & Tag" },
-              { id: "checklist", label: "Checklist & PED" },
-              { id: "revisione", label: "Revisione" },
-              { id: "timeline", label: "Timeline eventi" },
-            ] as const).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setEditTab(tab.id)}
-                className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-                  editTab === tab.id
-                    ? "border-ink text-ink dark:border-paper dark:text-paper"
-                    : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {editTab === "revisione" && sourceItem && (
+          {/* Schede modifica — contenuti in mappa, layout singolo/affiancato sotto */}
+          {(() => {
+          const sections: Record<WiTabId, () => ReactNode> = {
+            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null,
+          };
+          sections.revisione = () => sourceItem ? (
             <ReviewTab
               ref={reviewRef}
               workItemId={sourceItem.id}
@@ -2450,9 +2728,9 @@ export function WorkItemFormModal({
               onChanged={() => void refetchDetail()}
               renderActionsInline={false}
             />
-          )}
+          ) : null;
 
-          {editTab === "timeline" && (
+          sections.timeline = () => (
             <div className="rounded-md border border-line dark:border-line-dark p-3">
               <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Timeline eventi</div>
               {isDetailLoading ? (
@@ -2518,9 +2796,10 @@ export function WorkItemFormModal({
                 </div>
               )}
             </div>
-          )}
+          );
 
-          {editTab === "dettagli" && (
+          sections.dettagli = () => (
+          <>
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Base — */}
           <SectionCard icon="document-text" title="Base">
@@ -2544,23 +2823,7 @@ export function WorkItemFormModal({
                 />
               </div>
             )}
-              <div className="flex min-w-0 flex-col gap-1">
-              <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Cliente
-                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.client} />
-              </label>
-                <ClientSelectorWithCreate
-                  value={form.client_id}
-                  onChange={(v) => updateForm("client_id", v)}
-                  clients={clients}
-                  companyId={companyId}
-                  placeholder="Nessun cliente"
-                  includeEmptyOption
-                  emptyOptionLabel="Nessun cliente"
-                  menuLayer="portal"
-                  className="min-w-0 max-w-full"
-              />
-            </div>
+            {renderClientField()}
             <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
               <Checkbox
                 checked={form.is_template}
@@ -2575,13 +2838,7 @@ export function WorkItemFormModal({
                 Questo elemento non apparira nella lista operativa standard.
               </p>
             )}
-            <Input
-              label="Titolo *"
-              labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
-              value={form.title}
-              onChange={(e) => updateForm("title", e.target.value)}
-              placeholder="Titolo della lavorazione"
-            />
+            {renderTitleField()}
             {renderPedTitleBadge()}
             {renderPedShortcut()}
             {renderDescriptionField(2)}
@@ -2606,9 +2863,7 @@ export function WorkItemFormModal({
           </SectionCard>
 
           </div>
-          )}
 
-          {editTab === "dettagli" && (
           <div className="flex min-w-0 flex-col gap-5 border-t border-line pt-5 dark:border-line-dark">
           {/* — Pianificazione (mostrata nella stessa scheda Dettagli) — */}
           <SectionCard icon="calendar" title="Pianificazione">
@@ -2792,9 +3047,10 @@ export function WorkItemFormModal({
           </SectionCard>
 
           </div>
-          )}
+          </>
+          );
 
-          {editTab === "assegnazioni" && (
+          sections.assegnazioni = () => (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Assegnazioni — */}
           <SectionCard icon="users" title="Assegnazioni">
@@ -2863,9 +3119,9 @@ export function WorkItemFormModal({
           </SectionCard>
 
           </div>
-          )}
+          );
 
-          {editTab === "checklist" && (
+          sections.checklist = () => (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Checklist — */}
           {renderChecklistSection()}
@@ -2968,10 +3224,57 @@ export function WorkItemFormModal({
             </>
           )}
           </div>
-          )}
+          );
+
+          return effectiveSplit ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-5 lg:flex-row lg:gap-0">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:pr-5">
+                {renderSplitTabBar("left")}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {leftTab ? sections[leftTab]() : renderEmptyPane()}
+                </div>
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 border-line dark:border-line-dark lg:border-l lg:pl-5">
+                {renderSplitTabBar("right")}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {rightTab ? sections[rightTab]() : renderEmptyPane()}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1 border-b border-line dark:border-line-dark">
+                {WI_TAB_ORDER.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setEditTab(id)}
+                    className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                      editTab === id
+                        ? "border-ink text-ink dark:border-paper dark:text-paper"
+                        : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+                    }`}
+                  >
+                    {WI_TAB_LABEL[id]}
+                  </button>
+                ))}
+              </div>
+              {sections[editTab]()}
+            </>
+          );
+          })()}
         </div>
       )}
     </Modal>
+
+    {sourceItem && (
+      <TaskSettingsModal
+        open={taskSettingsOpen}
+        onClose={() => setTaskSettingsOpen(false)}
+        workItem={sourceItem}
+        onSaved={() => void refetchDetail()}
+      />
+    )}
 
     <WorkTagCreateModal
       open={workTagModalOpen}

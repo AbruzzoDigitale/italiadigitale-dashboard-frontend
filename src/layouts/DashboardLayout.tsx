@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import { useBrand } from "../context/BrandContext";
 import { useToast } from "../context/ToastContext";
 import { Avatar } from "../components/ui/Avatar";
@@ -17,9 +18,15 @@ import { syncFicClientsApi } from "../api/fic";
 import { syncCompanyItalianHolidaysApi } from "../api/companies";
 import { useFicQuotesSync } from "../hooks/useFicQuotesSync";
 import { useNotifications } from "../features/notifications/useNotifications";
+import type { NotifTabKey } from "../features/notifications/notificationsData";
 import { subscribeRealtime } from "../features/realtime/realtimeBus";
+
+// Operatori: nel centro notifiche non vedono le notifiche "contratti".
+const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
+const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
+import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
 import { getSidebarPreferencesApi, updateSidebarPreferencesApi } from "../api/sidebarPreferences";
 
@@ -74,6 +81,15 @@ const allNavItems: NavItem[] = [
     routeKey: "controllo-ped",
     group: "operations",
   },
+  // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
+  // rapidi aprono direttamente in una nuova scheda. Riabilitare quando pronto.
+  // {
+  //   label: "Browser",
+  //   to: "/browser",
+  //   icon: <Icon name="globe" />,
+  //   routeKey: "profile",
+  //   group: "operations",
+  // },
   {
     label: "Clienti",
     to: "/clients",
@@ -150,6 +166,13 @@ const allNavItems: NavItem[] = [
     icon: <Icon name="user-circle" />,
     routeKey: "profile",
     group: "account",
+  },
+  {
+    label: "Documenti",
+    to: "/documenti",
+    icon: <Icon name="document-text" />,
+    routeKey: "documenti",
+    group: "admin",
   },
   {
     label: "Utenti",
@@ -257,7 +280,11 @@ export function DashboardLayout() {
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
-  const notifications = useNotifications();
+  // Operatore = non admin e non project manager. Per lui il centro notifiche
+  // nasconde la scheda "Contratti" (e il relativo conteggio dal badge).
+  const isOperator = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
+  const hiddenNotifTabs = isOperator ? OPERATOR_HIDDEN_NOTIF_TABS : NO_HIDDEN_NOTIF_TABS;
+  const notifications = useNotifications(hiddenNotifTabs);
   // Contatore incrementato a ogni notifica in arrivo (via stream SSE): usato come
   // `key` per rilanciare l'animazione della campanella. Parte da 0 = nessuna animazione
   // al primo mount.
@@ -279,8 +306,8 @@ export function DashboardLayout() {
   const isAdmin = !!user?.is_admin;
 
   const companyOptions = useMemo(
-    () => myCompanies.map((company) => ({ id: company.id, name: company.name })),
-    [myCompanies]
+    () => myCompanies.map((company) => ({ id: company.id, name: company.name, logo: getCompanyLogoUrl(company, theme) })),
+    [myCompanies, theme]
   );
 
   const currentCompanyId = selectedCompanyId ?? activeCompanyId ?? user?.company_id ?? null;
@@ -288,7 +315,7 @@ export function DashboardLayout() {
     companyOptions.length > 0
       ? companyOptions
       : currentCompanyId != null
-        ? [{ id: currentCompanyId, name: `Company #${currentCompanyId}` }]
+        ? [{ id: currentCompanyId, name: `Company #${currentCompanyId}`, logo: null }]
         : [];
   const companySelectOptions = useMemo(
     () =>
@@ -296,6 +323,7 @@ export function DashboardLayout() {
         value: String(company.id),
         label: company.name,
         keywords: company.name,
+        avatarUrl: company.logo,
       })),
     [effectiveCompanyOptions]
   );
@@ -794,6 +822,7 @@ export function DashboardLayout() {
                 searchPlaceholder="Cerca azienda..."
                 emptyMessage="Nessuna azienda trovata"
                 menuLayer="portal"
+                avatarShape="logo"
                 className="w-full"
                 triggerClassName="border-white/20 bg-white/10 px-2.5 py-2 text-[12px] font-semibold text-white focus:border-white/40"
               />
@@ -926,8 +955,11 @@ export function DashboardLayout() {
             <Icon name="menu" />
           </button>
 
-          {/* Spacer */}
-          <div className="flex-1" />
+          {/* Spacer + barra collegamenti rapidi (centro). Su schermi stretti la barra
+              si nasconde (hidden md:flex nel componente) e questo div resta solo spacer. */}
+          <div className="flex flex-1 min-w-0 justify-center px-2">
+            <QuickLinksBar />
+          </div>
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
@@ -1086,6 +1118,7 @@ export function DashboardLayout() {
           open={notifOpen}
           onClose={() => setNotifOpen(false)}
           notifications={notifications}
+          hiddenTabs={hiddenNotifTabs}
           onOpenPreferences={() => {
             setNotifOpen(false);
             setNotifPrefsOpen(true);

@@ -9,13 +9,26 @@ export type ContactIcon = "phone" | "email" | "website" | "address" | "none";
 export type SocialNetwork = "facebook" | "instagram" | "linkedin" | "tiktok" | "youtube";
 export type Align = "left" | "center" | "right";
 
+export interface FieldItem { id: string; content: string; href: string }
+
 export type SigBlock =
   | { id: string; type: "text"; text: string; size: number; bold: boolean; color: string }
   | { id: string; type: "contact"; icon: ContactIcon; text: string; href: string }
+  | { id: string; type: "fields"; icon: ContactIcon; separator: string; size: number; items: FieldItem[] }
   | { id: string; type: "social"; items: { network: SocialNetwork; url: string }[] }
   | { id: string; type: "image"; src: string; width: number; radius: number; align: Align }
   | { id: string; type: "spacer"; height: number }
   | { id: string; type: "divider" };
+
+/** Separatori proposti per il blocco "Campi + separatore". */
+export const SEPARATOR_PRESETS: { value: string; label: string }[] = [
+  { value: " | ", label: "|" },
+  { value: " • ", label: "•" },
+  { value: " · ", label: "·" },
+  { value: " – ", label: "– (trattino)" },
+  { value: " / ", label: "/" },
+  { value: ", ", label: ", (virgola)" },
+];
 
 export type SigBlockType = SigBlock["type"];
 
@@ -48,7 +61,7 @@ export const SOCIAL_LABELS: Record<SocialNetwork, string> = {
 };
 
 export const BLOCK_LABELS: Record<SigBlockType, string> = {
-  text: "Testo", contact: "Riga contatto", social: "Social", image: "Immagine", spacer: "Spazio", divider: "Divisore",
+  text: "Testo", contact: "Riga contatto", fields: "Campi + separatore", social: "Social", image: "Immagine", spacer: "Spazio", divider: "Divisore",
 };
 
 let _idc = 0;
@@ -63,6 +76,14 @@ export function newBlock(type: SigBlockType): SigBlock {
       return { id: newId(), type: "text", text: "Testo", size: 14, bold: false, color: "#000000" };
     case "contact":
       return { id: newId(), type: "contact", icon: "phone", text: "{{cellulare}}", href: "" };
+    case "fields":
+      return {
+        id: newId(), type: "fields", icon: "none", separator: " | ", size: 14,
+        items: [
+          { id: newId(), content: "{{ruolo}}", href: "" },
+          { id: newId(), content: "{{reparto}}", href: "" },
+        ],
+      };
     case "social":
       return {
         id: newId(), type: "social",
@@ -97,12 +118,34 @@ export function renderBlock(b: SigBlock, accent: string): string {
     case "contact": {
       const icon =
         b.icon !== "none"
-          ? `<img src="${ICON_URLS[b.icon]}" width="13" style="vertical-align:middle;background-color:${accent};width:13px;margin-right:6px;">`
+          ? `<img src="${ICON_URLS[b.icon]}" width="13" style="display:inline-block;vertical-align:middle;background-color:${accent};width:13px;margin-right:6px;">`
           : "";
       const inner = b.href
         ? `<a href="${b.href}" style="text-decoration:none;color:#000000;">${esc(b.text)}</a>`
         : esc(b.text);
       return `<div style="font-size:12px;color:#000000;line-height:20px;white-space:nowrap;">${icon}${inner}</div>`;
+    }
+    case "fields": {
+      const icon =
+        b.icon !== "none"
+          ? `<img src="${ICON_URLS[b.icon]}" width="13" style="display:inline-block;vertical-align:middle;background-color:${accent};width:13px;margin-right:6px;">`
+          : "";
+      // Ogni campo è un segmento marcato <!--fi:token-->…<!--/fi-->; il separatore
+      // (url-encoded, hyphen-safe) è nel marcatore <!--fr:…-->. Il render (client
+      // per l'anteprima, backend per l'invio) tiene solo i segmenti non vuoti e li
+      // unisce col separatore, così nascondere un campo non lascia il "|" appeso.
+      const segs = b.items
+        .map((it) => {
+          const content = esc(it.content);
+          const inner = it.href
+            ? `<a href="${it.href}" style="text-decoration:none;color:#000000;">${content}</a>`
+            : content;
+          return `<!--fi:${detectTokens(inner).join(",")}-->${inner}<!--/fi-->`;
+        })
+        .join("");
+      const sep = encodeURIComponent(b.separator).replace(/-/g, "%2D");
+      const size = b.size || 14; // blocchi salvati prima dell'aggiunta di `size`
+      return `<div style="font-size:${size}px;color:#000000;line-height:1.5;white-space:nowrap;">${icon}<!--fr:${sep}-->${segs}<!--/fr--></div>`;
     }
     case "social": {
       const cells = b.items
@@ -204,6 +247,32 @@ export function companyTokenMap(c: CompanyBrandLike): Record<string, string> {
 /** Anteprima client-side: sostituisce i token con i valori dati (campi + azienda). */
 export function resolveTokens(html: string, values: Record<string, string>): string {
   return html.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (m, key) => (key in values ? values[key] ?? "" : m));
+}
+
+// ── Blocco "Campi + separatore": join intelligente (mirror del backend) ───────
+const FR_RE = /<!--fr:([^>]*?)-->([\s\S]*?)<!--\/fr-->/g;
+const FI_RE = /<!--fi:([^>]*?)-->([\s\S]*?)<!--\/fi-->/g;
+
+function segmentPresent(inner: string, hidden: Set<string>, values: Record<string, string>): boolean {
+  const resolved = inner.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_m, k: string) =>
+    hidden.has(k) ? "" : values[k] ?? "",
+  );
+  return resolved.replace(/<[^>]*>/g, "").trim().length > 0;
+}
+
+/** Tiene solo i segmenti campo non vuoti/non nascosti e li unisce col separatore. */
+export function applyFieldRows(html: string, hidden: string[], values: Record<string, string>): string {
+  const hset = new Set(hidden);
+  return html.replace(FR_RE, (_m, sepEnc: string, body: string) => {
+    const sep = decodeURIComponent(sepEnc);
+    const kept: string[] = [];
+    let m: RegExpExecArray | null;
+    FI_RE.lastIndex = 0;
+    while ((m = FI_RE.exec(body)) !== null) {
+      if (segmentPresent(m[2], hset, values)) kept.push(m[2]);
+    }
+    return kept.join(esc(sep));
+  });
 }
 
 const TOKEN_RE = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;

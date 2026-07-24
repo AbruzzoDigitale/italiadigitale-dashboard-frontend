@@ -194,6 +194,17 @@ export interface WorkItemHistoryEvent {
   created_at: string;
 }
 
+export type TrelloSyncDirection = "push" | "pull";
+/** "push" = comanda il gestionale (→ Trello); "pull" = comanda Trello (→ gestionale). */
+export interface TrelloSyncSettings {
+  enabled?: boolean;
+  direction?: TrelloSyncDirection | null;
+}
+export interface WorkItemSettings {
+  trello_sync?: TrelloSyncSettings;
+  [key: string]: unknown;
+}
+
 export interface WorkItem {
   id: number;
   company_id: number;
@@ -244,6 +255,8 @@ export interface WorkItem {
   trello_card_id?: string | null;
   trello_card_url?: string | null;
   trello_board_id?: string | null;
+  // Impostazioni per-task (contenitore generico, estensibile)
+  settings?: WorkItemSettings | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
@@ -499,6 +512,19 @@ export async function updateWorkItemApi(id: number, payload: UpdateWorkItemPaylo
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw buildApiError(res, body, "Errore nell'aggiornamento lavorazione");
+  }
+  return res.json();
+}
+
+/** Merge (shallow) delle impostazioni per-task, es. { trello_sync: { enabled, direction } }. */
+export async function saveWorkItemSettingsApi(id: number, patch: Partial<WorkItemSettings>): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw buildApiError(res, body, "Errore nel salvataggio impostazioni");
   }
   return res.json();
 }

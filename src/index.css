@@ -107,18 +107,14 @@
     transform-origin: top center;
   }
 
-  /* Header compatto, full-width — allineato al prototipo "card pacchetti" (.head/.crumb) */
-  .section-eyebrow {
-    @apply inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted dark:text-[#8a8a8a] mb-2;
-  }
-
-  .section-eyebrow svg {
-    @apply text-brand-magenta;
-  }
-
+  /* Header compatto, full-width — icona magenta accanto al titolo */
   .section-title {
     @apply font-display font-bold leading-none tracking-tight text-ink dark:text-[#f4f4f7];
     font-size: 34px;
+  }
+
+  .section-title > svg {
+    @apply text-brand-magenta flex-shrink-0;
   }
 
   .section-lead {
@@ -304,6 +300,21 @@
   to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%)); }
 }
 
+/* Mentre gira la view transition del tema, sospendi le transition per-elemento
+   (tutti i `transition-colors` da 300ms sparsi nell'app): il tema nuovo deve
+   comparire istantaneo nello snapshot — è solo il reveal circolare ad animare.
+   Senza questo il cerchio rivela contenuto ancora in dissolvenza (vicino al
+   bottone il wipe è invisibile) e le centinaia di transition simultanee fanno
+   perdere frame all'animazione del clip-path. */
+html.vt-theme-switch,
+html.vt-theme-switch * {
+  transition: none !important;
+}
+/* Eccezione: l'icona sole ⇄ luna mantiene la sua micro-animazione. */
+html.vt-theme-switch .theme-ico > svg {
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.35s ease !important;
+}
+
 /* ── Icona toggle tema animata (sole ⇄ luna) ─────────────────────────────────── */
 .theme-ico {
   position: relative;
@@ -415,6 +426,16 @@ button:active > .nav-ico {
   .fav-burst, .fav-spark { animation: none; }
 }
 
+/* ── Anteprima firma email ────────────────────────────────────────────────────
+   Il preflight di Tailwind imposta img{display:block}: nell'anteprima le icone
+   contatto andrebbero a capo. Qui le riporto inline. Le immagini "vere" (foto,
+   logo, social) hanno display:block INLINE che vince su questa regola → restano
+   a blocco. Nell'email vera non serve (i client non applicano Tailwind). */
+.sig-preview img {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 /* ── Skeleton loader: shimmer che scorre (import card Trello, ecc.) ────────────── */
 .skel-shimmer {
   position: relative;
@@ -440,6 +461,54 @@ button:active > .nav-ico {
 }
 @media (prefers-reduced-motion: reduce) {
   .skel-shimmer::after { animation: none; }
+}
+
+/* ── Pillola scorrevole di DEFAULT su OGNI segmented switch (.seg-switch, .wl-segmented) ──
+   Gestita da useSegmentedPills (hooks): imposta --seg-x/-y/-w/-h e le classi
+   seg-anim/seg-has-pill/seg-ready. La pillola è uno pseudo-elemento, così non
+   c'è nessun nodo iniettato nel DOM controllato da React. */
+.seg-anim {
+  position: relative;
+}
+.seg-anim > * {
+  position: relative;
+  z-index: 1;
+}
+.seg-anim::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--seg-y, 3px);
+  width: var(--seg-w, 0px);
+  height: var(--seg-h, 0px);
+  transform: translateX(var(--seg-x, 0px));
+  border-radius: 999px;
+  background: #0a0a0a;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, width;
+}
+.dark .seg-anim::before {
+  background: #ffffff;
+}
+.seg-anim.seg-has-pill::before {
+  opacity: 1;
+}
+.seg-anim.seg-ready::before {
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.28, 0.5, 1),
+    width 0.32s cubic-bezier(0.34, 1.28, 0.5, 1);
+}
+/* La pillola disegna lo sfondo dell'attivo: il bottone attivo resta trasparente
+   (il testo/colore attivo li fornisce già lo stile esistente del segmented). */
+.seg-anim.seg-has-pill > .is-active {
+  background: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-anim.seg-ready::before {
+    transition: none;
+  }
 }
 
 /* ── Dropdown / menu: apertura fluida (fade + scale dall'origine) ──────────────── */
@@ -477,4 +546,19 @@ button:active > .nav-ico {
 }
 @media (prefers-reduced-motion: reduce) {
   .dd-item { animation: none; }
+}
+
+/* Sticky note lightbox: sfilata tra note (slider). Direzione data dalla classe. */
+@keyframes sn-slide-next {
+  0%   { opacity: 0; transform: translateX(40px) rotate(1.5deg) scale(0.97); }
+  100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+}
+@keyframes sn-slide-prev {
+  0%   { opacity: 0; transform: translateX(-40px) rotate(-1.5deg) scale(0.97); }
+  100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+}
+.sn-slide-next { animation: sn-slide-next 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.sn-slide-prev { animation: sn-slide-prev 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .sn-slide-next, .sn-slide-prev { animation: none; }
 }

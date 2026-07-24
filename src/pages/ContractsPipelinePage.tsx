@@ -54,10 +54,12 @@ import { Spinner } from "../components/ui/Spinner";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
+import { useTheme } from "../context/ThemeContext";
 import { useToast } from "../context/ToastContext";
 import { useCommercialPipeline } from "../hooks/useCommercialPipeline";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import "./contracts-pipeline.css";
 
 // Colore della barra superiore di ogni stage (dal prototipo).
@@ -340,6 +342,7 @@ function buildPipelineClusters(items: CommercialPipelineItem[]): PipelineCluster
 export function ContractsPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions, activeCompanyId, myCompanies } = useAuth();
+  const { theme } = useTheme();
   const { selectedCompanyId } = useSelectedCompanyId(activeCompanyId ?? user?.company_id ?? null);
   const toast = useToast();
   const isAdmin = !!permissions?.is_admin;
@@ -522,8 +525,9 @@ export function ContractsPipelinePage() {
       value: String(company.id),
       label: company.name,
       keywords: `${company.name} ${company.slug}`,
+      avatarUrl: getCompanyLogoUrl(company, theme),
     })),
-    [myCompanies]
+    [myCompanies, theme]
   );
 
   const stageOptions = useMemo(
@@ -1230,8 +1234,7 @@ export function ContractsPipelinePage() {
   return (
     <div className="px-6 pt-4 mx-auto w-full h-full flex flex-col overflow-hidden animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Contratti"
-        eyebrowIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
+        icon={<Icon name="document-text" className="w-6 h-6" />}
         title="Pipeline commerciale"
         lead={isLoading ? "Caricamento in corso..." : `${displayedItems.length} elementi · Tot ${formatEur(boardTotal)} · Mese ${formatEur(boardMonthly)} · Una tantum ${formatEur(boardOneTime)}`}
         actions={isAdmin ? (
@@ -1919,6 +1922,7 @@ export function ContractsPipelinePage() {
                   onChange={(value) => updateQuoteContractForm("company_id", value)}
                   options={companyOptions}
                   placeholder="Seleziona azienda"
+                  avatarShape="logo"
                 />
               </div>
 

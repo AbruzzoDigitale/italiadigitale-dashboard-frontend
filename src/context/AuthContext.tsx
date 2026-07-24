@@ -23,6 +23,7 @@ import {
   getMePermissionsApi,
   type UserPermissions,
 } from "../api/users";
+import { startSilentRenew } from "../api/session";
 import { useToast } from "./ToastContext";
 
 interface AuthContextValue {
@@ -110,6 +111,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     registerUnauthorizedHandler(() => logoutRef.current());
   }, []);
+
+  // Rinnovo silenzioso della sessione finché l'utente è autenticato: chi sta
+  // lavorando non viene mai buttato fuori allo scadere delle 3 ore.
+  useEffect(() => {
+    if (!user) return;
+    return startSilentRenew();
+  }, [user]);
 
   // Restore session on mount
   useEffect(() => {

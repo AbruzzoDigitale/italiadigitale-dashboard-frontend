@@ -348,14 +348,10 @@ export function ControlloPedPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="section-eyebrow">
-            <Icon name="calendar" className="w-3.5 h-3.5" /> Operativo · Editoriale
-          </div>
-          <h1 className="section-title">Controllo PED</h1>
-          <p className="section-lead max-w-xl">
-            Stato dei piani editoriali mensili per cliente. Vista calendario dal mese corrente, o
-            matrice dell'intero storico.
-          </p>
+          <h1 className="section-title flex items-center gap-2.5">
+            <Icon name="calendar" className="w-6 h-6" />
+            Controllo PED
+          </h1>
         </div>
 
         {/* Legenda + gestione stati */}

@@ -3,7 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCompanies } from "../hooks/useCompanies";
 import { useClients } from "../hooks/useClients";
+import { useTheme } from "../context/ThemeContext";
 import { useToast } from "../context/ToastContext";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
@@ -77,6 +79,10 @@ import { normalizeCompanyPayload } from "../utils/companyPayload";
 interface CompanyOption {
   id: number;
   name: string;
+  logo_light?: string | null;
+  logo_dark?: string | null;
+  logo_horizontal_light?: string | null;
+  logo_horizontal_dark?: string | null;
 }
 
 interface DeleteTarget {
@@ -114,7 +120,14 @@ function flattenCompanies(list: CompanyOption[] | import("../api/companies").Com
   const out: CompanyOption[] = [];
   const walk = (items: import("../api/companies").Company[]) => {
     items.forEach((item) => {
-      out.push({ id: item.id, name: item.name });
+      out.push({
+        id: item.id,
+        name: item.name,
+        logo_light: item.logo_light,
+        logo_dark: item.logo_dark,
+        logo_horizontal_light: item.logo_horizontal_light,
+        logo_horizontal_dark: item.logo_horizontal_dark,
+      });
       if (item.children?.length) walk(item.children);
     });
   };
@@ -226,11 +239,8 @@ function PackageEditorPanel(props: {
     <div className="rounded-2xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] shadow-sm sticky top-6">
       <div className="flex items-center justify-between gap-3 border-b border-line dark:border-[#2a2a2e] px-5 py-4">
         <div>
-          <div className="section-eyebrow mb-2">
-            <Icon name="target" className="w-3.5 h-3.5" />
-            Editor
-          </div>
-          <h2 className="font-display text-2xl font-bold tracking-tight text-ink dark:text-paper">
+          <h2 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight text-ink dark:text-paper">
+            <Icon name="target" className="w-5 h-5 flex-shrink-0 text-brand-magenta" />
             {mode === "create" ? "Nuovo pacchetto social" : selectedPackage?.title ?? "Pacchetto social"}
           </h2>
           <p className="text-sm text-muted dark:text-[#9999a0]">
@@ -365,6 +375,7 @@ function PackageRow({
 export function SocialPackagesPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const { companies, isLoading: companiesLoading } = useCompanies();
@@ -871,11 +882,10 @@ export function SocialPackagesPage() {
     <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="section-eyebrow">
-            <Icon name="list" className="w-3.5 h-3.5" />
-            Preventivatore
-          </div>
-          <h1 className="section-title">Pacchetti Social</h1>
+          <h1 className="section-title flex items-center gap-2.5">
+            <Icon name="list" className="w-6 h-6" />
+            Pacchetti Social
+          </h1>
           <p className="section-lead">
             {loadingList
               ? "Caricamento pacchetti social..."
@@ -910,7 +920,7 @@ export function SocialPackagesPage() {
               className="w-full flex items-center justify-between gap-3 text-left"
             >
               <div>
-                <h2 className="font-display text-lg font-bold tracking-tight text-ink dark:text-paper">Filtri</h2>
+                <h2 className="flex items-center gap-2 font-display text-lg font-bold tracking-tight text-ink dark:text-paper"><Icon name="filter" className="h-4 w-4 text-muted dark:text-[#9999a0]" /> Filtri</h2>
                 <p className="text-sm text-muted dark:text-[#9999a0]">Cerca, filtra per area e mostra anche gli elementi inattivi.</p>
               </div>
               <div className="flex items-center gap-2">
@@ -956,10 +966,15 @@ export function SocialPackagesPage() {
                     }}
                     options={[
                       { value: "", label: "Seleziona azienda" },
-                      ...companyOptions.map((company) => ({ value: String(company.id), label: company.name })),
+                      ...companyOptions.map((company) => ({
+                        value: String(company.id),
+                        label: company.name,
+                        avatarUrl: getCompanyLogoUrl(company, theme),
+                      })),
                     ]}
                     placeholder="Seleziona azienda"
                     searchPlaceholder="Cerca azienda…"
+                    avatarShape="logo"
                   />
                 </label>
               </div>

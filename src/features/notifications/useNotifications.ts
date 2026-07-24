@@ -22,7 +22,8 @@ const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni"];
  * deriva i contatori non lette per scheda + il totale per il badge della campanella.
  * Le azioni "segna letta" aggiornano ottimisticamente e chiamano l'API.
  */
-export function useNotifications() {
+export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
+  const hiddenKey = hiddenTabs.join(",");
   const [items, setItems] = useState<NotifItem[]>([]);
   const [archived, setArchived] = useState<NotifItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,7 +211,13 @@ export function useNotifications() {
     return c;
   }, [items]);
 
-  const totalUnread = counts.task + counts.richieste + counts.contratti + counts.comunicazioni;
+  // Badge campanella: esclude le schede nascoste (es. "contratti" per gli operatori),
+  // così non compare un conteggio non raggiungibile.
+  const totalUnread = useMemo(
+    () => TABS.filter((k) => !hiddenTabs.includes(k)).reduce((s, k) => s + counts[k], 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [counts, hiddenKey],
+  );
 
   const itemsByTab = useCallback((tab: NotifTabKey) => items.filter((i) => i.tab === tab), [items]);
 
@@ -271,6 +278,35 @@ export function useNotifications() {
     }
   }, []);
 
+  // Azioni multiple (selezione): aggiornano ottimisticamente items + archived in un
+  // colpo solo e sparano i singoli endpoint (nessun endpoint bulk lato backend).
+  const markManyRead = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: false } : i)));
+    setArchived((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: false } : i)));
+    await Promise.all(ids.map((id) => markNotificationReadApi(id).catch(() => {})));
+  }, []);
+
+  const markManyUnread = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: true } : i)));
+    setArchived((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: true } : i)));
+    await Promise.all(ids.map((id) => markNotificationUnreadApi(id).catch(() => {})));
+  }, []);
+
+  const archiveMany = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.filter((i) => !set.has(i.id)));
+    await Promise.all(ids.map((id) => archiveNotificationApi(id).catch(() => {})));
+  }, []);
+
+  const unarchiveMany = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setArchived((prev) => prev.filter((i) => !set.has(i.id)));
+    await Promise.all(ids.map((id) => unarchiveNotificationApi(id).catch(() => {})));
+    await reload(); // tornano tra le notifiche normali
+  }, [reload]);
+
   return {
     items,
     archived,
@@ -283,6 +319,10 @@ export function useNotifications() {
     markAllRead,
     archive,
     unarchive,
+    markManyRead,
+    markManyUnread,
+    archiveMany,
+    unarchiveMany,
     loadArchived,
     reload,
   };

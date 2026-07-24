@@ -30,6 +30,7 @@ import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { RichTextEditor, hasRichTextContent } from "../ui/RichTextEditor";
 import { BillingPlanSection } from "./BillingPlanSection";
+import { DocumentsSection } from "../documents/DocumentsSection";
 
 interface ContractDetailModalProps {
   open: boolean;
@@ -140,7 +141,7 @@ export function ContractDetailModal({
   const [detailWorkAreaIdsDraft, setDetailWorkAreaIdsDraft] = useState<number[]>([]);
   const [workTagModalOpen, setWorkTagModalOpen] = useState(false);
   const [workAreaModalOpen, setWorkAreaModalOpen] = useState(false);
-  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "billing" | "timeline">("contract");
+  const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "billing" | "documenti" | "timeline">("contract");
   const [activeNotesTab, setActiveNotesTab] = useState<"commercial" | "operational" | "lost">("commercial");
   const [notesSaving, setNotesSaving] = useState(false);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<number[]>([]);
@@ -711,6 +712,15 @@ export function ContractDetailModal({
             >
               Fatturazione
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveMainTab("documenti")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeMainTab === "documenti" ? "bg-ink text-paper dark:bg-paper dark:text-ink" : "text-muted dark:text-muted-dark hover:bg-cream dark:hover:bg-[#1c1c20]"}`}
+              >
+                Documenti
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setActiveMainTab("tasks")}
@@ -1165,6 +1175,10 @@ export function ContractDetailModal({
 
           {activeMainTab === "billing" && detailData && (
             <BillingPlanSection contractId={detailData.id} isAdmin={isAdmin} />
+          )}
+
+          {activeMainTab === "documenti" && detailData && isAdmin && (
+            <DocumentsSection contractId={detailData.id} companyId={detailData.company_id ?? null} />
           )}
 
           {activeMainTab === "tasks" && (

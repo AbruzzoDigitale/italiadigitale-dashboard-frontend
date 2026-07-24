@@ -26,6 +26,8 @@ type SearchableSelectProps = {
   menuLayer?: "local" | "portal";
   /** Mostra l'avatar/iniziali per opzione (default true). false = opzioni "a colonne". */
   showAvatar?: boolean;
+  /** "circle" (default) per foto persone; "logo" per loghi aziendali (object-contain, angoli morbidi). */
+  avatarShape?: "circle" | "logo";
 };
 
 const SELECT_MENU_Z_INDEX = 13000;
@@ -37,6 +39,26 @@ function getInitials(label: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "U";
+}
+
+function OptionAvatar({ option, shape }: { option: SearchableSelectOption; shape: "circle" | "logo" }) {
+  const rounded = shape === "logo" ? "rounded" : "rounded-full";
+  if (option.avatarUrl) {
+    return (
+      <img
+        src={option.avatarUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className={`h-5 w-5 ${rounded} ${shape === "logo" ? "object-contain" : "object-cover"} flex-shrink-0`}
+      />
+    );
+  }
+  return (
+    <span className={`inline-grid h-5 w-5 place-items-center ${rounded} bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0`}>
+      {getInitials(option.label)}
+    </span>
+  );
 }
 
 export function SearchableSelect({
@@ -52,6 +74,7 @@ export function SearchableSelect({
   menuPlacement = "bottom",
   menuLayer = "local",
   showAvatar = true,
+  avatarShape = "circle",
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -169,21 +192,7 @@ export function SearchableSelect({
                 aria-selected={isSelected}
               >
                 <span className="flex w-full min-w-0 items-center gap-2">
-                  {showAvatar ? (
-                    option.avatarUrl ? (
-                      <img
-                        src={option.avatarUrl}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
-                        {getInitials(option.label)}
-                      </span>
-                    )
-                  ) : null}
+                  {showAvatar ? <OptionAvatar option={option} shape={avatarShape} /> : null}
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
                   {option.trailing ? (
                     <span className="flex-shrink-0 tabular-nums text-[12px] text-muted dark:text-[#9999a0]">
@@ -211,21 +220,7 @@ export function SearchableSelect({
         aria-expanded={open}
       >
         <span className={`flex w-full min-w-0 items-center gap-2 pr-6 ${selected ? "text-current" : "text-current/65"}`}>
-          {selected ? (
-            selected.avatarUrl ? (
-              <img
-                src={selected.avatarUrl}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-              />
-            ) : (
-              <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-paper text-[10px] font-semibold dark:bg-paper dark:text-ink flex-shrink-0">
-                {getInitials(selected.label)}
-              </span>
-            )
-          ) : null}
+          {selected && showAvatar ? <OptionAvatar option={selected} shape={avatarShape} /> : null}
           <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
         </span>
         <Icon

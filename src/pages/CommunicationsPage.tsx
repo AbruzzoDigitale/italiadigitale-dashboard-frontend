@@ -123,14 +123,10 @@ export function CommunicationsPage() {
   return (
     <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="annotation" className="w-3.5 h-3.5" />
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="annotation" className="w-6 h-6" />
           Comunicazioni
-        </div>
-        <h1 className="section-title">Comunicazioni</h1>
-        <p className="section-lead">
-          Invia avvisi al team. {isAdmin ? "Globali, per area o a operatori specifici." : "Come PM puoi inviare solo alla tua area."}
-        </p>
+        </h1>
       </div>
 
       {/* Compositore */}

@@ -3,6 +3,8 @@ import { useAuth } from "../hooks/useAuth";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
 import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
 import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
+import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
+import { QuickLinksSection } from "../components/quicklinks/QuickLinksSection";
 import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
@@ -93,16 +95,10 @@ export function ProfilePage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="user-circle" className="w-3.5 h-3.5" />
-          Account
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="user-circle" className="w-6 h-6" />
           Profilo
         </h1>
-        <p className="section-lead">
-          Gestisci le tue informazioni personali
-        </p>
       </div>
 
       {/* ── Two-column layout (profile-layout in CSS prototipo) ── */}
@@ -284,6 +280,12 @@ export function ProfilePage() {
 
           {/* Collegamento account Canva */}
           <CanvaConnectSection />
+
+          {/* Collegamento account Google (Drive/Calendar/Docs) */}
+          <GoogleConnectSection />
+
+          {/* Collegamenti rapidi (barra preferiti + browser interno) */}
+          <QuickLinksSection />
 
           {/* Save bar */}
           <div className="flex justify-end">

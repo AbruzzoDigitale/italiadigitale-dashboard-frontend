@@ -20,6 +20,8 @@ interface NotificationCenterProps {
   onClose: () => void;
   notifications: UseNotificationsReturn;
   onOpenPreferences: () => void;
+  /** Schede da nascondere (es. "contratti" per gli operatori). */
+  hiddenTabs?: NotifTabKey[];
 }
 
 // Scheda attiva: le 4 categorie + l'Archivio.
@@ -31,6 +33,8 @@ interface RowActions {
   onArchive: (item: NotifItem) => void;
   onRestore: (item: NotifItem) => void;
   archivedView: boolean;
+  isSelected: (id: number) => boolean;
+  toggleSelect: (id: number) => void;
 }
 
 type SwipeAction = { label: string; icon: IconName; tone: string; run: () => void };
@@ -55,13 +59,41 @@ function SwipeRow({
   const THRESH = 44;
   const leftW = left.length * ACT_W;
   const rightW = right.length * ACT_W;
-  const [dx, setDx] = useState(0);
+  const [dx, setDx] = useState(0); // posizione A RIPOSO (dopo lo snap)
+  const [fullSide, setFullSide] = useState<"left" | "right" | null>(null);
+  const dxRef = useRef(0); // posizione LIVE durante il trascinamento
+  const fullRef = useRef<"left" | "right" | null>(null);
+  const dragging = useRef(false);
   const start = useRef<{ x: number; y: number } | null>(null);
+  const baseDx = useRef(0);
   const horiz = useRef(false);
   const didDrag = useRef(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const rowW = useRef(420); // larghezza riga, misurata al pointer-down
+
+  // Soglia "full swipe" (stile WhatsApp): oltre questa, al rilascio parte
+  // direttamente l'azione più esterna invece di aprire il pannello.
+  const fullAt = (actW: number) => Math.max(actW + 60, rowW.current * 0.55);
+
+  // Trascinamento: trasformazione scritta direttamente nel DOM, senza passare da
+  // React (nessun re-render per frame → gesto fluido).
+  const paint = (v: number) => {
+    dxRef.current = v;
+    const el = contentRef.current;
+    if (el) el.style.transform = `translateX(${v}px)`;
+  };
+  // Snap: qui serve React, così la transizione CSS anima fino al valore.
+  const settle = (v: number) => {
+    dxRef.current = v;
+    dragging.current = false;
+    setDx(v);
+  };
 
   const onDown = (e: React.PointerEvent) => {
     start.current = { x: e.clientX, y: e.clientY };
+    baseDx.current = dxRef.current; // posizione da cui parte questo drag
+    rowW.current = rowRef.current?.offsetWidth || rowW.current;
     horiz.current = false;
     didDrag.current = false;
   };
@@ -73,36 +105,73 @@ function SwipeRow({
     if (!horiz.current) {
       if (Math.abs(ddx) < 6 || Math.abs(ddx) <= Math.abs(ddy)) return; // scroll verticale
       horiz.current = true;
+      dragging.current = true;
+      // Transizione spenta per tutto il gesto: la riga segue il puntatore 1:1.
+      if (contentRef.current) contentRef.current.style.transition = "none";
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     }
     didDrag.current = true;
-    let v = ddx;
-    if (v > 0 && !leftW) v = 0;
-    if (v < 0 && !rightW) v = 0;
-    v = Math.max(-(rightW + 22), Math.min(leftW + 22, v));
-    setDx(v);
+    // Accumula dall'apertura corrente: da una riga già aperta il drag opposto la
+    // riporta PRIMA al centro (chiusa) e non salta direttamente all'altro lato.
+    const maxD = rowW.current * 0.92; // si può trascinare fin quasi a tutta la riga
+    let v = baseDx.current + ddx;
+    if (baseDx.current > 0)
+      v = Math.max(0, Math.min(maxD, v)); // aperta a sinistra → chiude, oppure prosegue fino al full
+    else if (baseDx.current < 0)
+      v = Math.max(-maxD, Math.min(0, v)); // aperta a destra → chiude, oppure prosegue fino al full
+    else {
+      if (v > 0 && !leftW) v = 0;
+      if (v < 0 && !rightW) v = 0;
+      v = Math.max(-maxD, Math.min(maxD, v)); // chiusa → range pieno su entrambi i lati
+    }
+    paint(v);
+    // Unico re-render possibile durante il gesto: entrata/uscita dalla zona full.
+    const next: "left" | "right" | null =
+      v > 0 && leftW > 0 && v >= fullAt(leftW)
+        ? "left"
+        : v < 0 && rightW > 0 && -v >= fullAt(rightW)
+          ? "right"
+          : null;
+    if (next !== fullRef.current) {
+      fullRef.current = next;
+      setFullSide(next);
+    }
   };
   const onUp = () => {
     if (!start.current) return;
     start.current = null;
-    if (leftW && dx >= THRESH) setDx(leftW);
-    else if (rightW && dx <= -THRESH) setDx(-rightW);
-    else setDx(0);
+    const v = dxRef.current;
+    const wasFull = fullRef.current;
+    fullRef.current = null;
+    setFullSide(null);
+    // Full swipe → esegue subito l'azione più esterna nella direzione del gesto:
+    // a destra la prima a sinistra, a sinistra l'ultima a destra.
+    if (wasFull === "left" && left.length) {
+      runAction(left[0]);
+      return;
+    }
+    if (wasFull === "right" && right.length) {
+      runAction(right[right.length - 1]);
+      return;
+    }
+    if (leftW && v >= THRESH) settle(leftW);
+    else if (rightW && v <= -THRESH) settle(-rightW);
+    else settle(0);
   };
   const onContentClick = () => {
     if (didDrag.current) {
       didDrag.current = false;
       return; // era uno swipe, non un tap
     }
-    if (dx !== 0) {
-      setDx(0); // era aperta: chiudi
+    if (dxRef.current !== 0) {
+      settle(0); // era aperta: chiudi
       return;
     }
     onTap();
   };
   const runAction = (a: SwipeAction) => {
     a.run();
-    setDx(0);
+    settle(0);
   };
 
   const actionBtn = (a: SwipeAction, i: number) => (
@@ -118,22 +187,43 @@ function SwipeRow({
       <span>{a.label}</span>
     </button>
   );
+  const fullBtn = (a: SwipeAction, side: "left" | "right") => (
+    <button
+      type="button"
+      className={`nt-swipe-act full ${side} tone-${a.tone}`}
+      onClick={() => runAction(a)}
+      tabIndex={-1}
+    >
+      <Icon name={a.icon} className="h-[18px] w-[18px]" />
+      <span>{a.label}</span>
+    </button>
+  );
 
   return (
-    <div className={`nt-swipe${dx !== 0 ? " open" : ""}`}>
+    <div className={`nt-swipe${dx !== 0 ? " open" : ""}`} ref={rowRef}>
+      {/* Strisce azioni a larghezza piena: stanno SOTTO al contenuto e si scoprono
+          man mano che scorre, quindi non serve animarne la larghezza (che a ogni
+          frame costringerebbe a un ricalcolo del layout). */}
       {leftW > 0 && (
-        <div className="nt-swipe-side left" style={{ width: leftW }}>
-          {left.map(actionBtn)}
+        <div className="nt-swipe-side left full-w">
+          {fullSide === "left" ? fullBtn(left[0], "left") : left.map(actionBtn)}
         </div>
       )}
       {rightW > 0 && (
-        <div className="nt-swipe-side right" style={{ width: rightW }}>
-          {right.map(actionBtn)}
+        <div className="nt-swipe-side right full-w">
+          {fullSide === "right" ? fullBtn(right[right.length - 1], "right") : right.map(actionBtn)}
         </div>
       )}
       <div
+        ref={contentRef}
         className={className}
-        style={{ transform: `translateX(${dx}px)`, transition: start.current ? "none" : undefined }}
+        style={{
+          // A riposo comanda lo stato (con transizione); durante il gesto comanda
+          // il ref, così un re-render esterno non fa saltare la riga.
+          transform: `translateX(${dragging.current ? dxRef.current : dx}px)`,
+          transition: dragging.current ? "none" : undefined,
+          willChange: "transform",
+        }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -153,6 +243,7 @@ function SwipeRow({
 
 function NotifItemRow({ item, actions }: { item: NotifItem; actions: RowActions }) {
   const meta = NOTIF_TYPES[item.type] ?? { label: item.type, icon: "bell" as const, tone: "neutral" as const };
+  const selected = actions.isSelected(item.id);
   const readAction: SwipeAction = item.unread
     ? { label: "Letta", icon: "check", tone: "mint", run: () => actions.onToggleRead(item) }
     : { label: "Da leggere", icon: "mail", tone: "amber", run: () => actions.onToggleRead(item) };
@@ -168,9 +259,20 @@ function NotifItemRow({ item, actions }: { item: NotifItem; actions: RowActions 
       right={[openAction, archiveAction]}
       onTap={() => actions.onActivate(item)}
     >
-      <span className="nt-ic">
-        <Icon name={meta.icon} className="h-4 w-4" />
-      </span>
+      <button
+        type="button"
+        className={`nt-ic nt-ic-sel${selected ? " sel" : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          actions.toggleSelect(item.id);
+        }}
+        aria-pressed={selected}
+        aria-label={selected ? "Deseleziona" : "Seleziona"}
+        title={selected ? "Deseleziona" : "Seleziona"}
+      >
+        <Icon name={meta.icon} className="nt-ic-glyph h-4 w-4" />
+        <Icon name="check" className="nt-ic-check h-4 w-4" />
+      </button>
       <div className="nt-body">
         <div className="nt-line1">
           <span className="nt-title">{item.title}</span>
@@ -267,20 +369,61 @@ function routeForItem(item: NotifItem): string | null {
   return null;
 }
 
-export function NotificationCenter({ open, onClose, notifications, onOpenPreferences }: NotificationCenterProps) {
-  const { counts, itemsByTab, archived, loadArchived, markRead, markUnread, markAllRead, archive, unarchive } =
-    notifications;
+export function NotificationCenter({ open, onClose, notifications, onOpenPreferences, hiddenTabs = [] }: NotificationCenterProps) {
+  const visibleTabs = NOTIF_TABS.filter((tb) => !hiddenTabs.includes(tb.key));
+  const {
+    counts,
+    itemsByTab,
+    archived,
+    loadArchived,
+    markRead,
+    markUnread,
+    markAllRead,
+    archive,
+    unarchive,
+    markManyRead,
+    markManyUnread,
+    archiveMany,
+    unarchiveMany,
+  } = notifications;
   const navigate = useNavigate();
-  const [tab, setTab] = useState<ViewKey>("task");
+  const [tab, setTabState] = useState<ViewKey>("task");
   const [comFilter, setComFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Cambiando scheda si azzera la selezione (ogni vista è a sé: es. l'Archivio ha
+  // "Ripristina" invece di "Archivia").
+  const setTab = (k: ViewKey) => {
+    setSelected(new Set());
+    setTabState(k);
+  };
+  const clearSel = () => setSelected(new Set());
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const runBulk = (fn: (ids: number[]) => void) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    fn(ids);
+    clearSel();
+  };
 
   // Entrando nella scheda Archivio, carica le archiviate (fetch dedicato).
   useEffect(() => {
     if (open && tab === "archivio") void loadArchived();
   }, [open, tab, loadArchived]);
+
+  // Chiudendo il centro, azzera la selezione multipla.
+  useEffect(() => {
+    if (!open) setSelected(new Set());
+  }, [open]);
 
   if (!open) return null;
 
@@ -324,6 +467,8 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
     onArchive: (item) => archive(item.id),
     onRestore: (item) => unarchive(item.id),
     archivedView: tab === "archivio",
+    isSelected: (id) => selected.has(id),
+    toggleSelect,
   };
 
   const comItems = itemsByTab("comunicazioni").filter((m) => comFilter === "all" || m.type === comFilter);
@@ -359,7 +504,7 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
             </div>
           </div>
           <div className="nt-tabs">
-            {NOTIF_TABS.map((tb) => (
+            {visibleTabs.map((tb) => (
               <button
                 key={tb.key}
                 type="button"
@@ -381,6 +526,56 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
             </button>
           </div>
         </div>
+
+        {selected.size > 0 && (
+          <div className="nt-selbar">
+            <button type="button" className="nt-selbar-x" onClick={clearSel} aria-label="Annulla selezione" title="Annulla">
+              <Icon name="x" className="h-4 w-4" />
+            </button>
+            <span className="nt-selbar-count">{selected.size} selezionate</span>
+            <div className="nt-selbar-acts">
+              <button
+                type="button"
+                className="nt-selact tone-mint"
+                onClick={() => runBulk(markManyRead)}
+                aria-label="Segna come lette"
+                title="Segna come lette"
+              >
+                <Icon name="check" className="h-[15px] w-[15px]" />
+              </button>
+              <button
+                type="button"
+                className="nt-selact tone-amber"
+                onClick={() => runBulk(markManyUnread)}
+                aria-label="Segna come da leggere"
+                title="Segna come da leggere"
+              >
+                <Icon name="mail" className="h-[15px] w-[15px]" />
+              </button>
+              {isArchivio ? (
+                <button
+                  type="button"
+                  className="nt-selact tone-slate"
+                  onClick={() => runBulk(unarchiveMany)}
+                  aria-label="Ripristina"
+                  title="Ripristina"
+                >
+                  <Icon name="refresh-cw" className="h-[15px] w-[15px]" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="nt-selact tone-slate"
+                  onClick={() => runBulk(archiveMany)}
+                  aria-label="Archivia"
+                  title="Archivia"
+                >
+                  <Icon name="download" className="h-[15px] w-[15px]" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="nt-toolbar">
           {isArchivio ? (

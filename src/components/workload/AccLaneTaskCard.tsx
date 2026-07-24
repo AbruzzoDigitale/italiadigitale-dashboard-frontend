@@ -1,5 +1,6 @@
 import type { CSSProperties, DragEvent } from "react";
 import { Icon } from "../ui/Icon";
+import { Avatar } from "../ui/Avatar";
 import { reworkSeverityClass } from "../../utils/rework";
 
 /**
@@ -27,6 +28,8 @@ export interface AccLaneTaskCardProps {
   overdueDays?: number;
   /** Numero di rimandi da revisione: 1 → card gialla, 2+ → card rossa. */
   reworkCount?: number;
+  /** Operatori assegnati: mostrati come stack di avatar dentro la card. */
+  assignees?: Array<{ name: string; avatarUrl?: string | null }>;
   unassigned?: boolean;
   onClick?: () => void;
   draggable?: boolean;
@@ -48,6 +51,7 @@ export function AccLaneTaskCard({
   overdue = false,
   overdueDays,
   reworkCount,
+  assignees,
   unassigned = false,
   onClick,
   draggable,
@@ -96,6 +100,24 @@ export function AccLaneTaskCard({
         {completed && (
           <span className="inline-flex rounded-pill border border-success/30 bg-success/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success">
             Completata
+          </span>
+        )}
+        {assignees && assignees.length > 0 && (
+          <span className="ml-auto flex flex-none -space-x-1.5" title={assignees.map((a) => a.name).join(", ")}>
+            {assignees.slice(0, 4).map((a, i) => (
+              <Avatar
+                key={`${a.name}-${i}`}
+                name={a.name}
+                src={a.avatarUrl ?? undefined}
+                size="sm"
+                className="h-5 w-5 text-[8px] ring-2 ring-paper dark:ring-[#1f211f]"
+              />
+            ))}
+            {assignees.length > 4 && (
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cream text-[8px] font-bold text-muted ring-2 ring-paper dark:bg-[#2a2a2e] dark:text-muted-dark dark:ring-[#1f211f]">
+                +{assignees.length - 4}
+              </span>
+            )}
           </span>
         )}
       </div>

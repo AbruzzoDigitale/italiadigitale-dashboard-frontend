@@ -865,8 +865,7 @@ export function ClientsSituationPage() {
   return (
     <div className="cs-scope px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Post-sales"
-        eyebrowIcon={<Icon name="users" className="w-3.5 h-3.5" />}
+        icon={<Icon name="users" className="w-6 h-6" />}
         title="Situazione clienti"
         lead={loading ? "Caricamento situazione clienti..." : `${stats.clients_count} clienti con contratti formalizzati`}
       />

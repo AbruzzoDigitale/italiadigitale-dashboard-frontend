@@ -1,7 +1,7 @@
 import { authFetch, API_BASE } from "./auth";
 
 // Ordinamento delle card in una colonna della board lavorazioni.
-export type BoardSortMode = "deadline_asc" | "deadline_desc" | "urgency" | "custom";
+export type BoardSortMode = "recent" | "deadline_asc" | "deadline_desc" | "urgency" | "custom";
 
 export interface ColumnSort {
   mode: BoardSortMode;

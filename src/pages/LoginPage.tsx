@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { Icon } from "../components/ui/Icon";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -8,6 +9,8 @@ export function LoginPage() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -20,7 +23,7 @@ export function LoginPage() {
     }
     setIsLoading(true);
     try {
-      await login({ username: username.trim(), password });
+      await login({ username: username.trim(), password, remember });
       navigate("/choose-company", { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Credenziali non valide";
@@ -85,17 +88,63 @@ export function LoginPage() {
             <label className="text-[11px] font-bold uppercase tracking-wider text-[#8a8a8a] font-body">
               Password
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => { setPassword(e.target.value); setFieldError(null); }}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              required
-              className="w-full px-3.5 py-2.5 rounded-md text-[13px] font-body text-white placeholder:text-[#6b6b6b] border border-[#2e2e2e] outline-none transition-colors duration-150 focus:border-white"
-              style={{ background: "#1a1a1a" }}
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setFieldError(null); }}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+                className="w-full pl-3.5 pr-11 py-2.5 rounded-md text-[13px] font-body text-white placeholder:text-[#6b6b6b] border border-[#2e2e2e] outline-none transition-colors duration-150 focus:border-white"
+                style={{ background: "#1a1a1a" }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? "Nascondi password" : "Mostra password"}
+                title={showPassword ? "Nascondi password" : "Mostra password"}
+                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#8a8a8a] transition-colors hover:text-white"
+              >
+                <Icon name={showPassword ? "eye-off" : "eye"} className="h-[17px] w-[17px]" />
+              </button>
+            </div>
           </div>
+
+          {/* Ricordami: il backend emette un token da 30 giorni invece che da 3 ore.
+              Checkbox disegnata a tema (quella nativa stonava sul fondo scuro). */}
+          <label className="group flex cursor-pointer select-none items-center gap-2.5 text-left">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-all duration-150 peer-focus-visible:ring-2 peer-focus-visible:ring-white/40"
+              style={{
+                background: remember ? "#ffffff" : "#1a1a1a",
+                borderColor: remember ? "#ffffff" : "#2e2e2e",
+              }}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#0a0a0a"
+                strokeWidth={3.4}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3 transition-all duration-150"
+                style={{ opacity: remember ? 1 : 0, transform: remember ? "scale(1)" : "scale(0.5)" }}
+              >
+                <path d="m4.5 12.5 5 5 10-11" />
+              </svg>
+            </span>
+            <span className="font-body text-[12.5px] text-[#8a8a8a] transition-colors group-hover:text-[#c9c9c9]">
+              Ricordami per 30 giorni
+            </span>
+          </label>
 
           {/* Errore */}
           {fieldError && (

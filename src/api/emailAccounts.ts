@@ -120,6 +120,11 @@ export async function testEmailAccountApi(id: number): Promise<EmailAccountTestR
   return jsonOrThrow(await authFetch(`${BASE}/${id}/test`, { method: "POST" }));
 }
 
+/** Invia un'email di prova all'indirizzo indicato usando questo mittente. */
+export async function sendTestEmailApi(id: number, to: string): Promise<EmailAccountTestResult> {
+  return jsonOrThrow(await authFetch(`${BASE}/${id}/send-test`, { method: "POST", body: JSON.stringify({ to }) }));
+}
+
 /** Ritorna l'URL di consenso Google da aprire; al ritorno il backend reindirizza a `returnUrl`. */
 export async function googleAuthorizeApi(companyId: number, returnUrl: string): Promise<{ authorize_url: string }> {
   const qs = `?company_id=${companyId}&return_url=${encodeURIComponent(returnUrl)}`;

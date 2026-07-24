@@ -5,6 +5,8 @@ import { Input } from "../ui/Input";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { useTheme } from "../../context/ThemeContext";
+import { getCompanyLogoUrl, type CompanyLogoFields } from "../../utils/companyLogo";
 import { uploadSignatureMediaApi } from "../../api/emailSignatures";
 import {
   getMyTemplateFillApi,
@@ -18,7 +20,7 @@ import {
 // L'utente vede solo i campi editabili + anteprima; il resto è bloccato.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Company { id: number; name: string; }
+interface Company extends CompanyLogoFields { id: number; name: string; }
 interface Props { companies: Company[]; defaultCompanyId: number | null; }
 
 const labelCls = "text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark";
@@ -112,6 +114,7 @@ function FieldInput({
 }
 
 export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
+  const { theme } = useTheme();
   const toast = useToast();
   const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
   const [loading, setLoading] = useState(false);
@@ -206,8 +209,9 @@ export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
             <SearchableSelect
               value={companyId != null ? String(companyId) : ""}
               onChange={(v) => setCompanyId(Number(v) || null)}
-              options={companies.map((c) => ({ value: String(c.id), label: c.name }))}
+              options={companies.map((c) => ({ value: String(c.id), label: c.name, avatarUrl: getCompanyLogoUrl(c, theme) }))}
               placeholder="Organizzazione"
+              avatarShape="logo"
             />
           </div>
         )}
@@ -258,7 +262,7 @@ export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
           {/* Anteprima (sotto, a tutta larghezza) */}
           <div className="flex flex-col gap-2">
             <span className={labelCls}>Anteprima</span>
-            <div className="rounded-md border border-line dark:border-[#2a2a2e] bg-white p-4 overflow-x-auto">
+            <div className="sig-preview rounded-md border border-line dark:border-[#2a2a2e] bg-white p-4 overflow-x-auto">
               {previewHtml ? (
                 <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
               ) : (

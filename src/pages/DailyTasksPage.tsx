@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
@@ -13,10 +13,36 @@ import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { getWorkItemApi, type WorkItem } from "../api/workItems";
 import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
 
-type ViewMode = "self" | "admin";
+type ViewMode = "list" | "admin" | "self";
+type ListGroupBy = "operator" | "client" | "none";
+type GroupSort = "count" | "name";
+type DeadlineDir = "asc" | "desc";
+
+function cmpTaskTitle(a: any, b: any): number {
+  return String(a?.title || "").localeCompare(String(b?.title || ""), "it");
+}
+
+// Ordina per scadenza (le task senza scadenza sempre in fondo). `getTask` estrae
+// l'oggetto task dall'elemento (che può essere la task stessa o { task, ... }).
+function sortByDeadline<T>(items: T[], getTask: (x: T) => any, dir: DeadlineDir): T[] {
+  return [...items].sort((x, y) => {
+    const a = getTask(x);
+    const b = getTask(y);
+    const da = a?.deadline_date;
+    const db = b?.deadline_date;
+    if (da && db) {
+      if (da === db) return cmpTaskTitle(a, b);
+      return dir === "asc" ? (da < db ? -1 : 1) : da < db ? 1 : -1;
+    }
+    if (da) return -1;
+    if (db) return 1;
+    return cmpTaskTitle(a, b);
+  });
+}
 
 function getTodayDate(): string {
   const today = new Date();
@@ -75,7 +101,9 @@ function fmtRecapHours(value: number | null | undefined): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function recapTaskLine(task: any): string {
   const client = task?.client_name ? `[${task.client_name}] ` : "";
-  const hours = typeof task?.effective_load_hours === "number" ? task.effective_load_hours : (task?.estimated_hours ?? 0);
+  // Mostra la stima PROPRIA della task: `effective_load_hours` e' il peso sul carico
+  // dell'utente (in revisione vale 0) e come numero da leggere sarebbe fuorviante.
+  const hours = typeof task?.estimated_hours === "number" ? task.estimated_hours : (task?.effective_load_hours ?? 0);
   let line = `  - ${client}${task?.title ?? "Senza titolo"} (${fmtRecapHours(hours)}h)`;
   const note = task?.left_behind_note || task?.left_behind_reason;
   if (note) line += ` — ${note}`;
@@ -100,12 +128,14 @@ function buildDailyRecapText(selfData: any, dateIso: string): string {
   const recap = selfData?.recap;
   if (recap) {
     lines.push(`Task di oggi: ${recap.today_total} (completate ${recap.done_count} · in corso ${recap.in_progress_count} · da fare ${recap.todo_count})`);
+    if (recap.in_review_count > 0) lines.push(`Fatte e in revisione: ${recap.in_review_count}`);
     if (recap.overdue_count > 0) lines.push(`Arretrate: ${recap.overdue_count}`);
     lines.push(`Carico oggi: ${fmtRecapHours(recap.estimated_hours_today)}h / ${fmtRecapHours(recap.capacity_hours)}h · Tracciate: ${fmtRecapHours(recap.actual_hours_today)}h`);
     if (recap.overdue_hours > 0) lines.push(`Da recuperare (arretrato): ${fmtRecapHours(recap.overdue_hours)}h`);
     lines.push("");
     section("COMPLETATE", recap.done);
     section("IN CORSO", recap.in_progress);
+    section("FATTE E IN REVISIONE", recap.in_review);
     section("DA FARE", recap.todo);
     section("ARRETRATE", recap.overdue);
   } else {
@@ -175,7 +205,14 @@ export function DailyTasksPage() {
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
 
-  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "admin" : "self");
+  // Admin e PM aprono sull'elenco esteso di tutte le lavorazioni del giorno.
+  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "list" : "self");
+  const [listGroupBy, setListGroupBy] = useState<ListGroupBy>("operator");
+  // Ordinamento dei GRUPPI (per operatore/cliente): numero di task o alfabetico.
+  const [groupSort, setGroupSort] = useState<GroupSort>("count");
+  // Ordinamento delle TASK per scadenza (crescente/decrescente): vale in TUTTE le
+  // modalità e riordina le task dentro ogni operatore/cliente e nell'elenco unico.
+  const [deadlineDir, setDeadlineDir] = useState<DeadlineDir>("asc");
   const [targetDate, setTargetDate] = useState(getTodayDate());
 
   const [selfData, setSelfData] = useState<any>(null);
@@ -187,6 +224,12 @@ export function DailyTasksPage() {
   const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+  // Apertura dei gruppi della vista elenco (per operatore / per cliente): aperti di
+  // default, si memorizza solo la chiusura esplicita.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const isGroupOpen = (id: string | number) => !collapsedGroups[String(id)];
+  const toggleGroup = (id: string | number) =>
+    setCollapsedGroups((cur) => ({ ...cur, [String(id)]: !cur[String(id)] }));
 
   const openTask = async (workItemId: number) => {
     if (companyId == null) {
@@ -421,6 +464,293 @@ export function DailyTasksPage() {
     );
   };
 
+  // Riga task "estesa" riusata nell'elenco. `metaLabel` mostra il cliente (per
+  // operatore) o gli operatori (per cliente); `assignees` mostra gli avatar degli
+  // operatori dentro la card (usato nell'elenco unico, non raggruppato).
+  const renderExtendedTaskRow = (
+    task: any,
+    metaLabel: string | null,
+    assignees?: Array<{ name: string; avatarUrl?: string | null }>,
+  ) => {
+    const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+    const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+    return (
+      <AccLaneTaskCard
+        key={task.work_item_id}
+        title={task.title}
+        hoursLabel={hoursLabel}
+        timeLabel={task.start_time || null}
+        clientName={metaLabel}
+        status={`${Math.round(task.progress_percent ?? 0)}%`}
+        areaColor={task.work_areas?.[0]?.color ?? null}
+        isPed={Boolean(task.is_PED ?? task.is_ped)}
+        priority={Boolean(task.is_priority)}
+        completed={Boolean(task.is_completed)}
+        leftBehind={Boolean(task.is_left_behind)}
+        overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+        overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+        reworkCount={task.rework_count}
+        assignees={assignees}
+        onClick={() => void openTask(task.work_item_id)}
+      />
+    );
+  };
+
+  // Elenco esteso di TUTTE le lavorazioni del giorno (admin/PM), con due
+  // raggruppamenti: per operatore o per cliente. Deriva dai dati del team.
+  const renderListView = () => {
+    if (!adminData) return null;
+    const usersArr: any[] = adminData.users ?? [];
+
+    // Lavorazioni uniche del giorno (una task con più assegnatari compare in più
+    // operatori: qui la deduplico per conteggi/ore onesti).
+    const dedup = new Map<number, any>();
+    for (const u of usersArr) for (const t of u.tasks ?? []) if (!dedup.has(t.work_item_id)) dedup.set(t.work_item_id, t);
+    const dedupedTasks = [...dedup.values()];
+    const uniqueCount = dedupedTasks.length;
+    const completedCount = dedupedTasks.filter((t) => Boolean(t.is_completed)).length;
+    const uniqueHours = dedupedTasks.reduce((sum, t) => sum + (t.effective_load_hours ?? 0), 0);
+
+    if (uniqueCount === 0) {
+      return (
+        <div className="rounded-lg border border-dashed border-line dark:border-line-dark p-6 text-center text-sm text-muted dark:text-muted-dark">
+          Nessuna lavorazione per questo giorno.
+        </div>
+      );
+    }
+
+    const kpi = (
+      <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Lavorazioni", value: String(uniqueCount), tone: "text-ink dark:text-paper" },
+          { label: "Completate", value: String(completedCount), tone: "text-success" },
+          { label: "Operatori", value: String(usersArr.length), tone: "text-ink dark:text-paper" },
+          { label: "Ore stimate", value: `${fmtRecapHours(uniqueHours)}h`, tone: "text-ink dark:text-paper" },
+        ].map((k) => (
+          <div key={k.label} className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">{k.label}</div>
+            <div className={`text-2xl font-bold ${k.tone}`}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+    );
+
+    const groupToggle = (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedSwitch
+          value={listGroupBy}
+          onChange={setListGroupBy}
+          ariaLabel="Raggruppa elenco"
+          buttonClassName="wl-segmented-btn--view"
+          options={[
+            { value: "operator", label: <><Icon name="users" className="w-3.5 h-3.5" />Per operatore</> },
+            { value: "client", label: <><Icon name="building" className="w-3.5 h-3.5" />Per cliente</> },
+            { value: "none", label: <><Icon name="list" className="w-3.5 h-3.5" />Elenco unico</> },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {listGroupBy !== "none" && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Gruppi</span>
+              <SegmentedSwitch
+                value={groupSort}
+                onChange={setGroupSort}
+                ariaLabel="Ordina gruppi"
+                buttonClassName="wl-segmented-btn--view"
+                options={[
+                  {
+                    value: "count",
+                    title: `${listGroupBy === "operator" ? "Operatori" : "Clienti"} con più task in alto`,
+                    label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Più task</>,
+                  },
+                  { value: "name", title: "Ordine alfabetico", label: <><Icon name="list" className="w-3.5 h-3.5" />A–Z</> },
+                ]}
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Scadenza</span>
+            <SegmentedSwitch
+              value={deadlineDir}
+              onChange={setDeadlineDir}
+              ariaLabel="Ordina per scadenza"
+              buttonClassName="wl-segmented-btn--view"
+              options={[
+                { value: "asc", title: "Crescente: prima le scadenze più vicine", label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Crescente</> },
+                { value: "desc", title: "Decrescente: prima le scadenze più lontane", label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Decrescente</> },
+              ]}
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    let body: ReactNode;
+
+    const opName = (op: any) => (op.full_name || op.username || "").toString();
+
+    if (listGroupBy === "operator") {
+      const sortedUsers = [...usersArr].sort((a, b) =>
+        groupSort === "count"
+          ? (b.tasks?.length ?? 0) - (a.tasks?.length ?? 0) || opName(a).localeCompare(opName(b), "it")
+          : opName(a).localeCompare(opName(b), "it"),
+      );
+      const opItems: AccordionItem[] = sortedUsers.map((op: any) => ({ id: `op-${op.user_id}`, data: op }));
+      body = (
+        <Accordion
+          items={opItems}
+          isOpen={Object.fromEntries(opItems.map((i) => [i.id, isGroupOpen(i.id)]))}
+          onToggle={toggleGroup}
+          className="space-y-3"
+          itemClassName="overflow-hidden rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316]"
+          headerClassName="flex items-center gap-3 px-3 py-2.5 hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          contentClassName="border-t border-line dark:border-[#2a2a2e] p-3"
+          chevronClassName="w-4 h-4 flex-shrink-0 text-muted dark:text-muted-dark transition-transform"
+          renderHeader={(op: any) => {
+            // Ore STIMATE delle task = dimensione reale del lavoro. Diverso dal peso sul
+            // carico, che per le task in revisione vale 0 sull'operatore.
+            const estHours = (op.tasks ?? []).reduce((s: number, t: any) => s + (t.estimated_hours ?? 0), 0);
+            return (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {op.avatar_url ? (
+                    <img src={op.avatar_url} alt={op.full_name || op.username} className="h-8 w-8 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper dark:bg-paper dark:text-ink text-[11px] font-bold">
+                      {(op.full_name || op.username).split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("")}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-ink dark:text-paper">{op.full_name || op.username}</div>
+                    <div className="text-[11px] text-muted dark:text-muted-dark">
+                      {op.tasks_completed}/{op.tasks_total} completate · {op.completion_rate_percent.toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-none items-center gap-2 text-[11px] text-muted dark:text-muted-dark">
+                  <span>{(op.tasks ?? []).length} task</span>
+                  <span>·</span>
+                  <span title="Somma delle ore stimate delle task">{fmtRecapHours(estHours)}h stimate</span>
+                  <span
+                    className={`wl-acc-load ${loadClass(op.load_percent)}`}
+                    title="Carico giornaliero: ore pianificate oggi ÷ capacità del giorno. Le task in revisione non pesano sull'operatore (pesano 0,25 sul revisore)."
+                  >
+                    Carico {op.load_percent.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            );
+          }}
+          renderContent={(op: any) =>
+            (op.tasks ?? []).length === 0 ? (
+              <div className="wl-acc-empty">Nessuna task</div>
+            ) : (
+              <div className="wl-acc-tasks">
+                {sortByDeadline(op.tasks ?? [], (t: any) => t, deadlineDir).map((t: any) =>
+                  renderExtendedTaskRow(t, t.client_name),
+                )}
+              </div>
+            )
+          }
+        />
+      );
+    } else if (listGroupBy === "client") {
+      // Raggruppa per cliente, deduplicando le task e raccogliendo gli operatori.
+      const byClient = new Map<string, { clientName: string; tasks: Map<number, { task: any; operators: Set<string> }> }>();
+      for (const op of usersArr) {
+        const opName = op.full_name || op.username;
+        for (const t of op.tasks ?? []) {
+          const key = t.client_id != null ? `c${t.client_id}` : `n:${t.client_name ?? ""}`;
+          let g = byClient.get(key);
+          if (!g) { g = { clientName: t.client_name || "Senza cliente", tasks: new Map() }; byClient.set(key, g); }
+          let entry = g.tasks.get(t.work_item_id);
+          if (!entry) { entry = { task: t, operators: new Set() }; g.tasks.set(t.work_item_id, entry); }
+          entry.operators.add(opName);
+        }
+      }
+      const clientGroups = [...byClient.values()]
+        .map((g) => ({ clientName: g.clientName, tasks: [...g.tasks.values()] }))
+        .sort((a, b) =>
+          groupSort === "count"
+            ? b.tasks.length - a.tasks.length || a.clientName.localeCompare(b.clientName, "it")
+            : a.clientName.localeCompare(b.clientName, "it"),
+        );
+
+      const clientItems: AccordionItem[] = clientGroups.map((g) => ({ id: `cl-${g.clientName}`, data: g }));
+      body = (
+        <Accordion
+          items={clientItems}
+          isOpen={Object.fromEntries(clientItems.map((i) => [i.id, isGroupOpen(i.id)]))}
+          onToggle={toggleGroup}
+          className="space-y-3"
+          itemClassName="overflow-hidden rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316]"
+          headerClassName="flex items-center gap-3 px-3 py-2.5 hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          contentClassName="border-t border-line dark:border-[#2a2a2e] p-3"
+          chevronClassName="w-4 h-4 flex-shrink-0 text-muted dark:text-muted-dark transition-transform"
+          renderHeader={(g: any) => {
+            const gHours = g.tasks.reduce((s: number, e: any) => s + (e.task.estimated_hours ?? 0), 0);
+            return (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <div className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-ink dark:text-paper">
+                  <Icon name="building" className="h-4 w-4 flex-shrink-0 text-muted dark:text-muted-dark" />
+                  <span className="truncate">{g.clientName}</span>
+                </div>
+                <div className="flex flex-none items-center gap-2 text-[11px] text-muted dark:text-muted-dark">
+                  <span className="inline-flex items-center gap-1"><Icon name="list" className="h-3 w-3" /> {g.tasks.length} task</span>
+                  <span>·</span>
+                  <span className="inline-flex items-center gap-1" title="Somma delle ore stimate delle task">
+                    <Icon name="activity" className="h-3 w-3" /> {fmtRecapHours(gHours)}h stimate
+                  </span>
+                </div>
+              </div>
+            );
+          }}
+          renderContent={(g: any) => (
+            <div className="wl-acc-tasks">
+              {sortByDeadline(g.tasks, (e: any) => e.task, deadlineDir).map(({ task, operators }: any) =>
+                renderExtendedTaskRow(task, [...operators].join(", ")),
+              )}
+            </div>
+          )}
+        />
+      );
+    } else {
+      // Elenco UNICO (nessun raggruppamento): task deduplicata + avatar operatori
+      // nella card. Ordinabile per scadenza o per titolo.
+      const flat = new Map<number, { task: any; operators: Array<{ id: number; name: string; avatar_url?: string | null }> }>();
+      for (const op of usersArr) {
+        const info = { id: op.user_id, name: op.full_name || op.username, avatar_url: op.avatar_url };
+        for (const t of op.tasks ?? []) {
+          let e = flat.get(t.work_item_id);
+          if (!e) { e = { task: t, operators: [] }; flat.set(t.work_item_id, e); }
+          if (!e.operators.some((o) => o.id === info.id)) e.operators.push(info);
+        }
+      }
+      const list = sortByDeadline([...flat.values()], (e) => e.task, deadlineDir);
+      body = (
+        <div className="rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-3">
+          <div className="wl-acc-tasks">
+            {list.map(({ task, operators }) =>
+              renderExtendedTaskRow(
+                task,
+                task.client_name,
+                operators.map((o) => ({ name: o.name, avatarUrl: o.avatar_url })),
+              ),
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        {kpi}
+        {groupToggle}
+        <div className="space-y-4">{body}</div>
+      </div>
+    );
+  };
+
   const renderAdminView = () => {
     if (!adminData) return null;
 
@@ -539,10 +869,8 @@ export function DailyTasksPage() {
   return (
     <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Operazioni"
-        eyebrowIcon={<Icon name="activity" className="w-3.5 h-3.5" />}
+        icon={<Icon name="activity" className="w-6 h-6" />}
         title="Attività del giorno"
-        lead="Panoramica completa delle task per oggi"
       />
 
       <div className="dt-toolbar-shell mb-5">
@@ -596,24 +924,17 @@ export function DailyTasksPage() {
 
           {canSeeTeam && (
             <div className="dt-toolbar-right">
-              <div className="wl-segmented wl-segmented--view">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("self")}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === "self" ? "is-active" : ""}`}
-                >
-                  <Icon name="user-circle" className="w-3.5 h-3.5" />
-                  Mie task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("admin")}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === "admin" ? "is-active" : ""}`}
-                >
-                  <Icon name="users" className="w-3.5 h-3.5" />
-                  Team
-                </button>
-              </div>
+              <SegmentedSwitch
+                value={viewMode}
+                onChange={setViewMode}
+                ariaLabel="Vista attività del giorno"
+                buttonClassName="wl-segmented-btn--view"
+                options={[
+                  { value: "list", label: <><Icon name="list" className="w-3.5 h-3.5" />Elenco</> },
+                  { value: "admin", label: <><Icon name="users" className="w-3.5 h-3.5" />Team</> },
+                  { value: "self", label: <><Icon name="user-circle" className="w-3.5 h-3.5" />Mie task</> },
+                ]}
+              />
             </div>
           )}
         </div>
@@ -625,7 +946,7 @@ export function DailyTasksPage() {
         </div>
       )}
 
-      {renderLoadLegend()}
+      {viewMode !== "list" && renderLoadLegend()}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -633,6 +954,8 @@ export function DailyTasksPage() {
         </div>
       ) : viewMode === "self" ? (
         renderSelfView()
+      ) : viewMode === "list" ? (
+        renderListView()
       ) : (
         renderAdminView()
       )}

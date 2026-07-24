@@ -40,6 +40,8 @@ export async function authFetch(
 export interface LoginPayload {
   username: string;
   password: string;
+  /** "Ricordami per 30 giorni": il backend emette un token a lunga scadenza. */
+  remember?: boolean;
 }
 
 /** Profilo utente completo — identico al payload di /users/me e /auth/login */
@@ -73,6 +75,8 @@ export interface AuthUser {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  /** Durata della sessione in secondi (3 ore, oppure 30 giorni con "Ricordami"). */
+  expires_in: number;
   user: AuthUser;
 }
 

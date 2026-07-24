@@ -36,6 +36,7 @@ import type { WorkTag } from "../api/workItems";
 import type { QuoteLineItem } from "../api/quotes";
 import { Button } from "../components/ui/Button";
 import { DropdownMenu } from "../components/ui/DropdownMenu";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -74,12 +75,14 @@ const KANBAN_COLUMNS: { id: WorkItemStatus; label: string; color: string }[] = [
 
 // Modalità di ordinamento colonna (etichette + icone per il menu in testata).
 const SORT_MODE_META: { mode: BoardSortMode; label: string; icon: IconName }[] = [
+  { mode: "recent", label: "Ultima aggiunta (più recenti)", icon: "clock" },
   { mode: "deadline_asc", label: "Scadenza ↑ (prima le vicine)", icon: "calendar" },
   { mode: "deadline_desc", label: "Scadenza ↓ (prima le lontane)", icon: "calendar" },
   { mode: "urgency", label: "Per urgenza", icon: "alert-triangle" },
   { mode: "custom", label: "Manuale (trascina)", icon: "arrows-v" },
 ];
 const SORT_MODE_SHORT: Record<BoardSortMode, string> = {
+  recent: "Recenti",
   deadline_asc: "Scadenza ↑",
   deadline_desc: "Scadenza ↓",
   urgency: "Urgenza",
@@ -511,6 +514,10 @@ export function WorkItemsPage() {
   const [archivedItems, setArchivedItems] = useState<WorkItem[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedError, setArchivedError] = useState<string | null>(null);
+  // Ricerca dentro l'archivio (pannello) e corrispondenze archiviate per la
+  // ricerca generale della pagina.
+  const [archiveQuery, setArchiveQuery] = useState("");
+  const [archivedMatches, setArchivedMatches] = useState<WorkItem[]>([]);
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<number[]>([]);
   const [restoringArchive, setRestoringArchive] = useState(false);
 
@@ -781,44 +788,84 @@ export function WorkItemsPage() {
     ? "w-full max-w-none h-full max-h-none rounded-2xl"
     : "pt-16 sm:pt-20 xl:pt-0";
 
+  // Deep-link condivisibile: `?task=<id>` apre (e mantiene in URL) il modal della
+  // lavorazione, così copiando il link chi lo apre vede subito la task aperta.
+  // Retrocompatibilità: `?open=create` (nuova) e il vecchio `?open=<id>` → `?task`.
+  const deepLinkedRef = useRef<number | null>(null);
+
+  const clearTaskParam = () => {
+    deepLinkedRef.current = null;
+    const next = new URLSearchParams(searchParams);
+    if (!next.has("task")) return;
+    next.delete("task");
+    setSearchParams(next, { replace: true });
+  };
+
   useEffect(() => {
     const openParam = searchParams.get("open");
-    if (!openParam) return;
-
-    // Consuma subito il parametro per evitare riaperture ai render successivi.
-    const next = new URLSearchParams(searchParams);
-    next.delete("open");
-    setSearchParams(next, { replace: true });
-
     if (openParam === "create") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
       setEditingItem(null);
       setInstantiateTemplateItem(null);
       setModalOpen(true);
       return;
     }
+    // Normalizza il vecchio ?open=<id> nel nuovo link condivisibile ?task=<id>.
+    if (openParam && !Number.isNaN(Number(openParam))) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      next.set("task", openParam);
+      setSearchParams(next, { replace: true });
+      return;
+    }
 
-    // ?open=<id> — apre il modal della lavorazione (es. dal click su una notifica).
-    const id = Number(openParam);
-    if (Number.isNaN(id)) return;
+    const taskParam = searchParams.get("task");
+    if (!taskParam) {
+      deepLinkedRef.current = null;
+      return;
+    }
+    const id = Number(taskParam);
+    if (Number.isNaN(id) || deepLinkedRef.current === id) return;
+
+    // Evita di riscaricare se la task è già quella aperta (es. apertura dalla board).
+    deepLinkedRef.current = id;
     getWorkItemApi(id)
       .then((item) => {
         setEditingItem(item);
         setInstantiateTemplateItem(null);
         setModalOpen(true);
+        // Allinea il company_id per caricare il contesto board giusto.
+        if (item.company_id != null && searchParams.get("company_id") !== String(item.company_id)) {
+          const next = new URLSearchParams(searchParams);
+          next.set("company_id", String(item.company_id));
+          setSearchParams(next, { replace: true });
+        }
       })
-      .catch(() => toast.error("Lavorazione non trovata o non accessibile"));
+      .catch(() => {
+        deepLinkedRef.current = null;
+        clearTaskParam();
+        toast.error("Lavorazione non trovata o non accessibile");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setSearchParams, toast]);
 
   const openEdit = (item: WorkItem) => {
+    deepLinkedRef.current = item.id; // già "gestita": l'effetto non riscaricherà
     setEditingItem(item);
     setInstantiateTemplateItem(null);
     setModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.set("task", String(item.id));
+    setSearchParams(next, { replace: true });
   };
 
   const closeModal = () => {
     setModalOpen(false);
     setEditingItem(null);
     setInstantiateTemplateItem(null);
+    clearTaskParam();
     // Le azioni della scheda Revisione (consegna al cliente, peso, scadenza) salvano
     // fuori dal "Salva" del modale: rinfresca la board alla chiusura per rifletterle.
     void refetch(true);
@@ -880,8 +927,8 @@ export function WorkItemsPage() {
     }
   };
 
-  // ── Archivio: carica le task archiviate dell'azienda
-  const loadArchived = async () => {
+  // ── Archivio: carica le task archiviate dell'azienda (con ricerca opzionale)
+  const loadArchived = async (q?: string) => {
     if (companyId == null) {
       setArchivedItems([]);
       return;
@@ -889,7 +936,8 @@ export function WorkItemsPage() {
     setArchivedLoading(true);
     setArchivedError(null);
     try {
-      const items = await listArchivedWorkItemsApi({ company_id: companyId });
+      const term = (q ?? "").trim();
+      const items = await listArchivedWorkItemsApi({ company_id: companyId, ...(term ? { q: term } : {}) });
       setArchivedItems(items);
     } catch (err) {
       setArchivedError(err instanceof Error ? err.message : "Impossibile recuperare l'archivio");
@@ -899,11 +947,37 @@ export function WorkItemsPage() {
     }
   };
 
-  const openArchive = () => {
+  const openArchive = (initialQuery = "") => {
     setSelectedArchivedIds([]);
+    setArchiveQuery(initialQuery);
     setArchivePanelOpen(true);
-    void loadArchived();
+    void loadArchived(initialQuery);
   };
+
+  // Ricerca dentro il pannello archivio (debounce).
+  useEffect(() => {
+    if (!archivePanelOpen) return;
+    const t = window.setTimeout(() => void loadArchived(archiveQuery), 350);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archiveQuery, archivePanelOpen, companyId]);
+
+  // Ricerca GENERALE della pagina: cerca anche tra le archiviate, così i
+  // risultati non "spariscono" quando una task viene archiviata.
+  useEffect(() => {
+    const term = search.trim();
+    if (!term || companyId == null) {
+      setArchivedMatches([]);
+      return;
+    }
+    let alive = true;
+    const t = window.setTimeout(() => {
+      listArchivedWorkItemsApi({ company_id: companyId, q: term })
+        .then((items) => { if (alive) setArchivedMatches(items); })
+        .catch(() => { if (alive) setArchivedMatches([]); });
+    }, 350);
+    return () => { alive = false; window.clearTimeout(t); };
+  }, [search, companyId]);
 
   const toggleArchivedSelection = (itemId: number, checked: boolean) => {
     setSelectedArchivedIds((current) => {
@@ -1217,8 +1291,7 @@ export function WorkItemsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-6 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Operazioni"
-        eyebrowIcon={<Icon name="list" className="w-3.5 h-3.5" />}
+        icon={<Icon name="list" className="w-6 h-6" />}
         title="Lavorazioni"
         lead={isLoading ? "Caricamento…" : `${filteredItems.length} lavorazion${filteredItems.length === 1 ? "e" : "i"}${search ? " trovate" : " totali"}`}
       />
@@ -1261,24 +1334,15 @@ export function WorkItemsPage() {
           placeholder="Tutti i clienti"
           searchPlaceholder="Cerca cliente…"
         />
-        <div className="seg-switch">
-          <button
-            type="button"
-            onClick={() => setViewMode("global")}
-            className={viewMode === "global" ? "is-active" : ""}
-          >
-            <Icon name="list" className="h-3.5 w-3.5" />
-            Globale
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("by_client")}
-            className={viewMode === "by_client" ? "is-active" : ""}
-          >
-            <Icon name="building" className="h-3.5 w-3.5" />
-            Per cliente
-          </button>
-        </div>
+        <SegmentedSwitch
+          value={viewMode}
+          onChange={setViewMode}
+          ariaLabel="Vista lavorazioni"
+          options={[
+            { value: "global", label: <><Icon name="list" className="h-3.5 w-3.5" />Globale</> },
+            { value: "by_client", label: <><Icon name="building" className="h-3.5 w-3.5" />Per cliente</> },
+          ]}
+        />
         {/* Filtri secondari: sola icona; variante "secondary" quando ce ne sono di attivi. */}
         <Button
           variant={secondaryFiltersCount > 0 ? "secondary" : "ghost"}
@@ -1286,7 +1350,7 @@ export function WorkItemsPage() {
           onClick={() => setFiltersPanelOpen(true)}
           title={secondaryFiltersCount > 0 ? `Filtri (${secondaryFiltersCount})` : "Filtri"}
           aria-label="Filtri"
-          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+          leftIcon={<Icon name="filter" className="w-4 h-4" />}
         />
         {/* Azioni secondarie accorpate: evita righe di bottoni in testata. */}
         <DropdownMenu
@@ -1306,14 +1370,16 @@ export function WorkItemsPage() {
               onClick: openTemplatePanel,
               disabled: companyId == null,
             },
-            isAdmin && {
+            canManageWorkItems && {
               key: "trello-import",
               label: "Importa da Trello",
               icon: "trello",
               onClick: () => setTrelloImportOpen(true),
               disabled: companyId == null,
             },
-            canManageWorkItems && {
+            {
+              // Archivio consultabile da tutti: ognuno vede solo le task che
+              // vedrebbe comunque (gli operatori le proprie).
               key: "archive",
               label: "Archivio",
               icon: "trash",
@@ -1342,6 +1408,22 @@ export function WorkItemsPage() {
           </Button>
         )}
       </div>
+
+      {/* La ricerca generale trova anche tra le ARCHIVIATE: qui la scorciatoia. */}
+      {search.trim() && archivedMatches.length > 0 && (
+        <button
+          type="button"
+          onClick={() => openArchive(search)}
+          className="mb-3 flex w-full items-center gap-2 rounded-md border border-line bg-cream/60 px-3 py-2 text-left text-[13px] text-ink transition-colors hover:border-brand-magenta dark:border-line-dark dark:bg-[#1c1c20] dark:text-paper"
+        >
+          <Icon name="trash" className="h-4 w-4 flex-none text-muted dark:text-muted-dark" />
+          <span className="min-w-0 flex-1">
+            <b>{archivedMatches.length}</b> lavorazion{archivedMatches.length === 1 ? "e" : "i"} archiviat
+            {archivedMatches.length === 1 ? "a" : "e"} corrispond{archivedMatches.length === 1 ? "e" : "ono"} a “{search.trim()}”
+          </span>
+          <span className="flex-none text-[12px] font-semibold text-brand-magenta">Apri archivio →</span>
+        </button>
+      )}
 
       {/* Error */}
       {error && (
@@ -1991,13 +2073,23 @@ export function WorkItemsPage() {
         ) : undefined}
       >
         <div className="flex flex-col gap-2">
+          {/* Ricerca dentro l'archivio (titolo, descrizione, cliente) */}
+          <div className="relative mb-1">
+            <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input
+              value={archiveQuery}
+              onChange={(e) => setArchiveQuery(e.target.value)}
+              placeholder="Cerca nelle archiviate…"
+              className="w-full rounded-md border border-line bg-paper py-2.5 pl-9 pr-3 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+            />
+          </div>
           {archivedLoading ? (
             <div className="flex justify-center py-10"><Spinner size="md" /></div>
           ) : archivedError ? (
             <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{archivedError}</div>
           ) : archivedItems.length === 0 ? (
             <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
-              Nessuna task archiviata.
+              {archiveQuery.trim() ? "Nessun risultato in archivio." : "Nessuna task archiviata."}
             </div>
           ) : (
             archivedItems.map((item) => {
@@ -2179,6 +2271,7 @@ export function WorkItemsPage() {
             setModalOpen(false);
             setEditingItem(null);
             setInstantiateTemplateItem(null);
+            clearTaskParam();
             void refetch(true);
             if (prev) {
               // MODIFICA → undo = rimetti i valori precedenti (best-effort sui campi principali).

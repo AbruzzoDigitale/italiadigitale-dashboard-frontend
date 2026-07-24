@@ -282,11 +282,8 @@ export function CompaniesPage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="building" className="w-3.5 h-3.5" />
-          Organizzazione
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="building" className="w-6 h-6" />
           Aziende
         </h1>
         <p className="section-lead">

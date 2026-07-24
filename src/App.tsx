@@ -5,7 +5,9 @@ import { ToastProvider } from "./context/ToastContext";
 import { UndoProvider } from "./context/UndoContext";
 import { AuthProvider } from "./context/AuthContext";
 import { BrandProvider } from "./context/BrandContext";
+import { BrowserTabsProvider } from "./context/BrowserTabsContext";
 import { useAuth } from "./hooks/useAuth";
+import { useSegmentedPills } from "./hooks/useSegmentedPills";
 import { FullPageSpinner } from "./components/ui/Spinner";
 import { LoginPage } from "./pages/LoginPage";
 import { CompanyPickerPage } from "./pages/CompanyPickerPage";
@@ -34,6 +36,8 @@ import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
 import { FatturazionePage } from "./pages/FatturazionePage";
+import { DocumentsPage } from "./pages/DocumentsPage";
+import { BrowserPage } from "./pages/BrowserPage";
 import { canAccessRoute, getFallbackRoute } from "./utils/access";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -86,7 +90,9 @@ function AppRoutes() {
         path="/"
         element={
           <ProtectedRoute>
-            <DashboardLayout />
+            <BrowserTabsProvider>
+              <DashboardLayout />
+            </BrowserTabsProvider>
           </ProtectedRoute>
         }
       >
@@ -109,10 +115,12 @@ function AppRoutes() {
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
+        <Route path="documenti" element={<RouteAccess routeKey="documenti"><DocumentsPage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
         <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
         <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
+        <Route path="browser" element={<RouteAccess routeKey="profile"><BrowserPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
       {/* Fallback */}
@@ -122,6 +130,8 @@ function AppRoutes() {
 }
 
 export default function App() {
+  // Pillola scorrevole (motion graphic) di default su ogni segmented switch dell'app.
+  useSegmentedPills();
   return (
     <ThemeProvider>
       <ToastProvider>

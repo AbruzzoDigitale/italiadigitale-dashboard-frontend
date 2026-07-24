@@ -1087,14 +1087,10 @@ export function QuoteEditorPage({
   return (
     <div className={embedded ? "w-full" : "px-6 py-8 pb-20 mx-auto w-full animate-fadeIn"}>
       {!embedded && (
-        <>
-          <div className="section-eyebrow">
-            <Icon name="list" className="w-3.5 h-3.5" />
-            {`Editor ${editorLabel}`}
-          </div>
-          <h1 className="section-title">{`Modifica ${editorLabel}`}</h1>
-          <p className="section-lead">{hideTagAndDiscount ? "Rivedi righe e cliente prima del salvataggio definitivo della richiesta." : "Rivedi righe, sconti e cliente prima del salvataggio definitivo."}</p>
-        </>
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="list" className="w-6 h-6" />
+          {`Modifica ${editorLabel}`}
+        </h1>
       )}
 
       <div className={embedded ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 mt-8"}>

@@ -21,6 +21,8 @@ interface ModalProps {
   title?: string;
   description?: string;
   icon?: React.ReactNode;
+  /** Azioni extra nell'header, rese a sinistra del pulsante di chiusura (X). */
+  headerActions?: React.ReactNode;
   subHeader?: React.ReactNode;
   size?: ModalSize;
   position?: ModalPosition;
@@ -51,6 +53,7 @@ export function Modal({
   title,
   description,
   icon,
+  headerActions,
   subHeader,
   size = "md",
   position = "center",
@@ -287,6 +290,8 @@ export function Modal({
               )}
             </div>
           </div>
+          <div className="flex flex-none items-center gap-2">
+          {headerActions}
           {!hideCloseButton && (
             <button
               onClick={onClose}
@@ -308,6 +313,7 @@ export function Modal({
               </svg>
             </button>
           )}
+          </div>
         </div>
       )}
 

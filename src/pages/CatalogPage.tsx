@@ -606,13 +606,9 @@ export function CatalogPage() {
 
   return (
     <div className="mx-auto w-full animate-fadeIn px-6 py-8 pb-20">
-      <div className="section-eyebrow">Catalogo servizi</div>
       <h1 className="section-title">
         Catalogo Aziendale
       </h1>
-      <p className="section-lead">
-        Percorso guidato in 3 passaggi: scegli area, scegli categoria, scegli servizio. A destra trovi il dettaglio completo.
-      </p>
 
       <div className="mt-6 rounded-lg border border-line bg-paper p-4 dark:border-[#2a2a2e] dark:bg-[#131316]">
         <div className="flex flex-wrap items-center gap-3">

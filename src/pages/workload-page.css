@@ -132,6 +132,9 @@
   padding: 7px 11px;
 }
 
+/* La pillola scorrevole dei segmented switch è ora GLOBALE e di default:
+   vedi `.seg-anim` in index.css + hook useSegmentedPills. */
+
 /* Selettore vista (Accordion/Completa/Heatmap/Calendario) — stile prototipo .vchip:
    chip singole separate, radius 8px, attiva = antracite pieno. */
 .wl-vchips {

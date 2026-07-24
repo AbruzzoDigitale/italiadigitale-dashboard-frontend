@@ -19,6 +19,7 @@ export type AppRouteKey =
   | "work-items"
   | "comunicazioni"
   | "fatturazione"
+  | "documenti"
   | "admin";
 
 export function canAccessRoute(
@@ -33,6 +34,9 @@ export function canAccessRoute(
       return permissions.is_admin || permissions.is_project_manager;
     case "fatturazione":
       // Area amministrativa: riservata SOLO agli admin.
+      return permissions.is_admin;
+    case "documenti":
+      // Archivio documenti aziendali (contratti, modelli): SOLO admin.
       return permissions.is_admin;
     case "dashboard":
       return permissions.allowed_views.includes("dashboard");

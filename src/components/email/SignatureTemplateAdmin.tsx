@@ -21,11 +21,14 @@ import {
   generateHtml,
   renderBlock,
   resolveTokens,
+  applyFieldRows,
   companyTokenMap,
   detectTokens,
   newBlock,
+  newId,
   BLOCK_LABELS,
   SOCIAL_LABELS,
+  SEPARATOR_PRESETS,
   type SignatureDesign,
   type SigBlock,
   type SigBlockType,
@@ -50,12 +53,13 @@ const ALIGN_OPTIONS: { value: Align; label: string }[] = [
   { value: "left", label: "Sinistra" }, { value: "center", label: "Centro" }, { value: "right", label: "Destra" },
 ];
 const NETWORKS: SocialNetwork[] = ["facebook", "instagram", "linkedin", "tiktok", "youtube"];
-const ADD_TYPES: SigBlockType[] = ["text", "contact", "social", "image", "spacer", "divider"];
+const ADD_TYPES: SigBlockType[] = ["text", "contact", "fields", "social", "image", "spacer", "divider"];
 
 /** Icona + descrizione per il selettore blocchi. */
 const BLOCK_META: Record<SigBlockType, { icon: IconName; hint: string }> = {
   text: { icon: "document-text", hint: "Nome, ruolo, testo libero" },
   contact: { icon: "mail", hint: "Riga con icona: telefono, email, sito…" },
+  fields: { icon: "list", hint: "Più campi su una riga, separatore auto" },
   social: { icon: "globe", hint: "Icone social con link" },
   image: { icon: "image", hint: "Foto o logo" },
   spacer: { icon: "arrows-v", hint: "Spazio verticale" },
@@ -130,6 +134,45 @@ function BlockProps({ block, onChange }: { block: SigBlock; onChange: (b: SigBlo
           <div><span className={labelCls}>Icona</span><SearchableSelect value={block.icon} onChange={(v) => onChange({ ...block, icon: v as ContactIcon })} options={ICON_OPTIONS} /></div>
           <Input label="Testo" value={block.text} onChange={(e) => onChange({ ...block, text: e.target.value })} placeholder="{{email}}" />
           <Input label="Link (opzionale)" value={block.href} onChange={(e) => onChange({ ...block, href: e.target.value })} placeholder="mailto:{{email}}" />
+        </>
+      )}
+      {block.type === "fields" && (
+        <>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[140px]"><span className={labelCls}>Icona (opzionale)</span><SearchableSelect value={block.icon} onChange={(v) => onChange({ ...block, icon: v as ContactIcon })} options={ICON_OPTIONS} /></div>
+            <label className="flex items-center gap-1 text-[12px] text-muted">Dim.
+              <input type="number" value={block.size ?? 14} onChange={(e) => onChange({ ...block, size: Number(e.target.value) || 14 })} className="w-14 rounded border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] px-1.5 py-1 text-[12px]" />
+            </label>
+          </div>
+          <div>
+            <span className={labelCls}>Separatore</span>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="flex-1"><SearchableSelect
+                value={SEPARATOR_PRESETS.some((s) => s.value === block.separator) ? block.separator : "__custom__"}
+                onChange={(v) => { if (v !== "__custom__") onChange({ ...block, separator: v }); }}
+                options={[...SEPARATOR_PRESETS, { value: "__custom__", label: "Personalizzato…" }]}
+              /></div>
+              <input
+                value={block.separator}
+                onChange={(e) => onChange({ ...block, separator: e.target.value })}
+                className="w-20 rounded-md border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] px-2 py-2 text-center text-[13px] focus:outline-none"
+                title="Separatore (spazi inclusi)"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className={labelCls}>Campi (in ordine)</span>
+            {block.items.map((it, i) => (
+              <div key={it.id} className="flex flex-col gap-1 rounded-md border border-line dark:border-[#2a2a2e] p-2">
+                <div className="flex items-center gap-2">
+                  <Input value={it.content} onChange={(e) => { const items = [...block.items]; items[i] = { ...items[i], content: e.target.value }; onChange({ ...block, items }); }} placeholder="{{ruolo}} o testo" className="flex-1" />
+                  <button className="px-1 text-muted hover:text-danger" title="Rimuovi campo" onClick={() => onChange({ ...block, items: block.items.filter((_, j) => j !== i) })}><Icon name="trash" className="h-3.5 w-3.5" /></button>
+                </div>
+                <Input value={it.href} onChange={(e) => { const items = [...block.items]; items[i] = { ...items[i], href: e.target.value }; onChange({ ...block, items }); }} placeholder="Link (opzionale) — mailto:{{email}}" />
+              </div>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => onChange({ ...block, items: [...block.items, { id: newId(), content: "", href: "" }] })}><Icon name="plus" className="h-3.5 w-3.5" /> Campo</Button>
+          </div>
         </>
       )}
       {block.type === "social" && (
@@ -256,7 +299,7 @@ export function SignatureTemplateAdmin({ companyId }: { companyId: number }) {
             className={`group relative cursor-move rounded transition-shadow ${isSel ? "ring-2 ring-brand-magenta" : "hover:ring-1 hover:ring-brand-magenta/40"}`}
             title="Trascina per riordinare · clic per modificare"
           >
-            <div style={{ pointerEvents: "none" }} dangerouslySetInnerHTML={{ __html: resolveTokens(renderBlock(b, design.accent), previewValues) }} />
+            <div style={{ pointerEvents: "none" }} dangerouslySetInnerHTML={{ __html: resolveTokens(applyFieldRows(renderBlock(b, design.accent), [], previewValues), previewValues) }} />
             {isSel && (
               <button
                 onClick={(e) => { e.stopPropagation(); removeBlock(col, b.id); }}
@@ -298,7 +341,7 @@ export function SignatureTemplateAdmin({ companyId }: { companyId: number }) {
         {/* Canvas WYSIWYG */}
         <div className={cardCls}>
           <span className={labelCls}>Anteprima · trascina i blocchi, clicca per modificare</span>
-          <div className="mt-3 rounded-md border border-line dark:border-[#2a2a2e] bg-white p-5 overflow-x-auto">
+          <div className="sig-preview mt-3 rounded-md border border-line dark:border-[#2a2a2e] bg-white p-5 overflow-x-auto">
             <div className="flex gap-5" style={{ fontFamily: "Tahoma, Arial, sans-serif" }}>
               <div className="flex-1" style={{ minWidth: 0 }}>{renderCol("left")}</div>
               {design.columns === "two" && <div className="w-48 flex-none">{renderCol("right")}</div>}

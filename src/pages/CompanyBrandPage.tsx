@@ -49,6 +49,17 @@ import { NotificheTab } from "../features/company/NotificheTab";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+// Intervalli per l'auto-archiviazione delle task completate ("" = mai).
+const AUTO_ARCHIVE_OPTIONS = [
+  { value: "", label: "Mai (disattivata)" },
+  { value: "3", label: "Dopo 3 giorni" },
+  { value: "7", label: "Dopo 1 settimana" },
+  { value: "14", label: "Dopo 2 settimane" },
+  { value: "30", label: "Dopo 1 mese" },
+  { value: "90", label: "Dopo 3 mesi" },
+  { value: "180", label: "Dopo 6 mesi" },
+];
+
 const KPI_OPTIONS = [
   { value: "active",   label: "Preventivi attivi" },
   { value: "accepted", label: "Accettati" },
@@ -757,6 +768,7 @@ export function CompanyBrandPage() {
           bg_color:           b.bg_color           ?? "#0a0a0a",
           theme_color:        b.theme_color        ?? "#2b1342",
           dashboard_kpis:     b.dashboard_kpis     ?? ["active", "accepted", "pipeline", "clients"],
+          auto_archive_completed_days: b.auto_archive_completed_days ?? null,
           // Contatti / firma
           website:            b.website            ?? "",
           contact_email:      b.contact_email      ?? "",
@@ -1116,16 +1128,10 @@ export function CompanyBrandPage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="pencil" className="w-3.5 h-3.5" />
-          Brand & Personalizzazione
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="pencil" className="w-6 h-6" />
           {companyName}
         </h1>
-        <p className="section-lead">
-          Loghi, colori e testi personalizzati per questa azienda
-        </p>
       </div>
 
       <div className="mb-6 rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-2">
@@ -1456,6 +1462,34 @@ export function CompanyBrandPage() {
 
         {activeTab === "settings" && (
           <>
+            {/* Auto-archiviazione delle lavorazioni completate */}
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <h2
+                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+                style={{ fontSize: "17px" }}
+              >
+                Archiviazione automatica
+              </h2>
+              <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+                Le lavorazioni completate vengono archiviate automaticamente dopo il periodo scelto.
+                Restano consultabili e ricercabili nell'Archivio.
+              </p>
+              <div className="max-w-xs">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                  Archivia le completate dopo
+                </label>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={form.auto_archive_completed_days == null ? "" : String(form.auto_archive_completed_days)}
+                    onChange={(v) => setForm((f) => ({ ...f, auto_archive_completed_days: v === "" ? null : Number(v) }))}
+                    options={AUTO_ARCHIVE_OPTIONS}
+                    placeholder="Scegli un periodo"
+                    showAvatar={false}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
                 <div>

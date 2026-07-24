@@ -437,11 +437,7 @@ export function ConfiguratorModularPage() {
         </div>
       )}
 
-      <div className="section-eyebrow">Configuratore preventivi</div>
-      <h1 className="section-title">Configuratore modulare</h1>
-      <p className="section-lead">
-        Seleziona prodotti singoli e bundle dal catalogo backend. Regole, dipendenze, inclusi e swap vengono ricalcolati in tempo reale dal tree.
-      </p>
+      <h1 className="section-title mb-5">Configuratore modulare</h1>
 
       <FadePresence show={!!combinedCatalogError} className="ui-presence--block">
         <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">

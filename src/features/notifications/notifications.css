@@ -243,6 +243,11 @@
 }
 .nt-swipe-side.left { left: 0; }
 .nt-swipe-side.right { right: 0; }
+/* Larghezza piena: le azioni stanno sotto al contenuto e si scoprono quando
+   scorre, così non serve animare `width` a ogni frame del trascinamento. */
+.nt-swipe-side.full-w { width: 100%; }
+.nt-swipe-side.left.full-w { justify-content: flex-start; }
+.nt-swipe-side.right.full-w { justify-content: flex-end; }
 .nt-swipe-act {
   height: 100%;
   display: flex;
@@ -262,6 +267,11 @@
 .nt-swipe-act.tone-indigo { background: #5b6ef5; }
 .nt-swipe-act.tone-slate { background: #64748b; }
 .nt-swipe-act svg { opacity: 0.95; }
+/* Full swipe: l'azione più esterna occupa tutta la striscia scoperta e resta
+   ancorata al bordo verso cui si sta trascinando (come WhatsApp). */
+.nt-swipe-act.full { flex: 1; }
+.nt-swipe-act.full.left { align-items: flex-start; padding-left: 26px; }
+.nt-swipe-act.full.right { align-items: flex-end; padding-right: 26px; }
 
 /* il contenuto scorre sopra le azioni, quindi deve essere opaco */
 .nt-swipe > .nt-item {
@@ -328,3 +338,50 @@
 .nt-act.tone-amber:hover { border-color: #d98b2b; color: #d98b2b; }
 .nt-act.tone-indigo:hover { border-color: #5b6ef5; color: #5b6ef5; }
 .nt-act.tone-slate:hover { border-color: #64748b; color: #64748b; }
+
+/* ===== Selezione multipla ===== */
+/* Icona cliccabile che si trasforma in spunta (motion via CSS). */
+.nt-ic-sel {
+  border: none; padding: 0; cursor: pointer; position: relative; overflow: hidden;
+  -webkit-appearance: none; appearance: none;
+}
+.nt-ic-sel .nt-ic-glyph,
+.nt-ic-sel .nt-ic-check {
+  grid-column: 1; grid-row: 1;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.18s ease;
+}
+.nt-ic-sel .nt-ic-check { opacity: 0; transform: scale(0.3) rotate(-40deg); }
+.nt-ic-sel:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, #c41284 45%, transparent); }
+.nt-ic-sel.sel { background: #c41284 !important; color: #fff !important; box-shadow: none; }
+.nt-ic-sel.sel .nt-ic-glyph { opacity: 0; transform: scale(0.3) rotate(40deg); }
+.nt-ic-sel.sel .nt-ic-check { opacity: 1; transform: scale(1) rotate(0); }
+
+/* Barra azioni multiple: compare quando c'è almeno una riga selezionata. */
+.nt-selbar {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  border-bottom: 1px solid #e8e6e0;
+  background: color-mix(in srgb, #c41284 7%, #f7f5f1);
+  animation: nt-selbar-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .nt-selbar { border-bottom-color: #2a2a2e; background: color-mix(in srgb, #c41284 15%, #1c1c20); }
+@keyframes nt-selbar-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.nt-selbar-x {
+  display: grid; place-items: center; width: 28px; height: 28px; flex: none;
+  border: none; border-radius: 7px; background: none; color: #6b6b6b; cursor: pointer; transition: all 0.14s ease;
+}
+.nt-selbar-x:hover { background: #eceae3; color: #1a1a1a; }
+.dark .nt-selbar-x { color: #c9c9d0; }
+.dark .nt-selbar-x:hover { background: #252529; color: #f4f4f7; }
+.nt-selbar-count { font-size: 12.5px; font-weight: 700; color: #1a1a1a; white-space: nowrap; }
+.dark .nt-selbar-count { color: #f4f4f7; }
+.nt-selbar-acts { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.nt-selact {
+  display: inline-grid; place-items: center; width: 34px; height: 32px;
+  border: none; border-radius: 8px; color: #fff; cursor: pointer;
+  transition: filter 0.14s ease, transform 0.1s ease;
+}
+.nt-selact:hover { filter: brightness(1.07); }
+.nt-selact:active { transform: scale(0.94); }
+.nt-selact.tone-mint { background: #17b26a; }
+.nt-selact.tone-amber { background: #d98b2b; }
+.nt-selact.tone-slate { background: #64748b; }

@@ -8,6 +8,8 @@ interface RichTextEditorProps {
   disabled?: boolean;
   minHeightClassName?: string;
   className?: string;
+  /** Sfondo trasparente + testo scuro (es. dentro una sticky note colorata). */
+  transparent?: boolean;
 }
 
 interface RichTextCommand {
@@ -121,12 +123,19 @@ export function RichTextEditor({
   disabled = false,
   minHeightClassName = "min-h-[132px]",
   className,
+  transparent = false,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
   const linkRangeRef = useRef<Range | null>(null);
   const [linkTooltipOpen, setLinkTooltipOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
+  // Modifica di un link ESISTENTE: popover posizionato sotto il link cliccato.
+  const editAnchorRef = useRef<HTMLAnchorElement | null>(null);
+  const editLinkInputRef = useRef<HTMLInputElement | null>(null);
+  const [linkEdit, setLinkEdit] = useState<{ top: number; left: number } | null>(null);
+  const [editHref, setEditHref] = useState("");
 
   const normalizedValue = useMemo(() => normalizeInputHtml(value), [value]);
 
@@ -149,6 +158,12 @@ export function RichTextEditor({
     linkInputRef.current?.focus();
     linkInputRef.current?.select();
   }, [linkTooltipOpen]);
+
+  useEffect(() => {
+    if (!linkEdit) return;
+    editLinkInputRef.current?.focus();
+    editLinkInputRef.current?.select();
+  }, [linkEdit]);
 
   const emitChange = () => {
     const next = sanitizeRichTextHtml(editorRef.current?.innerHTML ?? "");
@@ -212,12 +227,83 @@ export function RichTextEditor({
     closeLinkTooltip();
   };
 
+  // Rileva se il cursore/selezione è dentro un link e, in tal caso, apre il
+  // popover di modifica posizionato SOTTO al link cliccato.
+  const detectLinkAtCaret = () => {
+    const editor = editorRef.current;
+    const wrapper = wrapperRef.current;
+    const selection = window.getSelection();
+    if (!editor || !wrapper || !selection || selection.rangeCount === 0) {
+      setLinkEdit(null);
+      editAnchorRef.current = null;
+      return;
+    }
+    let node: Node | null = selection.getRangeAt(0).startContainer;
+    let anchor: HTMLAnchorElement | null = null;
+    while (node && node !== editor) {
+      if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "A") {
+        anchor = node as HTMLAnchorElement;
+        break;
+      }
+      node = node.parentNode;
+    }
+    if (!anchor || !editor.contains(anchor)) {
+      setLinkEdit(null);
+      editAnchorRef.current = null;
+      return;
+    }
+    editAnchorRef.current = anchor;
+    setEditHref(anchor.getAttribute("href") ?? "");
+    const a = anchor.getBoundingClientRect();
+    const w = wrapper.getBoundingClientRect();
+    setLinkEdit({ top: a.bottom - w.top + 6, left: Math.max(4, a.left - w.left) });
+  };
+
+  const closeLinkEdit = () => {
+    setLinkEdit(null);
+    editAnchorRef.current = null;
+  };
+
+  const applyEditHref = () => {
+    const anchor = editAnchorRef.current;
+    if (!anchor) return closeLinkEdit();
+    const url = normalizeUrl(editHref);
+    if (!url) return closeLinkEdit();
+    anchor.setAttribute("href", url);
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("rel", "noreferrer noopener");
+    emitChange();
+    closeLinkEdit();
+  };
+
+  const removeEditLink = () => {
+    const anchor = editAnchorRef.current;
+    const parent = anchor?.parentNode;
+    if (!anchor || !parent) return closeLinkEdit();
+    while (anchor.firstChild) parent.insertBefore(anchor.firstChild, anchor);
+    parent.removeChild(anchor);
+    emitChange();
+    closeLinkEdit();
+  };
+
+  // Bottoni della toolbar: su nota colorata (transparent) servono più contrasto.
+  const toolbarBtnCls = transparent
+    ? "rounded border border-black/25 px-2 py-0.5 text-xs font-bold text-[#241d0a] transition-colors hover:bg-black/15 disabled:cursor-not-allowed disabled:opacity-50"
+    : "rounded border border-line px-2 py-0.5 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-muted-dark dark:hover:text-paper";
+
   return (
     <div className={["flex flex-col gap-1.5", className ?? ""].join(" ").trim()}>
       {label ? <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">{label}</label> : null}
 
-      <div className="rounded-md border border-line bg-paper text-ink transition-colors duration-150 focus-within:border-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus-within:border-paper">
-        <div className="flex flex-wrap gap-1 border-b border-line px-2 py-1.5 dark:border-line-dark">
+      <div
+        ref={wrapperRef}
+        className={
+          transparent
+            ? "relative text-[#3a2f14]"
+            : "relative rounded-md border border-line bg-paper text-ink transition-colors duration-150 focus-within:border-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus-within:border-paper"
+        }
+      >
+        <div className={`flex flex-wrap gap-1 border-b px-2 py-1.5 ${transparent ? "border-black/20" : "border-line dark:border-line-dark"}`}>
           {INLINE_COMMANDS.map((item) => (
             <button
               key={item.id}
@@ -225,7 +311,7 @@ export function RichTextEditor({
               disabled={disabled}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => runCommand(item.command, item.value)}
-              className="rounded border border-line px-2 py-0.5 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-muted-dark dark:hover:text-paper"
+              className={toolbarBtnCls}
               aria-label={`Applica ${item.id}`}
             >
               {item.label}
@@ -238,7 +324,7 @@ export function RichTextEditor({
               disabled={disabled}
               onMouseDown={(event) => event.preventDefault()}
               onClick={openLinkTooltip}
-              className="rounded border border-line px-2 py-0.5 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-muted-dark dark:hover:text-paper"
+              className={toolbarBtnCls}
               aria-label="Inserisci link"
             >
               Link
@@ -292,8 +378,8 @@ export function RichTextEditor({
           role="textbox"
           aria-multiline
           data-placeholder={placeholder ?? "Scrivi qui..."}
-          onMouseUp={saveSelectionRange}
-          onKeyUp={saveSelectionRange}
+          onMouseUp={() => { saveSelectionRange(); detectLinkAtCaret(); }}
+          onKeyUp={() => { saveSelectionRange(); detectLinkAtCaret(); }}
           onFocus={saveSelectionRange}
           onInput={emitChange}
           onBlur={emitChange}
@@ -309,6 +395,62 @@ export function RichTextEditor({
             "[&_img]:max-w-full [&_img]:h-auto",
           ].join(" ")}
         />
+
+        {linkEdit ? (
+          <div
+            style={{ top: linkEdit.top, left: linkEdit.left }}
+            className="absolute z-30 w-72 max-w-[calc(100%-8px)] rounded-md border border-line bg-paper p-2 shadow-lg dark:border-line-dark dark:bg-[#1b1b1f]"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Modifica link</span>
+              <a
+                href={normalizeUrl(editHref)}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[11px] font-semibold text-brand-magenta hover:underline"
+              >
+                Apri ↗
+              </a>
+            </div>
+            <input
+              ref={editLinkInputRef}
+              type="text"
+              value={editHref}
+              onChange={(event) => setEditHref(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); applyEditHref(); }
+                if (event.key === "Escape") { event.preventDefault(); closeLinkEdit(); }
+              }}
+              placeholder="https://example.com"
+              className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-xs text-ink outline-none focus:border-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus:border-paper"
+            />
+            <div className="mt-2 flex justify-between gap-1">
+              <button
+                type="button"
+                onClick={removeEditLink}
+                className="rounded border border-line px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10 dark:border-line-dark"
+              >
+                Rimuovi
+              </button>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={closeLinkEdit}
+                  className="rounded border border-line px-2 py-1 text-xs font-semibold text-muted hover:text-ink dark:border-line-dark dark:text-muted-dark dark:hover:text-paper"
+                >
+                  Chiudi
+                </button>
+                <button
+                  type="button"
+                  onClick={applyEditHref}
+                  className="rounded border border-line bg-ink px-2 py-1 text-xs font-semibold text-paper hover:opacity-90 dark:border-line-dark dark:bg-paper dark:text-ink"
+                >
+                  Aggiorna
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
     </div>

@@ -4,6 +4,8 @@ import { Checkbox } from "../ui/Checkbox";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Textarea } from "../ui/Textarea";
 import type { Company } from "../../api/companies";
+import { useTheme } from "../../context/ThemeContext";
+import { getCompanyLogoUrl } from "../../utils/companyLogo";
 import type { SocialPackageDraft } from "../../features/social-packages/draft";
 import { slugify } from "../../features/social-packages/draft";
 
@@ -14,6 +16,7 @@ interface SocialPackageFormProps {
 }
 
 export function SocialPackageForm({ form, companyOptions, onChange }: SocialPackageFormProps) {
+  const { theme } = useTheme();
   return (
     <div className="grid gap-4">
       <div className="flex items-center gap-2">
@@ -31,10 +34,15 @@ export function SocialPackageForm({ form, companyOptions, onChange }: SocialPack
             onChange={(value) => onChange({ company_id: value ? Number(value) : null })}
             options={[
               { value: "", label: "Seleziona azienda" },
-              ...companyOptions.map((company) => ({ value: String(company.id), label: company.name })),
+              ...companyOptions.map((company) => ({
+                value: String(company.id),
+                label: company.name,
+                avatarUrl: getCompanyLogoUrl(company, theme),
+              })),
             ]}
             placeholder="Seleziona azienda"
             searchPlaceholder="Cerca azienda…"
+            avatarShape="logo"
           />
         </label>
 
