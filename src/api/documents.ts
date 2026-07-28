@@ -2,8 +2,13 @@ import { API_BASE, authFetch } from "./auth";
 
 const BASE = `${API_BASE}/api/v1/documents`;
 
-export type DocType = "generico" | "modello" | "modello_contratto" | "compilato";
-export type DocFieldType = "text" | "textarea" | "date" | "number";
+export type DocType =
+  | "generico"
+  | "modello"
+  | "modello_contratto"
+  | "parte_contratto"
+  | "compilato";
+export type DocFieldType = "text" | "textarea" | "date" | "number" | "signature";
 export type DocLinkEntityType = "client" | "contract" | "quote";
 
 export interface DocumentLink {
@@ -20,6 +25,10 @@ export interface TemplateField {
   label: string;
   field_type: DocFieldType;
   source_path: string | null;
+  /** Il cliente deve compilarlo prima di firmare. */
+  required: boolean;
+  /** "client" = precompilato ma modificabile dal cliente; "internal" = dato azienda, bloccato. */
+  audience: "client" | "internal";
   is_in_document: boolean;
   occurrences: number;
   placeholder_len: number | null;
@@ -92,6 +101,18 @@ export interface DocumentItem {
   links: DocumentLink[];
 }
 
+export interface DocumentPart {
+  id: number;
+  link_id: number;
+  part_document_id: number;
+  title: string;
+  sort_order: number;
+  original_filename: string;
+  page_count: number;
+  field_count: number;
+  created_at?: string | null;
+}
+
 export interface DocumentDetail extends DocumentItem {
   template_fields: TemplateField[];
   field_values?: Record<string, string> | null;
@@ -99,7 +120,68 @@ export interface DocumentDetail extends DocumentItem {
   template_scanned_at?: string | null;
   has_fill_base: boolean;
   page_metrics?: PageMetric[] | null;
-  overlay_elements?: OverlayState | null;
+  overlay_elements?: (OverlayState & { part_ids?: number[] }) | null;
+  parts: DocumentPart[];
+}
+
+/** Richiesta di firma cliente (link tokenizzato + stato). */
+export type SignatureStatus =
+  | "draft"
+  | "sent"
+  | "opened"
+  | "filled"
+  | "signing"
+  | "signed"
+  | "refused"
+  | "expired"
+  | "cancelled";
+
+export interface SignatureRequest {
+  id: number;
+  token: string;
+  document_id: number;
+  contract_id: number | null;
+  status: SignatureStatus;
+  signer_name: string | null;
+  signer_email: string | null;
+  signer_phone: string | null;
+  otp_channel: "email" | "sms";
+  expires_at: string | null;
+  signed_document_id: number | null;
+  created_at: string;
+}
+
+/** Campo del modello composto (coordinate rimappate + valore risolto). */
+export interface ComposeField {
+  tag_name: string;
+  label: string;
+  field_type: DocFieldType;
+  source_path: string | null;
+  is_in_document: boolean;
+  page: number;
+  pos_x: number;
+  pos_y: number;
+  pos_w: number | null;
+  pos_h: number | null;
+  font_size: number | null;
+  placeholder_kind: "underscore" | "tag" | null;
+  placeholder_len: number | null;
+  value: string;
+  required: boolean;
+  audience: "client" | "internal";
+  /** Origine del campo composto (per riconfigurarlo sulla parte). */
+  part_document_id: number | null;
+  field_id: number | null;
+}
+
+export interface ComposeResult {
+  document_id: number;
+  contract_id: number | null;
+  part_ids: number[];
+  pages: PageMetric[];
+  has_text_layer: boolean;
+  suggested_title: string;
+  fields: ComposeField[];
 }
 
 export interface FillPrefillField {
@@ -248,6 +330,8 @@ export async function updateTemplateFieldApi(
     field_type?: DocFieldType;
     source_path?: string | null;
     clear_source_path?: boolean;
+    required?: boolean;
+    audience?: "client" | "internal";
   }
 ): Promise<TemplateField> {
   const res = await authFetch(`${BASE}/${documentId}/template-fields/${fieldId}`, {
@@ -271,10 +355,15 @@ export async function visualScanApi(documentId: number, force = false): Promise<
   return jsonOrThrow(await authFetch(`${BASE}/${documentId}/visual-scan${suffix}`, { method: "POST" }));
 }
 
-/** Scarica il PDF su cui si compila (serve a pdf.js, richiede il bearer). */
-export async function fetchFillBaseApi(documentId: number): Promise<ArrayBuffer> {
+/** Scarica il PDF su cui si compila (serve a pdf.js, richiede il bearer).
+ *  Con partIds streamma il PDF composto dalle parti selezionate. */
+export async function fetchFillBaseApi(
+  documentId: number,
+  partIds?: number[]
+): Promise<ArrayBuffer> {
   const token = localStorage.getItem("id_token");
-  const res = await fetch(`${BASE}/${documentId}/fill-base`, {
+  const suffix = partIds?.length ? `?parts=${partIds.join(",")}` : "";
+  const res = await fetch(`${BASE}/${documentId}/fill-base${suffix}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
@@ -284,17 +373,229 @@ export async function fetchFillBaseApi(documentId: number): Promise<ArrayBuffer>
   return res.arrayBuffer();
 }
 
+// ── Parti del contratto (libreria riutilizzabile) ────────────────────────────
+
+export async function listPartsApi(documentId: number): Promise<DocumentPart[]> {
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/parts`));
+}
+
+/** Collega una parte esistente (documento parte_contratto) al compositore. */
+export async function linkPartApi(
+  documentId: number,
+  partDocumentId: number
+): Promise<DocumentPart> {
+  const res = await authFetch(`${BASE}/${documentId}/parts/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ part_document_id: partDocumentId }),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Crea una NUOVA parte dal file e la collega al compositore. */
+export async function uploadPartApi(
+  documentId: number,
+  file: File,
+  title?: string
+): Promise<DocumentPart> {
+  const token = localStorage.getItem("id_token");
+  const form = new FormData();
+  form.append("file", file);
+  if (title) form.append("title", title);
+  const res = await fetch(`${BASE}/${documentId}/parts`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  return jsonOrThrow(res);
+}
+
+export async function updatePartApi(
+  documentId: number,
+  linkId: number,
+  body: { title?: string; sort_order?: number }
+): Promise<DocumentPart> {
+  const res = await authFetch(`${BASE}/${documentId}/parts/${linkId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Scollega la parte dal compositore (non elimina il documento-parte). */
+export async function unlinkPartApi(documentId: number, linkId: number): Promise<void> {
+  const res = await authFetch(`${BASE}/${documentId}/parts/${linkId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string })?.detail ?? "Impossibile scollegare la parte");
+  }
+}
+
+/** Campi (coordinate rimappate) + pagine + valori del modello composto. */
+export async function composeApi(
+  documentId: number,
+  options: { contractId?: number | null; partIds?: number[] } = {}
+): Promise<ComposeResult> {
+  const qs = new URLSearchParams();
+  if (options.contractId != null) qs.set("contract_id", String(options.contractId));
+  if (options.partIds?.length) qs.set("parts", options.partIds.join(","));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/compose${suffix}`));
+}
+
 export async function visualFillApi(
   documentId: number,
   body: {
-    contract_id: number;
+    contract_id: number | null;
     title?: string;
     values: Record<string, string>;
     elements: OverlayElement[];
     signatures: Record<string, string>;
+    part_ids?: number[];
   }
 ): Promise<DocumentDetail> {
   const res = await authFetch(`${BASE}/${documentId}/visual-fill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Crea un modello di contratto componibile (senza file) unendo parti esistenti. */
+export async function createComposerApi(body: {
+  company_id: number;
+  title?: string;
+  description?: string;
+  part_ids: number[];
+}): Promise<DocumentDetail> {
+  const res = await authFetch(`${BASE}/composer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+// ── Firma cliente ───────────────────────────────────────────────────────────
+
+export interface CompanyOverlay {
+  values: Record<string, string>;
+  elements: OverlayElement[];
+  page_metrics: PageMetric[];
+  has_signature: boolean;
+}
+
+/** Legge la preparazione azienda (valori interni + firma azienda) del modello. */
+export async function getCompanyOverlayApi(documentId: number): Promise<CompanyOverlay> {
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/company-overlay`));
+}
+
+/** Salva sul modello i valori interni + la firma azienda (auto-apposti sui contratti). */
+export async function saveCompanyOverlayApi(
+  documentId: number,
+  body: {
+    values: Record<string, string>;
+    elements: OverlayElement[];
+    signatures: Record<string, string>;
+  }
+): Promise<CompanyOverlay> {
+  const res = await authFetch(`${BASE}/${documentId}/company-overlay`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Genera il link cliente: prepara il contratto e crea la richiesta di firma. */
+export async function createSignatureRequestApi(
+  documentId: number,
+  body: {
+    contract_id?: number | null;
+    part_ids?: number[];
+    signer_name?: string;
+    signer_email?: string;
+    signer_phone?: string;
+    otp_channel: "email" | "sms";
+    expires_days?: number;
+    password?: string;
+  }
+): Promise<SignatureRequest> {
+  const res = await authFetch(`${BASE}/${documentId}/signature-requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+export async function listSignatureRequestsApi(documentId: number): Promise<SignatureRequest[]> {
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/signature-requests`));
+}
+
+// ── Pagina di firma PUBBLICA (cliente, senza account) ─────────────────────────
+
+const SIGN_BASE = `${API_BASE}/api/v1/sign`;
+
+export interface PublicSignField {
+  tag_name: string;
+  label: string;
+  field_type: DocFieldType;
+  required: boolean;
+  page: number;
+  pos_x: number;
+  pos_y: number | null;
+  pos_w: number | null;
+  pos_h: number | null;
+  font_size: number | null;
+  placeholder_kind: "underscore" | "tag" | null;
+}
+
+export interface PublicSignData {
+  status: string;
+  requires_password: boolean;
+  document_title: string;
+  signer_name: string | null;
+  fields: PublicSignField[];
+  values: Record<string, string>;
+  page_metrics: PageMetric[];
+  has_company_signature: boolean;
+}
+
+/** Apre la pagina di firma: verifica token/scadenza/password e restituisce i campi. */
+export async function openSignApi(token: string, password?: string): Promise<PublicSignData> {
+  const res = await fetch(`${SIGN_BASE}/${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: password ?? null }),
+  });
+  return jsonOrThrow(res);
+}
+
+/** PDF su cui firma il cliente (con dati azienda + firma azienda già impressi). */
+export async function fetchSignFillBaseApi(token: string, password?: string): Promise<ArrayBuffer> {
+  const qs = password ? `?p=${encodeURIComponent(password)}` : "";
+  const res = await fetch(`${SIGN_BASE}/${encodeURIComponent(token)}/fill-base${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string })?.detail ?? "Impossibile caricare il documento");
+  }
+  return res.arrayBuffer();
+}
+
+/** Invia campi compilati + firma del cliente. */
+export async function submitSignApi(
+  token: string,
+  body: {
+    password?: string;
+    values: Record<string, string>;
+    elements: OverlayElement[];
+    signatures: Record<string, string>;
+  }
+): Promise<{ ok: boolean; document_title: string }> {
+  const res = await fetch(`${SIGN_BASE}/${encodeURIComponent(token)}/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -351,6 +652,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   generico: "Documento",
   modello: "Modello",
   modello_contratto: "Modello contratto",
+  parte_contratto: "Parte contratto",
   compilato: "Compilato",
 };
 

@@ -16,10 +16,17 @@ interface AddWidgetModalProps {
 }
 
 export function AddWidgetModal({ open, onClose, onAdd, existing }: AddWidgetModalProps) {
-  const { catalog } = useKpiData();
+  const { catalog, privileged } = useKpiData();
   const { permissions } = useAuth();
   const existingSet = new Set(existing);
-  const quick = QUICK_WIDGETS.filter((q) => !q.requiresRoute || canAccessRoute(permissions, q.requiresRoute));
+  const quick = QUICK_WIDGETS.filter(
+    (q) =>
+      (!q.requiresRoute || canAccessRoute(permissions, q.requiresRoute)) &&
+      (!q.privilegedOnly || privileged),
+  );
+  // I widget di CONFRONTO (per operatore/area/cliente) sono solo per admin/PM: l'operatore
+  // vede solo le proprie lavorazioni, quindi confrontare entità non ha senso per lui.
+  const widgetTypes = WIDGET_TYPES.filter((wt) => !wt.privilegedOnly || privileged);
 
   return (
     <Modal
@@ -31,7 +38,7 @@ export function AddWidgetModal({ open, onClose, onAdd, existing }: AddWidgetModa
       size="2xl"
     >
       <div className="flex flex-col gap-6">
-        {WIDGET_TYPES.map((wt) => {
+        {widgetTypes.map((wt) => {
           const kpis = catalog.filter((k) => wt.applies(k));
           if (kpis.length === 0) return null;
           return (

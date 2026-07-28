@@ -41,6 +41,7 @@ export type IconName =
   | "map-pin"
   | "credit-card"
   | "document-text"
+  | "paperclip"
   | "annotation"
   | "information-circle"
   | "check-circle"
@@ -315,6 +316,11 @@ const paths: Record<IconName, React.ReactNode> = {
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
       <polyline points="10 9 9 9 8 9" />
+    </>
+  ),
+  paperclip: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </>
   ),
   annotation: (

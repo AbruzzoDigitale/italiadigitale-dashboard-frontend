@@ -1,13 +1,59 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { OverlayElement, PageMetric, TemplateField } from "../../api/documents";
+import type { DocFieldType, OverlayElement, PageMetric, TemplateField } from "../../api/documents";
 import { useToast } from "../../context/ToastContext";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { Checkbox } from "../ui/Checkbox";
 import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
+import { SearchableSelect } from "../ui/SearchableSelect";
+import { SegmentedSwitch } from "../ui/SegmentedSwitch";
 import { Spinner } from "../ui/Spinner";
 import { loadPdfjs } from "./pdfjs";
 import { SignatureModal } from "./SignatureModal";
+
+/** Modifica alla configurazione di un campo (editor visuale del modello). */
+export type FieldConfigPatch = {
+  audience?: "client" | "internal";
+  required?: boolean;
+  field_type?: DocFieldType;
+};
+
+const CONFIG_TYPE_OPTIONS = [
+  { value: "text", label: "Testo" },
+  { value: "textarea", label: "Testo lungo" },
+  { value: "date", label: "Data" },
+  { value: "number", label: "Numero" },
+  { value: "signature", label: "Firma elettronica" },
+];
+
+/** Un valore campo è una firma se è un data URL immagine. */
+const isSignatureValue = (v: string | undefined): boolean => !!v && v.startsWith("data:image");
+
+/** Dato d'esempio da mostrare come placeholder, in base a etichetta/percorso/tipo. */
+function fieldExample(field: TemplateField): string {
+  const src = (field.source_path ?? "").toLowerCase();
+  const lab = (field.label ?? "").toLowerCase();
+  const has = (...ks: string[]) => ks.some((k) => src.includes(k) || lab.includes(k));
+  if (field.field_type === "date" || has("scadenza", "data", "nato il", "stipulato in data"))
+    return "es. 01/03/2026";
+  if (has("pec")) return "es. mario.rossi@pec.it";
+  if (has("mail")) return "es. mario.rossi@email.it";
+  if (has("c.f", "codice fiscale", "cod. fisc")) return "es. RSSMRA80A01H501U";
+  if (has("p.iva", "partita iva", "p. iva", "p.i.")) return "es. 01234567890";
+  if (has("telefono", "cellulare", "tel.", "cell")) return "es. 333 1234567";
+  if (has("iban")) return "es. IT60X0542811101000000123456";
+  if (has("via", "indirizzo", "residente", "sede", "residenza")) return "es. Via Roma 1, Teramo";
+  if (has("luogo", "città", "citta", "giulianova", "residenza")) return "es. Teramo";
+  if (has("numero", "n.")) return "es. 12";
+  if (has("facebook", "instagram", "pagina")) return "es. @mionome";
+  if (
+    has("società", "societa", "ragione", "sig", "committente", "sottoscritto", "nome", "rappresentante")
+  )
+    return "es. Mario Rossi";
+  if (field.field_type === "number") return "es. 10";
+  return "es. testo";
+}
 
 export interface PdfFillEditorHandle {
   values: Record<string, string>;
@@ -29,6 +75,10 @@ interface PdfFillEditorProps {
   /** Firme già salvate, per l'anteprima in modifica: chiave → data URL. */
   signaturePreviews?: Record<string, string>;
   hasTextLayer: boolean;
+  /** "config" = editor visuale del modello: i campi diventano caselle su cui
+   *  impostare Ambito (Cliente/Interno) e Obbligatorio, invece di input. */
+  mode?: "fill" | "config";
+  onFieldConfig?: (fieldId: number, patch: FieldConfigPatch) => void;
 }
 
 type Tool = "select" | "text" | "check" | "signature";
@@ -58,18 +108,28 @@ export function PdfFillEditor({
   onSignaturesChange,
   signaturePreviews = {},
   hasTextLayer,
+  mode = "fill",
+  onFieldConfig,
 }: PdfFillEditorProps) {
   const toast = useToast();
+  const isConfig = mode === "config";
   const docColRef = useRef<HTMLDivElement | null>(null);
   const canvasRefs = useRef<Record<number, HTMLCanvasElement | null>>({});
-  const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
+  const fieldBoxRefs = useRef<Record<number, HTMLElement | null>>({});
 
-  const [scale, setScale] = useState(1);
+  // Zoom: fitScale riempie la colonna; zoom è il moltiplicatore dell'utente.
+  const [fitScale, setFitScale] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const scale = Math.min(3, Math.max(0.25, fitScale * zoom));
+  const [configFieldId, setConfigFieldId] = useState<number | null>(null);
   const [rendering, setRendering] = useState(true);
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const pendingSignature = useRef<{ page: number; x: number; y: number } | null>(null);
+  // Firma su un CAMPO di tipo firma (vs elemento libero): autocompila tutti i campi firma.
+  const pendingFieldSignature = useRef(false);
   const dragState = useRef<{
     id: string;
     page: number;
@@ -88,7 +148,7 @@ export function PdfFillEditor({
     const update = () => {
       // Piccolo margine per non innescare la barra di scorrimento orizzontale.
       const available = container.clientWidth - 8;
-      if (available > 0) setScale(Math.min(2, Math.max(0.4, available / firstPageWidth)));
+      if (available > 0) setFitScale(available / firstPageWidth);
     };
     update();
     const observer = new ResizeObserver(update);
@@ -203,7 +263,23 @@ export function PdfFillEditor({
     addElement(page, Math.max(0, xPt), Math.max(0, yPt));
   };
 
+  const openFieldSignature = () => {
+    pendingFieldSignature.current = true;
+    setSignatureModalOpen(true);
+  };
+
   const handleSignatureConfirm = (dataUrl: string) => {
+    // Firma su un campo firma: la stessa firma riempie TUTTI i campi firma.
+    if (pendingFieldSignature.current) {
+      pendingFieldSignature.current = false;
+      const sigTags = fields.filter((f) => f.field_type === "signature").map((f) => f.tag_name);
+      if (sigTags.length) {
+        const next = { ...values };
+        for (const t of sigTags) next[t] = dataUrl;
+        onValuesChange(next);
+      }
+      return;
+    }
     const spot = pendingSignature.current;
     pendingSignature.current = null;
     if (!spot) return;
@@ -265,6 +341,43 @@ export function PdfFillEditor({
     input.focus();
   }, []);
 
+  const configField = useMemo(
+    () => fields.find((f) => f.id === configFieldId) ?? null,
+    [fields, configFieldId]
+  );
+
+  const selectConfigField = useCallback((id: number) => {
+    setConfigFieldId(id);
+    fieldBoxRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  // Navigazione campo-per-campo (Precedente/Successivo), in ordine di lettura.
+  const navFields = useMemo(
+    () =>
+      fields
+        .filter((f) => f.page != null && f.pos_x != null)
+        .sort(
+          (a, b) =>
+            (a.page ?? 0) - (b.page ?? 0) ||
+            (a.pos_y ?? 0) - (b.pos_y ?? 0) ||
+            (a.pos_x ?? 0) - (b.pos_x ?? 0)
+        ),
+    [fields]
+  );
+  const [navIdx, setNavIdx] = useState(-1);
+
+  const goToField = (delta: number) => {
+    if (navFields.length === 0) return;
+    const next =
+      navIdx < 0
+        ? delta > 0
+          ? 0
+          : navFields.length - 1
+        : Math.min(navFields.length - 1, Math.max(0, navIdx + delta));
+    setNavIdx(next);
+    focusField(navFields[next].tag_name);
+  };
+
   const emptyManual = fields.filter((f) => !f.source_path && !(values[f.tag_name] ?? "").trim()).length;
 
   const dragHandlers = (element: OverlayElement, page: number) => ({
@@ -277,32 +390,140 @@ export function PdfFillEditor({
     <div className="flex flex-col rounded-lg border border-line dark:border-line-dark">
       {/* ── Barra strumenti: sticky in cima, sempre raggiungibile ── */}
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-t-lg border-b border-line dark:border-line-dark bg-paper dark:bg-[#0E0F0E] px-4 py-2">
-        <span className="text-[12px] font-semibold text-muted dark:text-muted-dark">Aggiungi:</span>
-        {(Object.keys(TOOL_LABELS) as Array<keyof typeof TOOL_LABELS>).map((key) => (
-          <Button
-            key={key}
-            size="sm"
-            variant={tool === key ? "primary" : "secondary"}
-            onClick={() => setTool(tool === key ? "select" : key)}
-          >
-            {TOOL_LABELS[key]}
-          </Button>
-        ))}
-        {tool !== "select" && (
-          <span className="text-[12px] font-semibold text-brand-magenta">
-            Clicca sul documento per posizionare
-          </span>
+        {isConfig ? (
+          <>
+            <span className="text-[12px] font-semibold text-muted dark:text-muted-dark">
+              Clicca un campo per configurarlo
+            </span>
+            <span className="flex items-center gap-1 text-[11px]">
+              <i className="inline-block h-3 w-3 rounded-sm border-2 border-brand-magenta bg-brand-magenta/20" />
+              Cliente
+            </span>
+            <span className="flex items-center gap-1 text-[11px]">
+              <i className="inline-block h-3 w-3 rounded-sm border-2 border-amber-500 bg-amber-500/20" />
+              Interno
+            </span>
+            {configField && (
+              <div className="ml-1 flex flex-wrap items-center gap-2 rounded-md border border-line px-2 py-1 dark:border-line-dark">
+                <span className="max-w-[140px] truncate text-[12px] font-semibold">
+                  {configField.label}
+                </span>
+                <div className="w-40">
+                  <SearchableSelect
+                    value={configField.field_type}
+                    onChange={(v) => onFieldConfig?.(configField.id, { field_type: v as DocFieldType })}
+                    options={CONFIG_TYPE_OPTIONS}
+                    menuLayer="portal"
+                    showAvatar={false}
+                  />
+                </div>
+                <SegmentedSwitch
+                  value={configField.audience}
+                  onChange={(v) =>
+                    onFieldConfig?.(configField.id, { audience: v as "client" | "internal" })
+                  }
+                  options={[
+                    { value: "client", label: "Cliente" },
+                    { value: "internal", label: "Interno" },
+                  ]}
+                />
+                <label className="flex cursor-pointer items-center gap-1 text-[12px] font-semibold">
+                  <Checkbox
+                    checked={configField.required}
+                    onChange={(next) => onFieldConfig?.(configField.id, { required: next })}
+                  />
+                  Obbligatorio
+                </label>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {navFields.length > 0 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => goToField(-1)}
+                  leftIcon={<Icon name="chevron-right" className="h-3.5 w-3.5 rotate-180" />}
+                >
+                  Precedente
+                </Button>
+                <span className="min-w-[42px] text-center text-[11px] font-semibold tabular-nums text-muted dark:text-muted-dark">
+                  {navIdx >= 0 ? navIdx + 1 : "–"}/{navFields.length}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => goToField(1)}
+                  rightIcon={<Icon name="chevron-right" className="h-3.5 w-3.5" />}
+                >
+                  Successivo
+                </Button>
+                <span className="mx-1 h-5 w-px bg-line dark:bg-line-dark" />
+              </div>
+            )}
+            <span className="text-[12px] font-semibold text-muted dark:text-muted-dark">Aggiungi:</span>
+            {(Object.keys(TOOL_LABELS) as Array<keyof typeof TOOL_LABELS>).map((key) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={tool === key ? "primary" : "secondary"}
+                onClick={() => setTool(tool === key ? "select" : key)}
+              >
+                {TOOL_LABELS[key]}
+              </Button>
+            ))}
+            {tool !== "select" && (
+              <span className="text-[12px] font-semibold text-brand-magenta">
+                Clicca sul documento per posizionare
+              </span>
+            )}
+            {selectedId && tool === "select" && (
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                leftIcon={<Icon name="trash" className="w-3.5 h-3.5" />}
+                onClick={() => removeElement(selectedId)}
+              >
+                Elimina selezione
+              </Button>
+            )}
+          </>
         )}
-        {selectedId && tool === "select" && (
+
+        {/* Zoom (lente): riduci / adatta / ingrandisci */}
+        <div className="ml-auto flex items-center gap-1">
+          <Icon name="search" className="h-4 w-4 text-muted dark:text-muted-dark" />
           <Button
             size="sm"
-            variant="danger-ghost"
-            leftIcon={<Icon name="trash" className="w-3.5 h-3.5" />}
-            onClick={() => removeElement(selectedId)}
+            variant="secondary"
+            iconOnly
+            title="Riduci"
+            aria-label="Riduci"
+            onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(2)))}
           >
-            Elimina selezione
+            <Icon name="minus" className="h-4 w-4" />
           </Button>
-        )}
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            title="Adatta alla larghezza"
+            className="w-12 text-center text-[12px] font-semibold tabular-nums hover:text-brand-magenta"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+          <Button
+            size="sm"
+            variant="secondary"
+            iconOnly
+            title="Ingrandisci"
+            aria-label="Ingrandisci"
+            onClick={() => setZoom((z) => Math.min(3, +(z + 0.1).toFixed(2)))}
+          >
+            <Icon name="plus" className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Il documento scorre insieme al modale; il pannello campi resta sticky. */}
@@ -344,32 +565,124 @@ export function PdfFillEditor({
                 />
 
                 {/* Caselle dei campi rilevati */}
-                {(fieldsByPage[metric.page] ?? []).map((field) => (
-                  <input
-                    key={field.id}
-                    ref={(el) => {
-                      fieldRefs.current[field.tag_name] = el;
-                    }}
-                    value={values[field.tag_name] ?? ""}
-                    onChange={(e) => setValue(field.tag_name, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    title={field.label}
-                    className="absolute rounded-[2px] border border-brand-magenta/60 px-[2px] font-medium outline-none focus:border-brand-magenta"
-                    style={{
-                      left: (field.pos_x ?? 0) * scale,
-                      top: (field.pos_y ?? 0) * scale,
-                      width: (field.pos_w ?? 100) * scale,
-                      height: Math.max(12, (field.pos_h ?? 12) * scale),
-                      fontSize: Math.max(7, (field.font_size ?? 10) * scale),
-                      lineHeight: 1.1,
-                      // Nessuno sfondo (si vede la riga del PDF sotto) e testo
-                      // scuro, sempre leggibile su qualsiasi tema dell'app.
-                      background: "transparent",
-                      color: "#111111",
-                      caretColor: "#111111",
-                    }}
-                  />
-                ))}
+                {(fieldsByPage[metric.page] ?? []).map((field) =>
+                  isConfig ? (
+                    // Modalità configurazione: casella cliccabile, colore = ambito.
+                    // Stili inline (niente dipendenza dalle classi Tailwind) per
+                    // garantire che le caselle siano sempre visibili sul PDF.
+                    <div
+                      key={field.id}
+                      role="button"
+                      ref={(el) => {
+                        fieldBoxRefs.current[field.id] = el;
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfigFieldId(field.id);
+                      }}
+                      title={`${field.label} — ${
+                        field.audience === "internal" ? "Interno (azienda)" : "Cliente"
+                      }${field.required ? " · obbligatorio" : ""}`}
+                      className="absolute cursor-pointer"
+                      style={{
+                        left: (field.pos_x ?? 0) * scale,
+                        top: (field.pos_y ?? 0) * scale,
+                        width: Math.max(10, (field.pos_w ?? 100) * scale),
+                        height: Math.max(14, (field.pos_h ?? 12) * scale),
+                        borderRadius: 2,
+                        border: `2px solid ${
+                          field.audience === "internal" ? "#f59e0b" : "#c41284"
+                        }`,
+                        background:
+                          field.audience === "internal"
+                            ? "rgba(245,158,11,0.22)"
+                            : "rgba(196,18,132,0.22)",
+                        boxShadow: configFieldId === field.id ? "0 0 0 2px #111, 0 0 0 4px #fff" : "none",
+                      }}
+                    >
+                      {/* Esempio del dato dentro la casella, per capire cosa va inserito. */}
+                      <span
+                        className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-nowrap px-1 text-[10px] italic leading-none"
+                        style={{ color: "rgba(0,0,0,0.55)" }}
+                      >
+                        {field.field_type === "signature" ? "Firma" : fieldExample(field)}
+                      </span>
+                      {field.required && (
+                        <span
+                          className="absolute text-[12px] font-bold leading-none"
+                          style={{ right: -6, top: -8, color: "#dc2626" }}
+                        >
+                          *
+                        </span>
+                      )}
+                    </div>
+                  ) : field.field_type === "signature" ? (
+                    // Campo FIRMA elettronica: clic → disegna/scrivi; riempie tutti i campi firma.
+                    <button
+                      key={field.id}
+                      type="button"
+                      ref={(el) => {
+                        fieldRefs.current[field.tag_name] = el;
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openFieldSignature();
+                      }}
+                      title={`${field.label} — Firma elettronica`}
+                      className="absolute flex items-center justify-center overflow-hidden rounded-[2px] border border-dashed border-brand-magenta"
+                      style={{
+                        left: (field.pos_x ?? 0) * scale,
+                        top: (field.pos_y ?? 0) * scale,
+                        width: (field.pos_w ?? 160) * scale,
+                        height: Math.max(30, field.pos_h ?? 0) * scale,
+                        background: isSignatureValue(values[field.tag_name])
+                          ? "transparent"
+                          : "rgba(196,18,132,0.06)",
+                      }}
+                    >
+                      {isSignatureValue(values[field.tag_name]) ? (
+                        <img
+                          src={values[field.tag_name]}
+                          alt="Firma"
+                          className="h-full w-full object-contain"
+                          draggable={false}
+                        />
+                      ) : (
+                        <span className="pointer-events-none text-[11px] font-semibold text-brand-magenta">
+                          ✍ Firma
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <input
+                      key={field.id}
+                      ref={(el) => {
+                        fieldRefs.current[field.tag_name] = el;
+                      }}
+                      value={values[field.tag_name] ?? ""}
+                      onChange={(e) => setValue(field.tag_name, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      title={field.label}
+                      placeholder={fieldExample(field)}
+                      className="absolute rounded-[2px] border border-brand-magenta/60 px-[2px] font-medium outline-none placeholder:italic placeholder:text-black/35 focus:border-brand-magenta"
+                      style={{
+                        left: (field.pos_x ?? 0) * scale,
+                        top: (field.pos_y ?? 0) * scale,
+                        width: (field.pos_w ?? 100) * scale,
+                        height: Math.max(12, (field.pos_h ?? 12) * scale),
+                        fontSize: Math.max(7, (field.font_size ?? 10) * scale),
+                        lineHeight: 1.1,
+                        // Evidenziazione dell'area di inserimento (come un evidenziatore);
+                        // testo scuro sempre leggibile. La riga del PDF resta visibile sotto.
+                        background: (values[field.tag_name] ?? "").trim()
+                          ? "rgba(255, 214, 0, 0.10)"
+                          : "rgba(255, 214, 0, 0.28)",
+                        color: "#111111",
+                        caretColor: "#111111",
+                      }}
+                    />
+                  )
+                )}
 
                 {/* Elementi liberi */}
                 {(elementsByPage[metric.page] ?? []).map((element) => {
@@ -453,38 +766,96 @@ export function PdfFillEditor({
           <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wide">
             Campi ({fields.length})
           </h3>
-        {emptyManual > 0 && (
-          <p className="mb-2 text-[11px] text-muted dark:text-muted-dark">
-            Da compilare a mano: {emptyManual}. I campi lasciati vuoti restano righe da firmare.
-          </p>
-        )}
-        <div className="space-y-2">
-          {fields.map((field) => (
-            <div key={field.id}>
-              <span className="mb-0.5 flex items-center gap-1.5 text-[11px] font-semibold">
-                <button
-                  type="button"
-                  onClick={() => focusField(field.tag_name)}
-                  className="truncate text-left hover:text-brand-magenta"
-                  title="Vai al campo nel documento"
-                >
-                  {field.label}
-                </button>
-                {field.source_path ? <Badge variant="info">Auto</Badge> : <Badge>Manuale</Badge>}
-              </span>
-              <Input
-                value={values[field.tag_name] ?? ""}
-                onChange={(e) => setValue(field.tag_name, e.target.value)}
-                placeholder={field.page ? `Pagina ${field.page}` : ""}
-              />
-            </div>
-          ))}
-          {fields.length === 0 && (
-            <p className="text-[12px] text-muted dark:text-muted-dark">
-              Nessun campo rilevato: compila con gli elementi liberi.
-            </p>
+          {isConfig ? (
+            <>
+              <p className="mb-2 text-[11px] text-muted dark:text-muted-dark">
+                Imposta ambito (Cliente/Interno) e obbligatorietà. Clicca un campo qui o
+                direttamente sul documento, poi usa i controlli in alto.
+              </p>
+              <div className="space-y-1">
+                {fields.map((field) => (
+                  <button
+                    key={field.id}
+                    type="button"
+                    onClick={() => selectConfigField(field.id)}
+                    className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left ${
+                      configFieldId === field.id
+                        ? "border-ink dark:border-paper"
+                        : "border-line dark:border-line-dark"
+                    }`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 flex-none rounded-sm ${
+                        field.audience === "internal" ? "bg-amber-500" : "bg-brand-magenta"
+                      }`}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
+                      {field.label}
+                    </span>
+                    {field.required && <Badge variant="warning">Obbl.</Badge>}
+                  </button>
+                ))}
+                {fields.length === 0 && (
+                  <p className="text-[12px] text-muted dark:text-muted-dark">Nessun campo rilevato.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {emptyManual > 0 && (
+                <p className="mb-2 text-[11px] text-muted dark:text-muted-dark">
+                  Da compilare a mano: {emptyManual}. I campi lasciati vuoti restano righe da firmare.
+                </p>
+              )}
+              <div className="space-y-2">
+                {fields.map((field) => (
+                  <div key={field.id}>
+                    <span className="mb-0.5 flex items-center gap-1.5 text-[11px] font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => focusField(field.tag_name)}
+                        className="truncate text-left hover:text-brand-magenta"
+                        title="Vai al campo nel documento"
+                      >
+                        {field.label}
+                      </button>
+                      {field.field_type === "signature" ? (
+                        <Badge variant="info">Firma</Badge>
+                      ) : field.source_path ? (
+                        <Badge variant="info">Auto</Badge>
+                      ) : (
+                        <Badge>Manuale</Badge>
+                      )}
+                    </span>
+                    {field.field_type === "signature" ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full"
+                        onClick={openFieldSignature}
+                        leftIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
+                      >
+                        {isSignatureValue(values[field.tag_name])
+                          ? "Firma inserita — modifica"
+                          : "Aggiungi firma"}
+                      </Button>
+                    ) : (
+                      <Input
+                        value={values[field.tag_name] ?? ""}
+                        onChange={(e) => setValue(field.tag_name, e.target.value)}
+                        placeholder={fieldExample(field)}
+                      />
+                    )}
+                  </div>
+                ))}
+                {fields.length === 0 && (
+                  <p className="text-[12px] text-muted dark:text-muted-dark">
+                    Nessun campo rilevato: compila con gli elementi liberi.
+                  </p>
+                )}
+              </div>
+            </>
           )}
-          </div>
         </aside>
       </div>
 

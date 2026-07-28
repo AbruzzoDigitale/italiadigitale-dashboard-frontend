@@ -1,4 +1,5 @@
 import { FieldHelpPopover, type FieldHelpPopoverProps } from "./FieldHelpPopover";
+import { formatDurationHuman } from "../../utils/duration";
 
 const MIN = 0;
 const MAX = 3;
@@ -33,11 +34,9 @@ function weightColor(w: number): string {
   return "#E24B4A";
 }
 
-/** Minuti → "Xh Ym". */
+/** Minuti → durata umana ("1h30min"). */
 function formatHM(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h}h ${m}m`;
+  return formatDurationHuman(min / 60);
 }
 
 interface LoadWeightFieldProps {

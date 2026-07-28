@@ -69,12 +69,16 @@ function loadFilter(companyId: number | null): KpiFilter {
 export function KpiDataProvider({
   companyId,
   privileged,
+  managedAreaIds,
   month: initialMonth,
   children,
 }: {
   companyId: number | null;
   privileged: boolean;
-  selfUserId?: number | null;
+  /** Se valorizzato (PM), limita le opzioni dei filtri alle sue aree/operatori.
+   *  `null`/undefined = nessuna restrizione (admin). Lo scoping dati è comunque
+   *  garantito lato backend (vedi kpi._resolve_filters). */
+  managedAreaIds?: number[] | null;
   month?: string;
   children: ReactNode;
 }) {
@@ -146,37 +150,65 @@ export function KpiDataProvider({
     };
   }, [companyId, month, filter, reloadKey]);
 
-  // Opzioni per la barra filtri + mappa nomi utente (solo per admin/PM).
+  // Opzioni + mappa nomi. I nomi dei CLIENTI servono anche all'operatore (widget
+  // "per cliente"); operatori e aree servono SOLO ad admin/PM (barra filtri e confronti).
   useEffect(() => {
-    if (!privileged || companyId == null) {
+    if (companyId == null) {
       setOperators([]);
       setAreas([]);
       setClients([]);
+      setUserNames({});
       return;
     }
     let cancelled = false;
-    getUsersApi(companyId)
-      .then((users) => {
-        if (cancelled) return;
-        setOperators(users.map((u) => ({ id: u.id, label: u.full_name || u.username })));
-        const names: Record<number, string> = {};
-        for (const u of users) names[u.id] = u.full_name || u.username;
-        setUserNames(names);
-      })
-      .catch(() => {});
-    listWorkAreasApi({ company_id: companyId })
-      .then((list) => !cancelled && setAreas(list.map((a) => ({ id: a.id, label: a.name }))))
-      .catch(() => {});
+
+    // Clienti: il backend restituisce solo quelli nello scope dell'utente (un operatore
+    // vede unicamente i propri), quindi risolvere i nomi qui non espone dati altrui.
     getClientsApi({ company_id: companyId, per_page: 500 })
       .then((resp) =>
         !cancelled &&
         setClients(resp.data.map((c) => ({ id: c.id, label: c.commercial_name || c.name }))),
       )
       .catch(() => {});
+
+    if (!privileged) {
+      // L'operatore non ha bisogno dell'elenco operatori/aree (nessun confronto/filtro).
+      setOperators([]);
+      setAreas([]);
+      setUserNames({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Per i PM le opzioni sono ristrette alle proprie aree e ai relativi operatori.
+    const areaScope = managedAreaIds != null ? new Set(managedAreaIds) : null;
+    getUsersApi(companyId)
+      .then((users) => {
+        if (cancelled) return;
+        const inScope = areaScope
+          ? users.filter((u) => (u.work_area_ids ?? []).some((a) => areaScope.has(a)))
+          : users;
+        setOperators(inScope.map((u) => ({ id: u.id, label: u.full_name || u.username })));
+        // La mappa nomi resta completa (serve a risolvere eventuali id nei breakdown).
+        const names: Record<number, string> = {};
+        for (const u of users) names[u.id] = u.full_name || u.username;
+        setUserNames(names);
+      })
+      .catch(() => {});
+    listWorkAreasApi({ company_id: companyId })
+      .then((list) => {
+        if (cancelled) return;
+        const scoped = areaScope ? list.filter((a) => areaScope.has(a.id)) : list;
+        setAreas(scoped.map((a) => ({ id: a.id, label: a.name })));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [privileged, companyId]);
+    // managedAreaIds serializzato: dipendenza stabile (evita re-fetch a ogni render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [privileged, companyId, (managedAreaIds ?? []).join(",")]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
   const userName = useCallback(

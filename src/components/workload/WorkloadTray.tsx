@@ -121,8 +121,8 @@ export function WorkloadTray({
       onClick={() => onCardClick(item.id)}
       title={onCardPointerDown || onCardDragStart ? "Trascina per assegnare/spostare" : "Apri lavorazione"}
     >
-      <div className="wlcal-tc-client">{item.client}</div>
       <div className="wlcal-tc-type">{item.type}</div>
+      <div className="wlcal-tc-client">{item.client}</div>
       <div className="wlcal-tc-foot">
         <span className="wlcal-tc-dur">
           <i />

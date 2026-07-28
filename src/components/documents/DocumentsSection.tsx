@@ -19,6 +19,7 @@ import { useDocuments } from "../../hooks/useDocuments";
 import { DocumentDetailModal } from "./DocumentDetailModal";
 import { DocumentVisualFillModal } from "./DocumentVisualFillModal";
 import { DocumentUploadModal } from "./DocumentUploadModal";
+import { GenerateClientLinkModal } from "./GenerateClientLinkModal";
 import { openDocumentDownload, openDocumentPdfExport } from "./documentActions";
 
 interface DocumentsSectionProps {
@@ -39,6 +40,7 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
   const [uploadOpen, setUploadOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [fillDoc, setFillDoc] = useState<DocumentDetail | null>(null);
+  const [linkDoc, setLinkDoc] = useState<DocumentItem | null>(null);
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [linkableDocs, setLinkableDocs] = useState<DocumentItem[]>([]);
   const [linkableLoading, setLinkableLoading] = useState(false);
@@ -231,6 +233,17 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
                     Modifica valori
                   </Button>
                 )}
+                {canPdf(doc) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setLinkDoc(doc)}
+                    leftIcon={<Icon name="link" className="w-3.5 h-3.5" />}
+                    title="Genera link di firma per il cliente"
+                  >
+                    Genera link
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -299,6 +312,13 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
         document={fillDoc}
         contractId={contractId}
         onDone={() => refetch()}
+      />
+
+      <GenerateClientLinkModal
+        open={linkDoc != null}
+        onClose={() => setLinkDoc(null)}
+        document={linkDoc}
+        defaultContractId={contractId}
       />
     </div>
   );

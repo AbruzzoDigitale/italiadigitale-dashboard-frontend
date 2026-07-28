@@ -13,6 +13,7 @@ import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { getWorkItemApi, type WorkItem } from "../api/workItems";
 import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
+import { formatDurationHuman } from "../utils/duration";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
@@ -435,7 +436,7 @@ export function DailyTasksPage() {
                 {tasks.map((task: any) => {
                   // Workload endpoints can expose PED with either is_ped or is_PED.
                   const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
-                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+                  const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
                   return (
                     <AccLaneTaskCard
                       key={task.work_item_id}
@@ -837,7 +838,7 @@ export function DailyTasksPage() {
                 {operatore.tasks.map((task: any) => {
                   // Workload endpoints can expose PED with either is_ped or is_PED.
                   const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
-                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+                  const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
                   return (
                     <AccLaneTaskCard
                       key={task.work_item_id}

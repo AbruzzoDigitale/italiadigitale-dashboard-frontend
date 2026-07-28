@@ -3,10 +3,17 @@ import { useKpiData } from "../KpiDataContext";
 import { getKpiHistoryApi, type KpiHistoryResponse } from "../../../api/kpi";
 import { MultiLineChart, SERIES_COLORS, type Series } from "../charts/primitives";
 import { ChartFrame } from "./ChartFrame";
+import { EntityComparePicker } from "./EntityComparePicker";
+import { useWidgetHost } from "./WidgetHostContext";
 import { formatKpiValue } from "./format";
 import { Spinner } from "../../ui/Spinner";
 import type { WidgetInstance } from "./types";
 import type { BreakdownDimension } from "./KpiBreakdownWidget";
+
+function configSelectedIds(instance: WidgetInstance): number[] {
+  const raw = instance.config.selectedIds;
+  return Array.isArray(raw) ? raw.map(Number).filter((n) => !Number.isNaN(n)) : [];
+}
 
 const TRENDDIM: Record<BreakdownDimension, { key: string; type: string; subtitle: string }> = {
   operator: { key: "by_operator", type: "kpi-trend-by-operator", subtitle: "Andamento per operatore" },
@@ -26,7 +33,8 @@ export function KpiMultiTrendWidget({
   instance: WidgetInstance;
   dimension: BreakdownDimension;
 }) {
-  const { catalog, companyId, userName, areaName, clientName, filter } = useKpiData();
+  const { catalog, companyId, userName, areaName, clientName, filter, privileged } = useKpiData();
+  const { editing, updateConfig } = useWidgetHost();
   const kpiId = String(instance.config.kpiId ?? "");
   const meta = catalog.find((c) => c.id === kpiId);
   const cfg = TRENDDIM[dimension];
@@ -34,6 +42,7 @@ export function KpiMultiTrendWidget({
   const [history, setHistory] = useState<KpiHistoryResponse | null>(null);
 
   useEffect(() => {
+    if (!privileged) return; // confronto solo admin/PM: nessuna chiamata
     let cancelled = false;
     setHistory(null);
     getKpiHistoryApi({ kpiId, companyId, periodType, limit: 120 })
@@ -42,11 +51,24 @@ export function KpiMultiTrendWidget({
     return () => {
       cancelled = true;
     };
-  }, [kpiId, companyId, periodType]);
+  }, [kpiId, companyId, periodType, privileged]);
+
+  if (!privileged) {
+    return (
+      <ChartFrame type={cfg.type} title={meta?.label ?? kpiId} subtitle={cfg.subtitle}>
+        <div className="flex h-full items-center justify-center px-3 text-center text-[11px] text-muted dark:text-[#9999a0]">
+          Confronto disponibile solo per admin/PM
+        </div>
+      </ChartFrame>
+    );
+  }
 
   const nameOf = dimension === "operator" ? userName : dimension === "area" ? areaName : clientName;
-  const selected =
+  const perWidget = configSelectedIds(instance);
+  const globalSel =
     dimension === "operator" ? filter.operatorIds : dimension === "area" ? filter.workAreaIds : filter.clientIds;
+  // Precedenza: selezione del widget, poi filtro globale, poi le prime 6 per volume.
+  const selected = perWidget.length ? perWidget : globalSel;
   const selectedSet = new Set(selected.map(String));
 
   const points = history?.points ?? [];
@@ -58,7 +80,8 @@ export function KpiMultiTrendWidget({
   let ids = Object.keys(totals);
   if (selectedSet.size > 0) ids = ids.filter((id) => selectedSet.has(id));
   ids.sort((a, b) => totals[b] - totals[a]);
-  ids = ids.slice(0, 6);
+  // Con selezione esplicita mostro tutte le scelte; senza, limito a 6 per leggibilità.
+  ids = perWidget.length ? ids : ids.slice(0, 6);
 
   const series: Series[] = ids.map((id, i) => ({
     name: nameOf(Number(id)),
@@ -70,8 +93,16 @@ export function KpiMultiTrendWidget({
     })),
   }));
 
+  const toolbar = editing ? (
+    <EntityComparePicker
+      dimension={dimension}
+      value={perWidget}
+      onChange={(nextIds) => updateConfig({ selectedIds: nextIds })}
+    />
+  ) : undefined;
+
   return (
-    <ChartFrame type={cfg.type} title={meta?.label ?? kpiId} subtitle={cfg.subtitle}>
+    <ChartFrame type={cfg.type} title={meta?.label ?? kpiId} subtitle={cfg.subtitle} toolbar={toolbar}>
       {history == null ? (
         <div className="flex h-full items-center justify-center">
           <Spinner size="sm" />

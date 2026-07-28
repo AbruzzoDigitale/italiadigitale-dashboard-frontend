@@ -25,6 +25,7 @@ import { subscribeRealtime } from "../features/realtime/realtimeBus";
 const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
 const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
+import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
@@ -965,6 +966,7 @@ export function DashboardLayout() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              id={NOTIF_BELL_ID}
               onClick={() => setNotifOpen((prev) => { const next = !prev; if (next) void notifications.reload(); return next; })}
               aria-label="Centro notifiche"
               title="Centro notifiche"
@@ -1124,6 +1126,10 @@ export function DashboardLayout() {
             setNotifPrefsOpen(true);
           }}
         />
+
+        {/* Toast in-app degli arrivi realtime: dopo pochi secondi si ripiegano
+            in un aeroplanino che vola dentro la campanella. */}
+        <NotificationToastLayer />
 
         <NotificationPreferencesModal
           open={notifPrefsOpen}

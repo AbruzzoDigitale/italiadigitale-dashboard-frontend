@@ -9,8 +9,8 @@ export function KpiGaugeWidget({ instance }: { instance: WidgetInstance }) {
   const kpiId = String(instance.config.kpiId ?? "");
   const meta = catalog.find((c) => c.id === kpiId);
   const value = values[kpiId];
-  // Per "lavorazioni da rifare" un valore alto è NEGATIVO → colore invertito.
-  const positiveHigh = kpiId !== "wi_rework_rate";
+  // Per rework e slittamento un valore alto è NEGATIVO → colore invertito.
+  const positiveHigh = !["wi_rework_rate", "wi_slip_rate"].includes(kpiId);
 
   return (
     <ChartFrame type="kpi-gauge" title={meta?.label ?? kpiId}>

@@ -62,6 +62,7 @@ import {
   type ColumnSort,
 } from "../api/workboardPreferences";
 import { sortColumnItems, DEFAULT_SORT_MODE } from "../utils/workboardSort";
+import { formatDurationHuman } from "../utils/duration";
 import type { IconName } from "../components/ui/Icon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -107,11 +108,11 @@ const LEFT_BEHIND_REASON_OPTIONS: { value: LeftBehindReason; label: string }[] =
 
 function fmtHours(n: number | null): string {
   if (n == null) return "—";
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
 }
 
 function effectiveHoursLabel(item: WorkItem): string {
-  if (!item.affects_daily_load) return "0h effettive";
+  if (!item.affects_daily_load) return "0min effettive";
   return `${fmtHours(item.effective_load_hours)} effettive`;
 }
 

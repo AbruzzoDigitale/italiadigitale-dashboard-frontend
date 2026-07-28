@@ -6,12 +6,15 @@ export function ChartFrame({
   title,
   subtitle,
   type,
+  toolbar,
   children,
 }: {
   title: string;
   subtitle?: string;
   /** Tipo widget: mostra il mini-glifo del grafico accanto al titolo. */
   type?: string;
+  /** Controlli extra (es. selettore di confronto) sotto il titolo. */
+  toolbar?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -25,6 +28,7 @@ export function ChartFrame({
           {subtitle && <p className="truncate text-[10px] text-muted dark:text-[#9999a0]">{subtitle}</p>}
         </div>
       </div>
+      {toolbar && <div className="mb-1.5 flex-shrink-0">{toolbar}</div>}
       <div className="min-h-0 flex-1">{children}</div>
     </div>
   );

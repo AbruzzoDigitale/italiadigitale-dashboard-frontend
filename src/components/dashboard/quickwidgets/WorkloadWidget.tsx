@@ -1,18 +1,30 @@
 import { listWorkloadUsersApi } from "../../../api/workload";
 import { useAuth } from "../../../hooks/useAuth";
+import { useKpiData } from "../KpiDataContext";
 import { QuickListFrame, QuickRow, useQuickData } from "./QuickListFrame";
 
 export function WorkloadWidget() {
   const { activeCompanyId } = useAuth();
+  const { privileged } = useKpiData();
   const { data, loading } = useQuickData(
     () =>
-      listWorkloadUsersApi({
-        company_id: activeCompanyId ?? undefined,
-        sort_by: "utilization",
-        sort_dir: "desc",
-      }),
-    [activeCompanyId],
+      privileged
+        ? listWorkloadUsersApi({
+            company_id: activeCompanyId ?? undefined,
+            sort_by: "utilization",
+            sort_dir: "desc",
+          })
+        : Promise.resolve([]),
+    [activeCompanyId, privileged],
   );
+
+  // Panoramica del carico del TEAM: solo admin/PM (l'operatore vede solo sé stesso).
+  if (!privileged) {
+    return (
+      <QuickListFrame title="Workload" icon="activity" empty emptyText="Panoramica team: solo admin/PM" />
+    );
+  }
+
   const users = (data ?? []).slice(0, 12);
   return (
     <QuickListFrame

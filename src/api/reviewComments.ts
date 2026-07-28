@@ -30,6 +30,8 @@ export interface ReviewState {
   rework_interna: number;
   last_review_source: ReviewSource | null;
   delivered_to_client_at: string | null;
+  /** PED approvato dal cliente: torna in_progress a peso ridotto (da programmare). */
+  client_approved_at: string | null;
   load_weight_factor: number | null;
   estimated_hours: number | null;
   deadline_date: string | null;
@@ -79,6 +81,18 @@ export async function sendBackApi(
   body: { source?: ReviewSource; text?: string | null; load_weight_factor?: number | null }
 ): Promise<ReviewState> {
   const res = await authFetch(`${BASE}/${workItemId}/review/send-back`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Approvazione cliente (PED): torna in_progress a peso ridotto (~10%), da programmare. */
+export async function approveReviewApi(
+  workItemId: number,
+  body: { text?: string | null; load_weight_factor?: number | null } = {}
+): Promise<ReviewState> {
+  const res = await authFetch(`${BASE}/${workItemId}/review/approve`, {
     method: "POST",
     body: JSON.stringify(body),
   });

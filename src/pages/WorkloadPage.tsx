@@ -28,6 +28,7 @@ import { WorkloadDateNav } from "../components/workload/WorkloadDateNav";
 import { WorkloadTray, type WorkloadTrayLayout, type WorkloadTrayTab, type WorkloadTrayGroup, type WorkloadTrayItem } from "../components/workload/WorkloadTray";
 import { WorkloadMonthGrid } from "../components/workload/WorkloadMonthGrid";
 import { SwapConfirmModal } from "../components/workload/SwapConfirmModal";
+import { formatDurationHuman } from "../utils/duration";
 import {
   getWorkloadUserCalendarDayApi,
   getWorkloadToPlanApi,
@@ -221,12 +222,7 @@ function formatRangeLabel(fromIso: string, toIso: string): string {
 }
 
 function formatHours(value: number) {
-  const totalMinutes = Math.round((value || 0) * 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
+  return formatDurationHuman(value);
 }
 
 type TaskHoursFields = Pick<
@@ -1622,6 +1618,15 @@ export function WorkloadPage() {
               <span className="wl-acc-task__time">{formatTaskStartTime(task.start_time)}</span>
             )}
             <span className="wl-acc-task__client">{task.client_name || "Senza cliente"}</span>
+            {task.client_approved_at && (
+              <span
+                className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none"
+                style={{ color: "#0c8a57", backgroundColor: "#16eb9622" }}
+                title="Approvata/pronta ma non ancora pubblicata"
+              >
+                In pubblicazione
+              </span>
+            )}
             <span
               className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none"
               style={{ color: status.color, backgroundColor: `${status.color}22` }}

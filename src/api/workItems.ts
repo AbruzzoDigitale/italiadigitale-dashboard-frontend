@@ -181,6 +181,24 @@ export interface WorkItemResourceInput {
   url: string;
 }
 
+/** File allegato alla task (salvato su cloud storage, scaricabile via URL firmato). */
+export interface WorkItemAttachment {
+  id: number;
+  original_filename: string;
+  /** Nome mostrato scelto dall'utente; se assente si usa original_filename. */
+  label?: string | null;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by: number | null;
+  uploaded_by_name?: string | null;
+  created_at: string;
+}
+
+/** Nome da mostrare per un allegato: etichetta scelta o nome file. */
+export function attachmentDisplayName(a: Pick<WorkItemAttachment, "label" | "original_filename">): string {
+  return a.label?.trim() || a.original_filename;
+}
+
 export interface WorkItemHistoryEvent {
   id: number;
   actor_user_id: number | null;
@@ -251,6 +269,8 @@ export interface WorkItem {
   rework_interna?: number;
   last_review_source?: "interna" | "cliente" | null;
   delivered_to_client_at?: string | null;
+  /** "In pubblicazione": approvata/pronta ma non ancora pubblicata (badge + peso ridotto). */
+  client_approved_at?: string | null;
   // Collegamento Trello
   trello_card_id?: string | null;
   trello_card_url?: string | null;
@@ -263,6 +283,7 @@ export interface WorkItem {
   time_slots: TimeSlot[];
   checklists?: Checklist[];
   resources?: WorkItemResource[];
+  attachments?: WorkItemAttachment[];
   history?: WorkItemHistoryEvent[];
   is_PED?: boolean;
   ped_configuration_id?: number | null;
@@ -514,6 +535,100 @@ export async function updateWorkItemApi(id: number, payload: UpdateWorkItemPaylo
     throw buildApiError(res, body, "Errore nell'aggiornamento lavorazione");
   }
   return res.json();
+}
+
+/** Spunta "In pubblicazione": approvata/pronta ma non pubblicata → torna in corso a peso
+ *  ridotto (~10%) e resta visibile finché non esce. `on=false` rimuove la spunta. */
+export async function setAwaitingPublishApi(
+  id: number,
+  on: boolean,
+  loadWeightFactor?: number,
+): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/awaiting-publish`, {
+    method: "POST",
+    body: JSON.stringify({ on, load_weight_factor: loadWeightFactor ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw buildApiError(res, body, "Errore nell'aggiornamento 'In pubblicazione'");
+  }
+  return res.json();
+}
+
+// ── Allegati (file su cloud storage) ─────────────────────────────────────────
+
+export interface WorkItemAttachmentDownload {
+  url: string;
+  filename: string;
+  expires_at: string;
+}
+
+/** Carica un file e lo allega alla task. Multipart: fetch raw (authFetch forza JSON). */
+export async function uploadWorkItemAttachmentApi(
+  workItemId: number,
+  file: File
+): Promise<WorkItemAttachment> {
+  const token = localStorage.getItem("id_token");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/v1/work-items/${workItemId}/attachments`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore nel caricamento dell'allegato"));
+  }
+  return res.json();
+}
+
+export async function getWorkItemAttachmentDownloadUrlApi(
+  workItemId: number,
+  attachmentId: number
+): Promise<WorkItemAttachmentDownload> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}/download`
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile scaricare l'allegato"));
+  }
+  return res.json();
+}
+
+export async function updateWorkItemAttachmentApi(
+  workItemId: number,
+  attachmentId: number,
+  body: { label: string | null }
+): Promise<WorkItemAttachment> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile rinominare l'allegato"));
+  }
+  return res.json();
+}
+
+export async function deleteWorkItemAttachmentApi(
+  workItemId: number,
+  attachmentId: number
+): Promise<void> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok && res.status !== 204) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile eliminare l'allegato"));
+  }
 }
 
 /** Merge (shallow) delle impostazioni per-task, es. { trello_sync: { enabled, direction } }. */

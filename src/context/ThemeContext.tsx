@@ -6,6 +6,8 @@ interface ThemeContextValue {
   theme: Theme;
   /** `origin` = punto di partenza del reveal circolare (di norma le coordinate del click). */
   toggleTheme: (origin?: { x: number; y: number }) => void;
+  /** Applica un tema direttamente, senza animazione (sync dal DB, cambio azienda). */
+  applyTheme: (theme: Theme) => void;
 }
 
 type DocumentWithViewTransition = Document & {
@@ -69,8 +71,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const applyTheme = (next: Theme) => {
+    effectiveTheme.current = next;
+    setTheme(next);
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, applyTheme }}>
       {children}
     </ThemeContext.Provider>
   );

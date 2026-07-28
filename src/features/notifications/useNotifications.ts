@@ -13,7 +13,24 @@ import { API_BASE } from "../../api/auth";
 import { useBrand } from "../../context/BrandContext";
 import { DEFAULT_NOTIFICATION_PREFERENCES, type NotificationPreferences } from "./notificationPreferences";
 import type { NotifItem, NotifTabKey } from "./notificationsData";
+import { emitNotificationToast } from "./notificationToastBus";
 import { emitRealtime } from "../realtime/realtimeBus";
+
+/** Titolo/corpo dal payload SSE (fallback generico se non è JSON). */
+function parseNotifPayload(ev?: MessageEvent): { title: string; body: string } {
+  let title = "Italia Digitale";
+  let body = "Hai una nuova notifica";
+  try {
+    if (ev?.data && ev.data !== "{}") {
+      const d = JSON.parse(ev.data);
+      title = d.title ?? title;
+      body = d.body ?? d.message ?? d.text ?? body;
+    }
+  } catch {
+    /* payload non JSON: resta il testo generico */
+  }
+  return { title, body };
+}
 
 const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni"];
 
@@ -35,6 +52,8 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
   // Notifiche push/desktop attive per l'utente + copia completa delle preferenze
   // (per attivarle/persisterle all'ingresso nel gestionale).
   const pushRef = useRef(true);
+  // Toast in-app quando la scheda è attiva.
+  const toastRef = useRef(true);
   const prefsRef = useRef<NotificationPreferences | null>(null);
   const companySoundRef = useRef<{ enabled: boolean; url: string | null }>({ enabled: true, url: null });
   // Singolo elemento Audio precaricato e riusato (più affidabile di new Audio() ogni volta).
@@ -60,10 +79,12 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
         prefsRef.current = p;
         userSoundRef.current = p.sound_enabled;
         pushRef.current = p.push_enabled;
+        toastRef.current = p.toast_enabled ?? true;
       })
       .catch(() => {
         userSoundRef.current = true;
         pushRef.current = true;
+        toastRef.current = true;
       });
   }, []);
 
@@ -83,23 +104,18 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
     }
   }, []);
 
-  // Notifica desktop di sistema quando la scheda è in background (con suono del SO),
-  // altrimenti suono in-app. Rispetta la preferenza utente (silent) per l'audio.
+  // Notifica desktop di sistema quando l'utente NON sta guardando il gestionale:
+  // scheda nascosta oppure finestra visibile ma senza focus (sta lavorando altrove).
+  // Il solo document.hidden non basta su desktop: con l'app in una finestra propria
+  // ma non a fuoco resta false e il toast di sistema non partirebbe mai.
+  // Se invece la scheda è attiva e a fuoco: solo suono in-app.
   const showNotification = useCallback((ev?: MessageEvent) => {
     const canDesktop =
       pushRef.current && typeof Notification !== "undefined" && Notification.permission === "granted";
-    if (typeof document !== "undefined" && document.hidden && canDesktop) {
-      let title = "Italia Digitale";
-      let body = "Hai una nuova notifica";
-      try {
-        if (ev?.data && ev.data !== "{}") {
-          const d = JSON.parse(ev.data);
-          title = d.title ?? title;
-          body = d.body ?? d.message ?? d.text ?? body;
-        }
-      } catch {
-        /* payload non JSON: resta il testo generico */
-      }
+    const isAway =
+      typeof document !== "undefined" && (document.hidden || !document.hasFocus());
+    const { title, body } = parseNotifPayload(ev);
+    if (isAway && canDesktop) {
       try {
         const n = new Notification(title, {
           body,
@@ -114,6 +130,8 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
         /* Notification non disponibile: ignora */
       }
     } else {
+      // Scheda attiva: toast in-app (che poi "vola" nella campanella) + suono.
+      if (toastRef.current) emitNotificationToast({ title, body });
       playSound();
     }
   }, [playSound]);

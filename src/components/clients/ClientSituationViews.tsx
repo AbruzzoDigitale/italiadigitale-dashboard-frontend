@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { ClientSituationItem, ClientSituationContract, ClientSituationQuote } from "../../api/clients";
 import { CONTRACT_STAGE_LABELS, type ContractCommercialStage } from "../../api/contracts";
 import { Icon } from "../ui/Icon";
+import { DropdownMenu, type DropdownMenuItem } from "../ui/DropdownMenu";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,10 @@ interface ViewCallbacks {
   onOpenWorkItems: (id: number) => void;
   copyContact: (value: string, msg: string) => void;
   primaryStatusOf: (c: ClientSituationItem) => PrimaryStatus;
+  // Archiviazione/ripristino dell'intera situazione cliente. Opzionali: se
+  // assenti, il menu ⋯ sulla card non compare.
+  onArchiveClient?: (c: ClientSituationItem) => void;
+  onUnarchiveClient?: (c: ClientSituationItem) => void;
 }
 
 // ── Deal card (stile prototipo .cs-deal) ────────────────────────────────────
@@ -208,6 +213,8 @@ function ClientHeader({ c, cb }: { c: ClientSituationItem; cb: ViewCallbacks }) 
         </div>
       </div>
       <div className="cs-head-side">
+        <ClientCardMenu c={c} cb={cb} />
+        {c.is_archived && <span className="cs-archived-badge" title="Situazione archiviata">Archiviata</span>}
         <span className={"cs-type " + typeClass(c.payment_type)}>{typeLabel(c)}</span>
         {primary && (
           <span className="cs-banner">
@@ -231,6 +238,33 @@ function StatGrid({ c }: { c: ClientSituationItem }) {
   );
 }
 
+// ── Menu azioni situazione cliente (⋯) ──────────────────────────────────────
+
+function ClientCardMenu({ c, cb }: { c: ClientSituationItem; cb: ViewCallbacks }) {
+  const archived = !!c.is_archived;
+  const items: DropdownMenuItem[] = [
+    archived
+      ? cb.onUnarchiveClient && {
+          key: "unarchive",
+          label: "Ripristina situazione",
+          icon: "refresh-cw",
+          onClick: () => cb.onUnarchiveClient?.(c),
+        }
+      : cb.onArchiveClient && {
+          key: "archive",
+          label: "Archivia situazione",
+          icon: "eye-off",
+          onClick: () => cb.onArchiveClient?.(c),
+        },
+  ].filter(Boolean) as DropdownMenuItem[];
+  if (items.length === 0) return null;
+  return (
+    <span className="cs-card-menu" onClick={(e) => e.stopPropagation()}>
+      <DropdownMenu items={items} label="Azioni situazione cliente" size="sm" align="right" />
+    </span>
+  );
+}
+
 // ── Viste ───────────────────────────────────────────────────────────────────
 
 export function SituationViews({
@@ -242,11 +276,22 @@ export function SituationViews({
   onOpenWorkItems,
   copyContact,
   primaryStatusOf,
+  onArchiveClient,
+  onUnarchiveClient,
 }: {
   clients: ClientSituationItem[];
   viewMode: "grid" | "list" | "compact";
 } & ViewCallbacks) {
-  const cb: ViewCallbacks = { onOpenClient, onOpenContract, onOpenQuote, onOpenWorkItems, copyContact, primaryStatusOf };
+  const cb: ViewCallbacks = {
+    onOpenClient,
+    onOpenContract,
+    onOpenQuote,
+    onOpenWorkItems,
+    copyContact,
+    primaryStatusOf,
+    onArchiveClient,
+    onUnarchiveClient,
+  };
   const openClient = (e: React.MouseEvent, c: ClientSituationItem) => {
     if (isInteractive(e.target)) return;
     onOpenClient(c);
@@ -260,6 +305,10 @@ export function SituationViews({
           const deal = c.contracts?.[0] ?? c.quotes?.[0];
           return (
             <div key={c.id} className="cs-mini" tabIndex={0} onClick={(e) => openClient(e, c)}>
+              <div className="cs-mini-actions">
+                {c.is_archived && <span className="cs-archived-badge sm" title="Situazione archiviata">Arch.</span>}
+                <ClientCardMenu c={c} cb={cb} />
+              </div>
               <div className="cs-mini-name" title={c.name}>{c.name}</div>
               <div className="cs-ref"><b>Referente:</b> {c.contact || "n/d"}</div>
               {c.email && (
@@ -310,6 +359,8 @@ export function SituationViews({
                 </div>
               </div>
               <div className="cs-row-side">
+                <ClientCardMenu c={c} cb={cb} />
+                {c.is_archived && <span className="cs-archived-badge" title="Situazione archiviata">Archiviata</span>}
                 <span className={"cs-type " + typeClass(c.payment_type)}>{typeLabel(c)}</span>
                 {primaryStatusOf(c) && <span className="cs-banner">Stato: {primaryStatusOf(c)!.label}</span>}
                 {(c.monthly_amount ?? 0) > 0 && <span className="cs-canone">Canone</span>}

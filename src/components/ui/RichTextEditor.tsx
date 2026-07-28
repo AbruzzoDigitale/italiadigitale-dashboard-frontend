@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "./Icon";
+
+interface AttachmentPickerOption {
+  id: number;
+  name: string;
+}
 
 interface RichTextEditorProps {
   label?: string;
@@ -10,6 +16,11 @@ interface RichTextEditorProps {
   className?: string;
   /** Sfondo trasparente + testo scuro (es. dentro una sticky note colorata). */
   transparent?: boolean;
+  /** Se presente, mostra un pulsante "Allega" per inserire un badge file nel testo. */
+  attachmentPicker?: {
+    options: AttachmentPickerOption[];
+    emptyHint?: string;
+  };
 }
 
 interface RichTextCommand {
@@ -124,6 +135,7 @@ export function RichTextEditor({
   minHeightClassName = "min-h-[132px]",
   className,
   transparent = false,
+  attachmentPicker,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -131,6 +143,7 @@ export function RichTextEditor({
   const linkRangeRef = useRef<Range | null>(null);
   const [linkTooltipOpen, setLinkTooltipOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   // Modifica di un link ESISTENTE: popover posizionato sotto il link cliccato.
   const editAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const editLinkInputRef = useRef<HTMLInputElement | null>(null);
@@ -164,6 +177,16 @@ export function RichTextEditor({
     editLinkInputRef.current?.focus();
     editLinkInputRef.current?.select();
   }, [linkEdit]);
+
+  // Chiudi il menu allegati cliccando fuori dall'editor.
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) setAttachMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [attachMenuOpen]);
 
   const emitChange = () => {
     const next = sanitizeRichTextHtml(editorRef.current?.innerHTML ?? "");
@@ -225,6 +248,27 @@ export function RichTextEditor({
     restoreSelectionRange();
     runCommand("createLink", url);
     closeLinkTooltip();
+  };
+
+  const openAttachMenu = () => {
+    if (disabled) return;
+    saveSelectionRange();
+    setAttachMenuOpen((prev) => !prev);
+  };
+
+  const insertAttachmentBadge = (option: AttachmentPickerOption) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    restoreSelectionRange();
+    const safeName = escapeHtml(option.name);
+    // contenteditable=false: il chip è atomico; sanitizeRichTextHtml lo preserva.
+    const badge =
+      `<span class="wi-attach-badge" data-attachment-id="${option.id}" ` +
+      `contenteditable="false">${safeName}</span> `;
+    document.execCommand("insertHTML", false, badge);
+    emitChange();
+    setAttachMenuOpen(false);
   };
 
   // Rileva se il cursore/selezione è dentro un link e, in tal caso, apre il
@@ -370,6 +414,45 @@ export function RichTextEditor({
               </div>
             ) : null}
           </div>
+
+          {attachmentPicker ? (
+            <div className="relative">
+              <button
+                type="button"
+                disabled={disabled}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openAttachMenu}
+                className={toolbarBtnCls}
+                aria-label="Inserisci allegato"
+                title="Inserisci un file allegato"
+              >
+                <Icon name="paperclip" className="h-3.5 w-3.5" />
+              </button>
+
+              {attachMenuOpen ? (
+                <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-64 w-64 overflow-y-auto rounded-md border border-line bg-paper p-1 shadow-lg dark:border-line-dark dark:bg-[#1b1b1f]">
+                  {attachmentPicker.options.length === 0 ? (
+                    <p className="px-2 py-2 text-[11px] text-muted dark:text-muted-dark">
+                      {attachmentPicker.emptyHint ?? "Nessun file caricato da inserire."}
+                    </p>
+                  ) : (
+                    attachmentPicker.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => insertAttachmentBadge(option)}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-ink hover:bg-cream dark:text-paper dark:hover:bg-[#131316]"
+                      >
+                        <Icon name="paperclip" className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{option.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div

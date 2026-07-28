@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "../../ui/Icon";
 import { clampRect, DEFAULT_COLS, gridRows, reflow, type Rect } from "./gridEngine";
 import { getWidgetDef } from "../widgets/registry";
+import { WidgetHostProvider } from "../widgets/WidgetHostContext";
 import type { WidgetInstance } from "../widgets/types";
 
 const COLS = DEFAULT_COLS;
@@ -268,7 +269,11 @@ export function DashboardGrid({ items, editing, onLayoutChange, onRemove, onConf
 
                 <div className="min-h-0 flex-1 overflow-hidden">
                   {def ? (
-                    def.render(it)
+                    <WidgetHostProvider
+                      value={{ editing, updateConfig: (patch) => onConfigChange?.(it.id, patch) }}
+                    >
+                      {def.render(it)}
+                    </WidgetHostProvider>
                   ) : (
                     <div className="flex h-full items-center justify-center p-4 text-center text-[12px] text-muted">
                       Widget sconosciuto: {it.type}

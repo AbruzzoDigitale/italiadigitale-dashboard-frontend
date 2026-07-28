@@ -9,6 +9,7 @@ import {
   sendTestEmailApi,
   type EmailAccount,
   type EmailAccountCreate,
+  type EmailAccountScope,
   type EmailSecurity,
   type IncomingProtocol,
 } from "../../api/emailAccounts";
@@ -28,6 +29,12 @@ interface Company extends CompanyLogoFields {
 interface Props {
   companies: Company[];
   defaultCompanyId: number | null;
+  /** "mine" (default) = mittenti personali dell'utente; "company" = mittenti aziendali condivisi (solo admin). */
+  scope?: EmailAccountScope;
+  /** Nasconde il selettore organizzazione (es. nel tab di configurazione aziendale). */
+  lockCompany?: boolean;
+  title?: string;
+  description?: string;
 }
 
 type FormKind = "google_app" | "generic";
@@ -69,7 +76,14 @@ function ProviderBadge({ a }: { a: EmailAccount }) {
   );
 }
 
-export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
+export function EmailAccountsSection({
+  companies,
+  defaultCompanyId,
+  scope = "mine",
+  lockCompany = false,
+  title = "Email di invio",
+  description = "Configura i mittenti da cui invierai email, per ciascuna organizzazione. Le credenziali sono cifrate.",
+}: Props) {
   const { theme } = useTheme();
   const toast = useToast();
   const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
@@ -86,7 +100,7 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
   const reload = (cid: number | null) => {
     if (cid == null) return;
     setLoading(true);
-    listEmailAccountsApi(cid)
+    listEmailAccountsApi(cid, scope)
       .then(setAccounts)
       .catch((e) => toast.error(e instanceof Error ? e.message : "Errore nel caricamento"))
       .finally(() => setLoading(false));
@@ -125,7 +139,7 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
     try {
       const { _kind, ...payload } = form;
       void _kind;
-      await createEmailAccountApi(companyId, payload);
+      await createEmailAccountApi(companyId, payload, scope);
       toast.success("Account email aggiunto");
       setForm(null);
       reload(companyId);
@@ -139,7 +153,7 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
   const onConnectGoogle = async () => {
     if (companyId == null) return;
     try {
-      const { authorize_url } = await googleAuthorizeApi(companyId, window.location.href);
+      const { authorize_url } = await googleAuthorizeApi(companyId, window.location.href, scope);
       window.location.href = authorize_url;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "OAuth Google non disponibile");
@@ -209,14 +223,14 @@ export function EmailAccountsSection({ companies, defaultCompanyId }: Props) {
   return (
     <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
       <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1" style={{ fontSize: "17px" }}>
-        Email di invio
+        {title}
       </h2>
       <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
-        Configura i mittenti da cui invierai email, per ciascuna organizzazione. Le credenziali sono cifrate.
+        {description}
       </p>
 
       {/* Selettore organizzazione */}
-      {companies.length > 1 && (
+      {!lockCompany && companies.length > 1 && (
         <div className="mb-5 flex flex-col gap-1">
           <label className={labelCls}>Organizzazione</label>
           <SearchableSelect

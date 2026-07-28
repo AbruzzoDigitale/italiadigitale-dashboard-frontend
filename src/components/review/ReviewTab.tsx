@@ -9,12 +9,14 @@ import {
   addReviewCommentApi,
   sendToClientApi,
   sendBackApi,
+  approveReviewApi,
   type ReviewComment,
   type ReviewCommentsResponse,
   type ReviewBadge,
   type ReviewSource,
 } from "../../api/reviewComments";
 import { subscribeRealtime } from "../../features/realtime/realtimeBus";
+import { formatDurationHuman } from "../../utils/duration";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scheda "Revisione" del modale Lavorazione.
@@ -49,9 +51,7 @@ function Svg({ name, w = 15 }: { name: IconName; w?: number }) {
 const BADGE_LABEL: Record<ReviewBadge, string> = { operatore: "Operatore", pm: "PM", cliente: "Cliente" };
 
 function fmtMin(m: number): string {
-  const h = Math.floor(m / 60);
-  const mm = Math.round(m % 60);
-  return h ? `${h}h ${String(mm).padStart(2, "0")}m` : `${mm} min`;
+  return formatDurationHuman(m / 60);
 }
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -100,6 +100,8 @@ export type ReviewTabHandle = {
   sendBack: () => Promise<void>;
   /** Salva tutto senza rimandare (ed eventualmente segna inviata al cliente). */
   saveConclude: () => Promise<void>;
+  /** Approvazione cliente (PED): torna in corso a peso ridotto (~10%), da programmare. */
+  approve: () => Promise<void>;
 };
 
 type ReviewTabProps = {
@@ -288,9 +290,31 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     }
   };
 
+  // Approvazione cliente (PED): non si completa (è completa solo quando programmata),
+  // torna in corso a peso ridotto (~10%) perché resta solo da programmare/pubblicare.
+  const doApprove = async () => {
+    if (!review) return;
+    setBusy(true);
+    try {
+      if (newDate && newDate !== (review.deadline_date ?? "")) {
+        await updateWorkItemApi(workItemId, { deadline_date: newDate });
+      }
+      await approveReviewApi(workItemId, { text: text.trim() || null });
+      setText("");
+      toast.success("Approvata dal cliente · torna in corso da programmare (10%).");
+      reload();
+      onSentBack?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useImperativeHandle(ref, () => ({
     sendBack: () => doSendBack(),
     saveConclude: () => doSaveConclude(),
+    approve: () => doApprove(),
   }));
 
   if (loading) return <div className="rv"><div className="rv-state">Caricamento revisione…</div></div>;
@@ -313,6 +337,9 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
         {review.review_stage ? <span className="rv-chip stage">Fase: {review.review_stage}</span> : null}
         {review.rework_count > 0 ? (
           <span className="rv-chip rework"><Svg name="rework" w={12} /> {review.rework_count} {review.rework_count === 1 ? "rimando" : "rimandi"}</span>
+        ) : null}
+        {review.client_approved_at ? (
+          <span className="rv-chip approved"><Svg name="check" w={12} /> In pubblicazione</span>
         ) : null}
       </div>
 
@@ -527,6 +554,16 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
       </section>
         </>
       )}
+
+      {/* Approvazione cliente: disponibile quando il PED è in revisione cliente. Non
+          completa la task (lo è solo quando programmata): torna in corso al ~10%. */}
+      {canManage && review.status === "review" && review.review_stage === "cliente" ? (
+        <div className="rv-submitbar">
+          <button className="rv-btn primary rv-submit" onClick={() => void doApprove()} disabled={busy}>
+            <Svg name="check" /> Approva (cliente) · da programmare
+          </button>
+        </div>
+      ) : null}
 
       {/* Pulsanti gemelli inline: solo dove non c'è un footer dedicato (es. modale Revisione). */}
       {renderActionsInline && canManage ? (

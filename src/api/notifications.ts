@@ -63,6 +63,7 @@ export interface CommunicationItem {
   work_area_id: number | null;
   work_area_name: string | null;
   target_user_ids: number[] | null;
+  author_user_id: number | null;
   author_name: string | null;
   created_at: string;
   time: string;

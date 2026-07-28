@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useDashboardLayout } from "../hooks/useDashboardLayout";
 import { KpiDataProvider, useKpiData } from "../components/dashboard/KpiDataContext";
 import { DashboardGrid } from "../components/dashboard/grid/DashboardGrid";
@@ -41,21 +42,24 @@ function buildDefaultWidgets(): WidgetInstance[] {
 
 export function DashboardHome() {
   const { activeCompanyId, user } = useAuth();
-  const privileged = !!(
-    user?.is_admin ||
-    user?.access_level === "project_manager" ||
-    user?.access_level === "admin"
-  );
+  // Azienda effettiva = quella selezionata a livello app (query ?company_id=),
+  // coerente con tutte le altre pagine; fallback all'azienda attiva/di default.
+  const { selectedCompanyId } = useSelectedCompanyId(activeCompanyId ?? user?.company_id ?? null);
+  const isAdmin = !!(user?.is_admin || user?.access_level === "admin");
+  const isPm = !isAdmin && user?.access_level === "project_manager";
+  const privileged = isAdmin || isPm;
+  // I PM vedono solo le proprie aree e i relativi operatori; admin nessuna restrizione.
+  const managedAreaIds = isPm ? (user?.work_area_ids ?? []) : null;
   return (
-    <KpiDataProvider companyId={activeCompanyId} privileged={privileged} selfUserId={user?.id ?? null}>
-      <DashboardInner />
+    <KpiDataProvider companyId={selectedCompanyId} privileged={privileged} managedAreaIds={managedAreaIds}>
+      <DashboardInner companyId={selectedCompanyId} />
     </KpiDataProvider>
   );
 }
 
-function DashboardInner() {
-  const { user, activeCompanyId } = useAuth();
-  const { widgets, setWidgets, loaded, initialized } = useDashboardLayout(activeCompanyId);
+function DashboardInner({ companyId }: { companyId: number | null }) {
+  const { user } = useAuth();
+  const { widgets, setWidgets, loaded, initialized } = useDashboardLayout(companyId);
   const { reload, loading: kpiLoading } = useKpiData();
   const [editing, setEditing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -128,7 +132,7 @@ function DashboardInner() {
               Aggiungi widget
             </Button>
           )}
-          {activeCompanyId != null && (
+          {companyId != null && (
             <Button
               variant="secondary"
               size="sm"
@@ -174,10 +178,10 @@ function DashboardInner() {
             onConfigChange={handleConfigChange}
             reserved={noteRects}
           />
-          {activeCompanyId != null && (
+          {companyId != null && (
             <StickyNotesLayer
               ref={notesRef}
-              companyId={activeCompanyId}
+              companyId={companyId}
               editing={editing}
               widgets={effective}
               onNoteRectsChange={setNoteRects}

@@ -7,12 +7,19 @@ import {
   listWorkItemsApi,
   rescheduleNextAvailableWorkItemApi,
   updateWorkItemApi,
+  setAwaitingPublishApi,
   listWorkTagsApi,
   createTimeSlotApi,
   updateTimeSlotApi,
   deleteTimeSlotApi,
   isReviewSendBack,
+  uploadWorkItemAttachmentApi,
+  getWorkItemAttachmentDownloadUrlApi,
+  deleteWorkItemAttachmentApi,
+  updateWorkItemAttachmentApi,
+  attachmentDisplayName,
   type WorkItem,
+  type WorkItemAttachment,
   type WorkItemStatus,
   type UrgencyLevel,
   type LeftBehindReason,
@@ -27,6 +34,7 @@ import {
   checkWorkItemOverbookingApi,
   type OverbookingCheckResponse,
 } from "../../api/workload";
+import { getWorkloadWeightsApi } from "../../api/workloadWeights";
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { getUsersApi, type User } from "../../api/users";
 import { getClientsApi, type Client } from "../../api/clients";
@@ -41,6 +49,7 @@ import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
 import { EstimatedHoursField } from "../ui/EstimatedHoursField";
 import { LoadWeightField } from "../ui/LoadWeightField";
+import { formatDurationHuman } from "../../utils/duration";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { Checkbox } from "../ui/Checkbox";
@@ -361,7 +370,14 @@ const EMPTY_SLOT: SlotFormState = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtHours(n: number): string {
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function workItemEventLabel(eventType: string, fieldName?: string | null): string {
@@ -567,6 +583,12 @@ export function WorkItemFormModal({
 }: WorkItemFormModalProps) {
   const toast = useToast();
   const hydratedFormKeyRef = useRef<string | null>(null);
+  // Allegati (file su cloud storage). In modifica si caricano subito; in creazione
+  // restano "in attesa" e vengono caricati dopo il salvataggio della task.
+  const [attachments, setAttachments] = useState<WorkItemAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   // Traccia per quale task è già stata applicata l'apertura automatica sulla scheda Revisione.
   const reviewTabAppliedForRef = useRef<number | null>(null);
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(editingItem?.id ?? null);
@@ -760,6 +782,91 @@ export function WorkItemFormModal({
     setReviewerUserId(sourceItem?.reviewer_user_id ?? null);
   }, [open, activeWorkItemId, sourceItem?.reviewer_user_id]);
 
+  // "In pubblicazione": spunta generica (azione immediata, non parte del salvataggio form).
+  const [awaitingPublish, setAwaitingPublish] = useState(false);
+  const [awaitingPublishBusy, setAwaitingPublishBusy] = useState(false);
+  // Config aziendale del peso "In pubblicazione": default % + se bloccato (permanente).
+  const [awaitingPublishLocked, setAwaitingPublishLocked] = useState(false);
+  const [awaitingPublishDefaultPct, setAwaitingPublishDefaultPct] = useState(10);
+  const [awaitingPublishPct, setAwaitingPublishPct] = useState("10");
+  useEffect(() => {
+    const on = !!sourceItem?.client_approved_at;
+    setAwaitingPublish(on);
+    if (on && sourceItem?.load_weight_factor != null) {
+      setAwaitingPublishPct(String(Math.round(sourceItem.load_weight_factor * 100)));
+    }
+  }, [open, activeWorkItemId, sourceItem?.client_approved_at, sourceItem?.load_weight_factor]);
+  useEffect(() => {
+    if (!open || !companyId) return;
+    let cancelled = false;
+    getWorkloadWeightsApi(companyId)
+      .then((cfg) => {
+        if (cancelled) return;
+        const s = cfg.situations.find((x) => x.key === "awaiting_publish");
+        if (!s) return;
+        setAwaitingPublishLocked(s.locked);
+        setAwaitingPublishDefaultPct(Math.round(s.default_factor * 100));
+        // Se la task non è ancora in pubblicazione, precompila con il default aziendale.
+        if (!sourceItem?.client_approved_at) {
+          setAwaitingPublishPct(String(Math.round(s.factor * 100)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, companyId, sourceItem?.client_approved_at]);
+
+  const pctToFactor = (pct: string): number => {
+    const n = Number(pct);
+    if (!Number.isFinite(n)) return awaitingPublishDefaultPct / 100;
+    return Math.max(0, Math.min(3, n / 100));
+  };
+
+  const toggleAwaitingPublish = async (on: boolean) => {
+    if (!sourceItem) return;
+    setAwaitingPublish(on); // ottimistico
+    setAwaitingPublishBusy(true);
+    try {
+      // Se bloccato (permanente) il backend forza il default: non inviare il fattore.
+      const factor = on && !awaitingPublishLocked ? pctToFactor(awaitingPublishPct) : undefined;
+      const updated = await setAwaitingPublishApi(sourceItem.id, on, factor);
+      setAwaitingPublish(!!updated.client_approved_at);
+      if (updated.load_weight_factor != null) {
+        setAwaitingPublishPct(String(Math.round(updated.load_weight_factor * 100)));
+      }
+      toast.success(
+        on
+          ? `Messa in pubblicazione · torna in corso al ${Math.round((updated.load_weight_factor ?? 0.1) * 100)}%.`
+          : "Rimossa da 'In pubblicazione'.",
+      );
+      onSaved?.(updated);
+    } catch (e) {
+      setAwaitingPublish(!on); // rollback
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setAwaitingPublishBusy(false);
+    }
+  };
+
+  // Applica un peso personalizzato (override PM) mentre è già "In pubblicazione".
+  const commitAwaitingPublishPct = async () => {
+    if (!sourceItem || !awaitingPublish || awaitingPublishLocked) return;
+    setAwaitingPublishBusy(true);
+    try {
+      const updated = await setAwaitingPublishApi(sourceItem.id, true, pctToFactor(awaitingPublishPct));
+      if (updated.load_weight_factor != null) {
+        setAwaitingPublishPct(String(Math.round(updated.load_weight_factor * 100)));
+      }
+      toast.success(`Peso aggiornato · ${Math.round((updated.load_weight_factor ?? 0.1) * 100)}% del carico.`);
+      onSaved?.(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setAwaitingPublishBusy(false);
+    }
+  };
+
   // Preselezione in CREAZIONE: operatore corrente + sue aree di lavoro, ma:
   // - solo se l'operatore appartiene all'azienda visualizzata (è tra gli utenti caricati);
   // - limitando le aree a quelle dell'azienda visualizzata (intersezione con le opzioni).
@@ -871,6 +978,9 @@ export function WorkItemFormModal({
           .map((resource) => ({ type: resource.type, title: resource.title, url: resource.url })),
       });
       setSlots(isInstantiateMode ? [] : (baseItem.time_slots ?? []));
+      // Allegati: gli istanziati/da-modello partono senza (il file è della task sorgente).
+      setAttachments(sourceItem && !isInstantiateMode ? (baseItem.attachments ?? []) : []);
+      setPendingFiles([]);
       // task esistente → parti in anteprima (lettura); i campi vuoti restano in modifica
       setDescEditing(!(baseItem.description ?? "").trim());
       setTitleEditing(!(baseItem.title ?? "").trim());
@@ -889,6 +999,8 @@ export function WorkItemFormModal({
       // delle opzioni dell'azienda, così le aree sono filtrate su quella visualizzata.
       autofilledRef.current = false;
       setSlots([]);
+      setAttachments([]);
+      setPendingFiles([]);
       setDescEditing(true);
       setTitleEditing(true);
       setClientEditing(true);
@@ -1178,6 +1290,20 @@ export function WorkItemFormModal({
       } else {
         createdItem = await createWorkItemApi(payload);
         toast.success("Lavorazione creata");
+      }
+
+      // Allegati messi in attesa durante la creazione: caricali sulla nuova task.
+      if (createdItem && pendingFiles.length) {
+        let failed = 0;
+        for (const file of pendingFiles) {
+          try {
+            await uploadWorkItemAttachmentApi(createdItem.id, file);
+          } catch {
+            failed += 1;
+          }
+        }
+        setPendingFiles([]);
+        if (failed) toast.error(`${failed} allegato/i non caricati`);
       }
 
       // Dopo la creazione, verifica se l'operatore assegnato va in overbooking:
@@ -1486,6 +1612,84 @@ export function WorkItemFormModal({
       ...current,
       resources: current.resources.map((resource, i) => (i === index ? { ...resource, title } : resource)),
     }));
+  };
+
+  // ── Allegati (file) handlers
+  const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("File troppo grande (max 20 MB)");
+      return;
+    }
+    if (sourceItem) {
+      // Task esistente: carico subito.
+      setAttachmentUploading(true);
+      try {
+        const created = await uploadWorkItemAttachmentApi(sourceItem.id, file);
+        setAttachments((prev) => [...prev, created]);
+        toast.success("Allegato caricato");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Errore caricamento allegato");
+      } finally {
+        setAttachmentUploading(false);
+      }
+    } else {
+      // Task nuova: tengo il file in attesa, verrà caricato dopo il salvataggio.
+      setPendingFiles((prev) => [...prev, file]);
+    }
+  };
+
+  const handleAttachmentDownload = async (attachment: WorkItemAttachment) => {
+    if (!sourceItem) return;
+    try {
+      const { url } = await getWorkItemAttachmentDownloadUrlApi(sourceItem.id, attachment.id);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore download allegato");
+    }
+  };
+
+  // Scarica per id: usato dai badge nella descrizione (l'allegato potrebbe
+  // essere stato eliminato → la 404 viene gestita con un toast).
+  const downloadAttachmentById = async (attachmentId: number) => {
+    if (!sourceItem) return;
+    try {
+      const { url } = await getWorkItemAttachmentDownloadUrlApi(sourceItem.id, attachmentId);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Allegato non disponibile");
+    }
+  };
+
+  const handleAttachmentDelete = async (attachment: WorkItemAttachment) => {
+    if (!sourceItem) return;
+    if (!window.confirm(`Eliminare l'allegato "${attachment.original_filename}"?`)) return;
+    try {
+      await deleteWorkItemAttachmentApi(sourceItem.id, attachment.id);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore eliminazione allegato");
+    }
+  };
+
+  const handleAttachmentLabelSave = async (attachment: WorkItemAttachment, rawLabel: string) => {
+    if (!sourceItem) return;
+    const nextLabel = rawLabel.trim() || null;
+    if ((attachment.label ?? null) === nextLabel) return;
+    try {
+      const updated = await updateWorkItemAttachmentApi(sourceItem.id, attachment.id, {
+        label: nextLabel,
+      });
+      setAttachments((prev) => prev.map((a) => (a.id === attachment.id ? updated : a)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore rinomina allegato");
+    }
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   // ── Slot handlers
@@ -1968,21 +2172,38 @@ export function WorkItemFormModal({
     <SectionCard
       icon="link"
       title="Risorse / Collegamenti"
-      count={form.resources.length}
+      count={form.resources.length + attachments.length + pendingFiles.length}
       actions={
-        <button
-          type="button"
-          onClick={addResource}
-          className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted dark:text-paper dark:hover:text-muted-dark"
-        >
-          <Icon name="plus" className="h-3 w-3" />
-          Aggiungi risorsa
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={addResource}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted dark:text-paper dark:hover:text-muted-dark"
+          >
+            <Icon name="plus" className="h-3 w-3" />
+            Aggiungi risorsa
+          </button>
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleAttachmentSelect}
+          />
+          <button
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            disabled={attachmentUploading}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted disabled:opacity-50 dark:text-paper dark:hover:text-muted-dark"
+          >
+            <Icon name="upload" className="h-3 w-3" />
+            {attachmentUploading ? "Caricamento…" : "Allega file"}
+          </button>
+        </div>
       }
     >
-      {form.resources.length === 0 ? (
+      {form.resources.length === 0 && attachments.length === 0 && pendingFiles.length === 0 ? (
         <p className="text-sm text-muted dark:text-muted-dark">
-          Nessuna risorsa. Aggiungi link a Canva, Google Drive, percorsi NAS o altri collegamenti.
+          Nessuna risorsa. Aggiungi link (Canva, Drive, NAS…) o allega un file.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -2022,6 +2243,77 @@ export function WorkItemFormModal({
                   <Icon name="trash" className="h-3.5 w-3.5" />
                 </button>
               </div>
+            </div>
+          ))}
+
+          {/* Allegati già caricati (task esistente) */}
+          {attachments.map((attachment) => (
+            <div
+              key={`attachment-${attachment.id}`}
+              className="flex items-center gap-2 rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]"
+            >
+              <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]">
+                <Icon name="document-text" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <input
+                  defaultValue={attachment.label ?? ""}
+                  onBlur={(event) => handleAttachmentLabelSave(attachment, event.target.value)}
+                  placeholder={attachment.original_filename}
+                  aria-label="Etichetta / nome mostrato"
+                  title="Nome mostrato (etichetta). Vuoto = nome del file."
+                  className="w-full rounded-md border border-line bg-paper px-2 py-1 text-sm font-semibold text-ink outline-none focus:border-ink dark:border-line-dark dark:bg-[#131316] dark:text-paper dark:focus:border-paper"
+                />
+                <p className="mt-0.5 truncate text-[11px] text-muted dark:text-muted-dark">
+                  {attachment.original_filename} · {formatAttachmentSize(attachment.size_bytes)}
+                  {attachment.uploaded_by_name ? ` · ${attachment.uploaded_by_name}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleAttachmentDownload(attachment)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink hover:bg-cream dark:border-line-dark dark:text-paper dark:hover:bg-[#131316]"
+                aria-label="Scarica allegato"
+                title="Scarica"
+              >
+                <Icon name="download" className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAttachmentDelete(attachment)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
+                aria-label="Elimina allegato"
+                title="Elimina"
+              >
+                <Icon name="trash" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {/* File in attesa (task nuova, caricati al salvataggio) */}
+          {pendingFiles.map((file, index) => (
+            <div
+              key={`pending-${index}`}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-line bg-cream/50 p-3 dark:border-line-dark dark:bg-[#1c1c20]/50"
+            >
+              <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]">
+                <Icon name="document-text" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">{file.name}</p>
+                <p className="text-[11px] text-muted dark:text-muted-dark">
+                  {formatAttachmentSize(file.size)} · in attesa di salvataggio
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => removePendingFile(index)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
+                aria-label="Rimuovi file"
+                title="Rimuovi"
+              >
+                <Icon name="trash" className="h-3.5 w-3.5" />
+              </button>
             </div>
           ))}
         </div>
@@ -2159,7 +2451,14 @@ export function WorkItemFormModal({
             title="Clicca per modificare"
             className="min-h-[40px] cursor-text whitespace-pre-line break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
           >
-            <Linkify text={form.description} linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]" />
+            <Linkify
+              text={form.description}
+              linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]"
+              onAttachmentClick={downloadAttachmentById}
+              attachmentNames={Object.fromEntries(
+                attachments.map((a) => [a.id, attachmentDisplayName(a)])
+              )}
+            />
           </div>
         ) : (
           <RichTextEditor
@@ -2167,6 +2466,12 @@ export function WorkItemFormModal({
             onChange={(html) => updateForm("description", html)}
             placeholder="Descrizione opzionale…"
             minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
+            attachmentPicker={{
+              options: attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
+              emptyHint: sourceItem
+                ? "Carica un file nella sezione Risorse per poterlo inserire."
+                : "Salva la task e carica un file per poterlo inserire.",
+            }}
           />
         )}
       </div>
@@ -2446,6 +2751,47 @@ export function WorkItemFormModal({
             Task non derogabile
             <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_deadline_locked} />
           </label>
+
+          {sourceItem && (
+            <div className="flex flex-col gap-1.5">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+                <Checkbox
+                  checked={awaitingPublish}
+                  disabled={awaitingPublishBusy}
+                  onChange={(v) => void toggleAwaitingPublish(v)}
+                />
+                In pubblicazione
+                <span className="text-xs text-muted dark:text-muted-dark">
+                  (approvata/pronta ma non ancora pubblicata: torna in corso a peso ridotto, così non ci si scorda di pubblicarla)
+                </span>
+              </label>
+              {awaitingPublish && (
+                <div className="ml-6 flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+                  <span>Peso carico</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={300}
+                    step={5}
+                    value={awaitingPublishPct}
+                    disabled={awaitingPublishBusy || awaitingPublishLocked}
+                    onChange={(e) => setAwaitingPublishPct(e.target.value)}
+                    onBlur={() => void commitAwaitingPublishPct()}
+                    className="w-16 rounded border border-line bg-paper px-2 py-1 text-right text-ink disabled:opacity-50 dark:border-line-dark dark:bg-[#0E0F0E] dark:text-paper"
+                  />
+                  <span>%</span>
+                  {awaitingPublishLocked ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name="shield-check" className="h-3 w-3" />
+                      permanente (impostato dall'admin)
+                    </span>
+                  ) : (
+                    <span>· default {awaitingPublishDefaultPct}% · il PM può alzarlo se più complessa</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderRecurrenceSection()}

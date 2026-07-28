@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeCompanySync } from "./context/ThemeCompanySync";
 import { ToastProvider } from "./context/ToastContext";
 import { UndoProvider } from "./context/UndoContext";
 import { AuthProvider } from "./context/AuthContext";
@@ -10,6 +11,8 @@ import { useAuth } from "./hooks/useAuth";
 import { useSegmentedPills } from "./hooks/useSegmentedPills";
 import { FullPageSpinner } from "./components/ui/Spinner";
 import { LoginPage } from "./pages/LoginPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import ClientSignPage from "./pages/ClientSignPage";
 import { CompanyPickerPage } from "./pages/CompanyPickerPage";
 import { DashboardLayout } from "./layouts/DashboardLayout";
 import { MobileAppBanner } from "./components/MobileAppBanner";
@@ -70,11 +73,21 @@ function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAc
 function AppRoutes() {
   return (
     <Routes>
+      {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
+      <Route path="/firma/:token" element={<ClientSignPage />} />
       <Route
         path="/login"
         element={
           <PublicOnlyRoute>
             <LoginPage />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <PublicOnlyRoute>
+            <ResetPasswordPage />
           </PublicOnlyRoute>
         }
       />
@@ -138,6 +151,8 @@ export default function App() {
         <UndoProvider>
           <AuthProvider>
             <BrandProvider>
+              {/* Tema per utente × azienda dal DB (localStorage solo come cache). */}
+              <ThemeCompanySync />
               <AppRoutes />
               <MobileAppBanner />
             </BrandProvider>

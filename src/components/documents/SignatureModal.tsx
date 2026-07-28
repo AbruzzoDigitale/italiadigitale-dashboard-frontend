@@ -12,10 +12,11 @@ interface SignatureModalProps {
   onConfirm: (dataUrl: string) => void;
 }
 
-type Mode = "draw" | "upload";
+type Mode = "draw" | "type" | "upload";
 
 const CANVAS_W = 640;
 const CANVAS_H = 220;
+const SIGN_FONT_STACK = '"Snell Roundhand", "Segoe Script", "Brush Script MT", cursive';
 
 export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps) {
   const toast = useToast();
@@ -26,11 +27,13 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
 
   const [mode, setMode] = useState<Mode>("draw");
   const [uploaded, setUploaded] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setMode("draw");
     setUploaded(null);
+    setTyped("");
     hasStrokes.current = false;
     const canvas = canvasRef.current;
     if (canvas) {
@@ -111,7 +114,38 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
     reader.readAsDataURL(file);
   };
 
+  const typedToDataUrl = (): string | null => {
+    const text = typed.trim();
+    if (!text) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_W;
+    canvas.height = CANVAS_H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#101040";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    // Riduci il font se il nome è lungo, così sta nel riquadro.
+    let size = 96;
+    do {
+      ctx.font = `italic ${size}px ${SIGN_FONT_STACK}`;
+      size -= 4;
+    } while (ctx.measureText(text).width > CANVAS_W - 40 && size > 24);
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    return canvas.toDataURL("image/png");
+  };
+
   const handleConfirm = () => {
+    if (mode === "type") {
+      const url = typedToDataUrl();
+      if (!url) {
+        toast.error("Scrivi la firma");
+        return;
+      }
+      onConfirm(url);
+      onClose();
+      return;
+    }
     if (mode === "upload") {
       if (!uploaded) {
         toast.error("Carica un'immagine della firma");
@@ -137,7 +171,7 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
       open={open}
       onClose={onClose}
       title="Firma"
-      description="Disegna la firma o carica un'immagine con sfondo trasparente"
+      description="Disegna la firma, scrivila in corsivo o carica un'immagine"
       icon={<Icon name="pencil" className="w-5 h-5" />}
       size="lg"
       footer={
@@ -157,11 +191,36 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
           onChange={setMode}
           options={[
             { value: "draw", label: "Disegna" },
-            { value: "upload", label: "Carica immagine" },
+            { value: "type", label: "Scrivi" },
+            { value: "upload", label: "Carica" },
           ]}
         />
 
-        {mode === "draw" ? (
+        {mode === "type" && (
+          <div className="space-y-2">
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="Scrivi il tuo nome e cognome"
+              autoFocus
+              className="w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm outline-none focus:border-ink dark:border-line-dark dark:bg-ink-2 dark:focus:border-paper"
+            />
+            <div
+              className="flex h-[140px] items-center justify-center rounded-lg border border-line bg-white dark:border-line-dark"
+              style={{ fontFamily: SIGN_FONT_STACK, fontStyle: "italic", fontSize: 56, color: "#101040" }}
+            >
+              {typed.trim() ? (
+                typed
+              ) : (
+                <span className="text-[13px] not-italic text-muted" style={{ fontFamily: "inherit" }}>
+                  Anteprima firma
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode === "draw" && (
           <div className="space-y-2">
             <canvas
               ref={canvasRef}
@@ -180,7 +239,9 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
               </Button>
             </div>
           </div>
-        ) : (
+        )}
+
+        {mode === "upload" && (
           <div className="space-y-2">
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
             <button

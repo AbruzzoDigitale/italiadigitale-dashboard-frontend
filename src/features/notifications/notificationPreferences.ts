@@ -22,6 +22,8 @@ export interface NotificationPreferences {
   push_enabled: boolean;
   /** Suono notifiche (il file è scelto a livello azienda dall'admin). */
   sound_enabled: boolean;
+  /** Toast in-app all'arrivo di una notifica mentre stai usando il gestionale. */
+  toast_enabled: boolean;
   /** Non disturbare in una fascia oraria. */
   quiet_hours_enabled: boolean;
   quiet_hours_start: string; // "HH:MM"
@@ -56,6 +58,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   email_enabled: false,
   push_enabled: true,
   sound_enabled: true,
+  toast_enabled: true,
   quiet_hours_enabled: false,
   quiet_hours_start: "20:00",
   quiet_hours_end: "08:00",

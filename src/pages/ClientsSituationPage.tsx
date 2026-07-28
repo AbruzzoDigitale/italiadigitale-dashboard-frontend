@@ -6,6 +6,8 @@ import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import {
   getClientApi,
   getClientsApi,
+  archiveClientSituationApi,
+  unarchiveClientSituationApi,
   type Client as CompanyClient,
   type Client,
   type ClientPostSalesSituationItem,
@@ -373,6 +375,10 @@ export function ClientsSituationPage() {
   const [companyClients, setCompanyClients] = useState<CompanyClient[]>([]);
   const [companyClientsLoading, setCompanyClientsLoading] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
+  // Conferma per archiviazione della situazione cliente (nasconde la card).
+  const [archiveClientTarget, setArchiveClientTarget] = useState<{ id: number; name: string } | null>(null);
+  const [archiveClientLoading, setArchiveClientLoading] = useState(false);
 
   const [clientDetailOpen, setClientDetailOpen] = useState(false);
   const [clientDetailTab, setClientDetailTab] = useState<ClientDetailTab>("client");
@@ -413,6 +419,7 @@ export function ClientsSituationPage() {
     work_area_ids: workAreaFilterIds.length > 0 ? workAreaFilterIds : undefined,
     engagement_types: engagementTypes.length > 0 ? engagementTypes : undefined,
     commercial_stages: selectedCommercialStages.length > 0 ? selectedCommercialStages : undefined,
+    include_archived: showArchived || undefined,
   }), [
     page,
     search,
@@ -421,6 +428,7 @@ export function ClientsSituationPage() {
     workAreaFilterIds,
     engagementTypes,
     selectedCommercialStages,
+    showArchived,
   ]);
 
   const {
@@ -826,6 +834,33 @@ export function ClientsSituationPage() {
     setCreateOpen(false);
   };
 
+  // Ripristino: azione non distruttiva, eseguita direttamente senza conferma.
+  const handleUnarchiveClient = async (client: ClientPostSalesSituationItem) => {
+    try {
+      await unarchiveClientSituationApi(client.id);
+      toast.success("Situazione ripristinata");
+      setReloadNonce((current) => current + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore ripristino situazione");
+    }
+  };
+
+  // Archiviazione: passa da un modale di conferma (nasconde la card dalla pagina).
+  const confirmArchiveClient = async () => {
+    if (!archiveClientTarget) return;
+    setArchiveClientLoading(true);
+    try {
+      await archiveClientSituationApi(archiveClientTarget.id);
+      toast.success("Situazione archiviata");
+      setArchiveClientTarget(null);
+      setReloadNonce((current) => current + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore archiviazione situazione");
+    } finally {
+      setArchiveClientLoading(false);
+    }
+  };
+
   const applyContractUpdateToClients = (updated: ContractDetailResponse) => {
     setClients((currentClients) => currentClients.map((client) => ({
       ...client,
@@ -958,7 +993,17 @@ export function ClientsSituationPage() {
           </div>
         </div>
 
-        <div className="mt-3 flex items-center justify-end">
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <label className="inline-flex items-center gap-2 text-sm text-ink dark:text-paper">
+            <Checkbox
+              checked={showArchived}
+              onChange={(checked) => {
+                setPage(1);
+                setShowArchived(checked);
+              }}
+            />
+            Mostra archiviate
+          </label>
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
@@ -1011,6 +1056,8 @@ export function ClientsSituationPage() {
               onOpenWorkItems={openWorkItemsByContract}
               copyContact={copyContactValue}
               primaryStatusOf={(client) => getPrimaryStatus(client.contract_status_summary)}
+              onArchiveClient={(client) => setArchiveClientTarget({ id: client.id, name: client.name })}
+              onUnarchiveClient={handleUnarchiveClient}
             />
           )}
 
@@ -1448,6 +1495,35 @@ export function ClientsSituationPage() {
           setContractModalOpen(true);
         }}
       />
+
+      <Modal
+        open={archiveClientTarget != null}
+        onClose={() => {
+          if (!archiveClientLoading) setArchiveClientTarget(null);
+        }}
+        title="Archivia situazione cliente"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => setArchiveClientTarget(null)}
+              disabled={archiveClientLoading}
+            >
+              Annulla
+            </Button>
+            <Button variant="primary" onClick={confirmArchiveClient} loading={archiveClientLoading}>
+              Archivia
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink dark:text-paper">
+          Vuoi archiviare la situazione di <b>{archiveClientTarget?.name}</b>? La sua scheda verrà nascosta dalla pagina
+          Situazione clienti, ma potrai ritrovarla e ripristinarla attivando «Mostra archiviate». I dati (contratti,
+          preventivi, lavorazioni) non vengono toccati.
+        </p>
+      </Modal>
 
       {dragCount > 1 &&
         createPortal(

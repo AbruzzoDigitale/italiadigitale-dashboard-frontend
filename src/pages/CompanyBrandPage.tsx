@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { SignatureTemplateAdmin } from "../components/email/SignatureTemplateAdmin";
+import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { WorkloadWeightsSection } from "../components/workload/WorkloadWeightsSection";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import {
@@ -83,12 +85,13 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
+type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
   brand: "Brand",
   firma: "Firma",
+  email: "Email",
   media: "Media",
   settings: "Settings",
   operations: "Regole",
@@ -749,7 +752,20 @@ export function CompanyBrandPage() {
   const [cardStyle, setCardStyle] = useState<SocialPackageCardStyle>("sober");
   const [cardStyleOptions, setCardStyleOptions] = useState<CardStyleOption[]>([]);
   const [cardStyleSaving, setCardStyleSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<BrandTab>("login");
+  // Tab iniziale da ?tab= (serve al ritorno dall'OAuth Google del tab Email,
+  // che ricarica la pagina; rende anche i tab linkabili).
+  const [activeTab, setActiveTab] = useState<BrandTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t && (Object.keys(BRAND_TAB_LABELS) as string[]).includes(t) ? (t as BrandTab) : "login";
+  });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (activeTab === "login") params.delete("tab");
+    else params.set("tab", activeTab);
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, [activeTab]);
   const canEditSettings = !!user?.is_admin;
   const canManageRoles = !!permissions?.can_manage_roles || !!permissions?.is_admin;
 
@@ -1424,6 +1440,17 @@ export function CompanyBrandPage() {
 
         {activeTab === "firma" && <SignatureTemplateAdmin companyId={companyId} />}
 
+        {activeTab === "email" && (
+          <EmailAccountsSection
+            companies={[]}
+            defaultCompanyId={companyId}
+            scope="company"
+            lockCompany
+            title="Email aziendale"
+            description="Mittenti condivisi dell'organizzazione (es. info@): usati come mittente aziendale, indipendenti dagli account personali degli operatori. Le credenziali sono cifrate."
+          />
+        )}
+
         {activeTab === "media" && (
           <>
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
@@ -1805,6 +1832,8 @@ export function CompanyBrandPage() {
               </div>
             )}
           </div>
+
+          <WorkloadWeightsSection companyId={companyId} canEdit={canEditSettings} />
 
           </>
         )}

@@ -46,6 +46,15 @@ function walk(node: Node): string {
     if (child.nodeType !== 1) return;
     const el = child as HTMLElement;
     const tag = el.tagName.toLowerCase();
+    // Badge allegato: preservalo verbatim così rientrando nell'editor resta un chip.
+    const attachmentId = el.getAttribute("data-attachment-id");
+    if (tag === "span" && attachmentId) {
+      const name = el.textContent ?? "";
+      html +=
+        `<span class="wi-attach-badge" data-attachment-id="${esc(attachmentId)}" ` +
+        `contenteditable="false">${esc(name)}</span>`;
+      return;
+    }
     if (tag === "a") {
       const href = safeHref(el.getAttribute("href") || "");
       const label = el.textContent ?? "";

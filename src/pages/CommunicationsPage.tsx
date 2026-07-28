@@ -43,14 +43,15 @@ export function CommunicationsPage() {
   const [areas, setAreas] = useState<WorkArea[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
-  const [scope, setScope] = useState<CommunicationScope>(isAdmin ? "globale" : "area");
+  const [scope, setScope] = useState<CommunicationScope>("globale");
   const [workAreaId, setWorkAreaId] = useState<number | null>(null);
   const [targetUserIds, setTargetUserIds] = useState<number[]>([]);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
 
-  const scopeOptions: CommunicationScope[] = isAdmin ? ["globale", "area", "operatore"] : ["area"];
+  // Admin e PM hanno gli stessi poteri di invio.
+  const scopeOptions: CommunicationScope[] = ["globale", "area", "operatore"];
 
   const reload = async () => {
     if (companyId == null) return;
@@ -226,14 +227,17 @@ export function CommunicationsPage() {
                     <Icon name="check-circle" className="h-3.5 w-3.5 text-success" />
                     {c.read_count}/{c.recipients_count} lette
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(c.id)}
-                    title="Elimina"
-                    className="text-muted hover:text-danger dark:text-muted-dark"
-                  >
-                    <Icon name="trash" className="h-4 w-4" />
-                  </button>
+                  {/* PM: può eliminare solo le proprie comunicazioni (regola backend). */}
+                  {(isAdmin || c.author_user_id === user?.id) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(c.id)}
+                      title="Elimina"
+                      className="text-muted hover:text-danger dark:text-muted-dark"
+                    >
+                      <Icon name="trash" className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

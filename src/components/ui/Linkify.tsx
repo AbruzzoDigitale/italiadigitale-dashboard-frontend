@@ -31,6 +31,8 @@ function splitTrailing(url: string): [string, string] {
 interface Ctx {
   key: number;
   cls: string;
+  onAttachmentClick?: (attachmentId: number) => void;
+  attachmentNames?: Record<number, string>;
 }
 
 // Testo semplice → nodi (Markdown link, URL nudi, <br> letterale).
@@ -80,6 +82,35 @@ function htmlToNodes(html: string, ctx: Ctx): ReactNode[] {
       const el = child as HTMLElement;
       const tag = el.tagName.toLowerCase();
 
+      // Badge allegato: chip cliccabile (scarica). Il nome segue il rename (mappa),
+      // con fallback al testo salvato nel badge.
+      const attachmentIdRaw = el.getAttribute("data-attachment-id");
+      if (tag === "span" && attachmentIdRaw) {
+        const id = Number(attachmentIdRaw);
+        const name = ctx.attachmentNames?.[id] ?? el.textContent ?? "allegato";
+        const clickable = Number.isFinite(id) && !!ctx.onAttachmentClick;
+        acc.push(
+          <span
+            key={ctx.key++}
+            className="wi-attach-badge"
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            title={clickable ? "Scarica allegato" : undefined}
+            onClick={
+              clickable
+                ? (e) => {
+                    e.stopPropagation();
+                    ctx.onAttachmentClick?.(id);
+                  }
+                : undefined
+            }
+          >
+            {name}
+          </span>
+        );
+        return;
+      }
+
       if (tag === "a") {
         const href = safeHref(el.getAttribute("href") || "");
         const inner: ReactNode[] = [];
@@ -127,14 +158,18 @@ interface LinkifyProps {
   text: string | null | undefined;
   /** Classi applicate agli <a> (colore/underline). */
   linkClassName?: string;
+  /** Se presente, i badge allegato diventano cliccabili (scarica). */
+  onAttachmentClick?: (attachmentId: number) => void;
+  /** Nome aggiornato per id allegato (riflette i rename); fallback = testo del badge. */
+  attachmentNames?: Record<number, string>;
 }
 
-export function Linkify({ text, linkClassName = "" }: LinkifyProps) {
+export function Linkify({ text, linkClassName = "", onAttachmentClick, attachmentNames }: LinkifyProps) {
   const nodes = useMemo(() => {
     const src = text ?? "";
-    const ctx: Ctx = { key: 0, cls: linkClassName };
+    const ctx: Ctx = { key: 0, cls: linkClassName, onAttachmentClick, attachmentNames };
     return HTML_RE.test(src) ? htmlToNodes(src, ctx) : tokenizeText(src, ctx);
-  }, [text, linkClassName]);
+  }, [text, linkClassName, onAttachmentClick, attachmentNames]);
 
   return <>{nodes}</>;
 }

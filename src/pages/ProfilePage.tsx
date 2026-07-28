@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { SecuritySection } from "../components/auth/SecuritySection";
 import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
 import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
 import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
@@ -274,6 +275,9 @@ export function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* Sicurezza: cambio password + passkey */}
+          <SecuritySection />
 
           {/* Email di invio (per organizzazione) */}
           <EmailAccountsSection companies={myCompanies} defaultCompanyId={activeCompanyId} />

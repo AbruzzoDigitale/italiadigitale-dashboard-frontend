@@ -779,9 +779,9 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                     if (isBreak) {
                       return (
                         <div key={key} className="wlcal-ev is-lunch" style={blockStyle}>
-                          <div className="wlcal-ev-client">{item.title || "Pausa"}</div>
+                          <div className="wlcal-ev-type">{item.title || "Pausa"}</div>
                           {!compact && item.start_time && item.end_time && (
-                            <div className="wlcal-ev-type">{item.start_time} – {item.end_time}</div>
+                            <div className="wlcal-ev-client">{item.start_time} – {item.end_time}</div>
                           )}
                         </div>
                       );
@@ -836,14 +836,12 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
                             {isDone ? "✓" : ""}
                           </button>
                         )}
+                        <div className="wlcal-ev-type">
+                          {resolveTimelineTaskTitle(item)}
+                        </div>
                         <div className="wlcal-ev-client">
                           {resolveTimelineClientLabel(item)}
                         </div>
-                        {!compact && (
-                          <div className="wlcal-ev-type">
-                            {resolveTimelineTaskTitle(item)}
-                          </div>
-                        )}
                         <div className="wlcal-ev-foot">
                           <span className="wlcal-ev-dur"><i />{formatHours(isOverdue ? effectiveHours : durationHours)}</span>
                           {scheduleState?.is_overdue && !isGhost && (
@@ -923,8 +921,8 @@ export const WorkloadCalendar = forwardRef<WorkloadCalendarHandle, WorkloadCalen
           }}
         >
           <div className="wlcal-drag-ghost__in">
-            <div className="wlcal-ev-client">{drag.label}</div>
             {drag.subtitle && <div className="wlcal-ev-type">{drag.subtitle}</div>}
+            <div className="wlcal-ev-client">{drag.label}</div>
             <div className="wlcal-ev-foot">
               <span className="wlcal-ev-dur"><i />{formatHours(drag.durationMinutes / 60)}</span>
             </div>

@@ -6,12 +6,13 @@ import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/wo
 import { type User } from "../../api/users";
 import { type WorkArea } from "../../api/workAreas";
 import { reworkSeverityClass } from "../../utils/rework";
+import { formatDurationHuman } from "../../utils/duration";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function fmtHours(n: number | null): string {
   if (n == null) return "—";
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
 }
 
 export function leftBehindReasonLabel(reason: LeftBehindReason | null): string {

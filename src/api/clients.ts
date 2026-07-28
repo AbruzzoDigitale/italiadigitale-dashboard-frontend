@@ -258,6 +258,8 @@ export interface ClientSituationItem {
   city?: string | null;
   prov?: string | null;
   company_id?: number | null;
+  /** true se la situazione cliente è archiviata (nascosta di default dalla pagina). */
+  is_archived?: boolean;
   tags?: ClientTagRef[];
   work_areas?: ClientWorkAreaRef[];
   active_contract_count: number;
@@ -325,6 +327,7 @@ export interface GetClientsSituationParams {
   work_area_ids?: number[];
   engagement_types?: Array<"one_time" | "ongoing">;
   commercial_stages?: ClientSituationCommercialStage[];
+  include_archived?: boolean;
 }
 
 export type ClientSituationEngagementType = "one_time" | "ongoing";
@@ -374,6 +377,7 @@ export interface GetPostSalesSituationParams {
   work_area_ids?: number[];
   engagement_types?: ClientSituationEngagementType[];
   commercial_stages?: ClientSituationCommercialStage[];
+  include_archived?: boolean;
 }
 
 export interface ClientPostSalesSituationResponse {
@@ -564,6 +568,7 @@ export async function getClientsSituationApi(
   params.work_area_ids?.forEach((id) => qs.append("work_area_ids", String(id)));
   params.engagement_types?.forEach((value) => qs.append("engagement_types", value));
   params.commercial_stages?.forEach((value) => qs.append("commercial_stages", value));
+  if (params.include_archived) qs.set("include_archived", "true");
 
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await authFetch(`${API_BASE}/api/v1/clients/post-sales/situation${suffix}`);
@@ -614,4 +619,26 @@ export async function getPostSalesSituationApi(
     total: response.total,
     total_pages: response.total_pages,
   };
+}
+
+export async function archiveClientSituationApi(clientId: number): Promise<Client> {
+  const res = await authFetch(`${API_BASE}/api/v1/clients/${clientId}/post-sales/archive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore archiviazione situazione cliente"));
+  }
+  return res.json();
+}
+
+export async function unarchiveClientSituationApi(clientId: number): Promise<Client> {
+  const res = await authFetch(`${API_BASE}/api/v1/clients/${clientId}/post-sales/unarchive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore ripristino situazione cliente"));
+  }
+  return res.json();
 }

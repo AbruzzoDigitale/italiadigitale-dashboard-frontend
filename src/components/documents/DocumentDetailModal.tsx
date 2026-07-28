@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addDocumentLinkApi,
   deleteDocumentApi,
   deleteTemplateFieldApi,
   getDocumentApi,
+  linkPartApi,
+  listDocumentsApi,
   listSourcePathsApi,
   removeDocumentLinkApi,
+  unlinkPartApi,
+  updatePartApi,
+  uploadPartApi,
   visualScanApi,
   updateDocumentApi,
   updateTemplateFieldApi,
@@ -14,6 +19,7 @@ import {
   type DocFieldType,
   type DocLinkEntityType,
   type DocumentDetail,
+  type DocumentPart,
   type SourcePathInfo,
   type TemplateField,
 } from "../../api/documents";
@@ -23,18 +29,27 @@ import { getQuotesApi } from "../../api/quotes";
 import { useToast } from "../../context/ToastContext";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { Checkbox } from "../ui/Checkbox";
 import { Icon } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { SearchableSelect, type SearchableSelectOption } from "../ui/SearchableSelect";
 import { Spinner } from "../ui/Spinner";
 import { openDocumentDownload, openDocumentPdfExport } from "./documentActions";
+import { FieldLayoutModal } from "./FieldLayoutModal";
+import { GenerateClientLinkModal } from "./GenerateClientLinkModal";
 
 const FIELD_TYPE_OPTIONS: SearchableSelectOption[] = [
   { value: "text", label: "Testo" },
   { value: "textarea", label: "Testo lungo" },
   { value: "date", label: "Data" },
   { value: "number", label: "Numero" },
+  { value: "signature", label: "Firma elettronica" },
+];
+
+const AUDIENCE_OPTIONS: SearchableSelectOption[] = [
+  { value: "client", label: "Cliente" },
+  { value: "internal", label: "Interno (azienda)" },
 ];
 
 const LINK_TYPE_OPTIONS: SearchableSelectOption[] = [
@@ -85,8 +100,22 @@ export function DocumentDetailModal({
 
   const [rescanLoading, setRescanLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [partUploading, setPartUploading] = useState(false);
+  const partInputRef = useRef<HTMLInputElement | null>(null);
+  const [libraryOptions, setLibraryOptions] = useState<SearchableSelectOption[]>([]);
+  const [linkPickerValue, setLinkPickerValue] = useState("");
+  const [clientLinkOpen, setClientLinkOpen] = useState(false);
+  const [fieldLayoutOpen, setFieldLayoutOpen] = useState(false);
 
-  const isTemplate = doc?.doc_type === "modello" || doc?.doc_type === "modello_contratto";
+  // Ordine locale delle parti (per il drag & drop, ottimistico).
+  const [orderedParts, setOrderedParts] = useState<DocumentPart[]>([]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  // I campi propri li hanno i modelli e le parti; il modello_contratto è un
+  // compositore (i campi stanno nelle parti collegate).
+  const isTemplate = doc?.doc_type === "modello" || doc?.doc_type === "parte_contratto";
+  const isComposite = doc?.doc_type === "modello_contratto";
 
   const reload = useCallback(async () => {
     if (documentId == null) return;
@@ -115,12 +144,36 @@ export function DocumentDetailModal({
     }
   }, [open, documentId, reload]);
 
+  // Ordine locale allineato al documento a ogni ricarica.
+  useEffect(() => {
+    setOrderedParts([...(doc?.parts ?? [])].sort((a, b) => a.sort_order - b.sort_order));
+  }, [doc]);
+
   useEffect(() => {
     if (!open || !isTemplate || sourcePaths.length) return;
     listSourcePathsApi()
       .then(setSourcePaths)
       .catch(() => setSourcePaths([]));
   }, [open, isTemplate, sourcePaths.length]);
+
+  // Libreria parti collegabili (documenti parte_contratto della stessa azienda,
+  // escluse quelle già collegate).
+  useEffect(() => {
+    if (!open || !doc || !isComposite) {
+      setLibraryOptions([]);
+      return;
+    }
+    const linkedIds = new Set(doc.parts.map((p) => p.part_document_id));
+    listDocumentsApi({ company_id: doc.company_id, doc_type: "parte_contratto", limit: 500 })
+      .then((docs) =>
+        setLibraryOptions(
+          docs
+            .filter((d) => !linkedIds.has(d.id))
+            .map((d) => ({ value: String(d.id), label: d.title, keywords: d.original_filename }))
+        )
+      )
+      .catch(() => setLibraryOptions([]));
+  }, [open, doc, isComposite]);
 
   // Opzioni entità per il nuovo collegamento (caricate al cambio tipo).
   useEffect(() => {
@@ -168,14 +221,23 @@ export function DocumentDetailModal({
     };
   }, [open, doc, linkType]);
 
-  const sourcePathOptions = useMemo<SearchableSelectOption[]>(() => {
-    const grouped = sourcePaths.map((p) => ({
-      value: p.path,
-      label: `${p.gruppo} · ${p.label}`,
-      keywords: p.path,
-    }));
+  // Gruppi di dati per ambito: un campo Cliente attinge a cliente/contratto/
+  // preventivo; un campo Interno (azienda) attinge ai dati dell'azienda.
+  const groupsForAudience = (audience: "client" | "internal"): Set<string> =>
+    audience === "internal"
+      ? new Set(["Azienda", "Generale"])
+      : new Set(["Cliente", "Contratto", "Preventivo", "Generale"]);
+
+  const groupOfPath = (path: string | null): string | undefined =>
+    path ? sourcePaths.find((p) => p.path === path)?.gruppo : undefined;
+
+  const sourceOptionsFor = (audience: "client" | "internal"): SearchableSelectOption[] => {
+    const allowed = groupsForAudience(audience);
+    const grouped = sourcePaths
+      .filter((p) => allowed.has(p.gruppo))
+      .map((p) => ({ value: p.path, label: `${p.gruppo} · ${p.label}`, keywords: p.path }));
     return [{ value: FREE_TEXT_VALUE, label: "Testo libero (inserimento manuale)" }, ...grouped];
-  }, [sourcePaths]);
+  };
 
   const notifyChanged = () => onChanged?.();
 
@@ -294,6 +356,93 @@ export function DocumentDetailModal({
     }
   };
 
+  const handleAddPart = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !doc) return;
+    if (!/\.(pdf|docx)$/i.test(file.name)) {
+      toast.error("La parte deve essere un PDF o un Word (.docx)");
+      return;
+    }
+    const title = window.prompt("Titolo della parte", file.name.replace(/\.[^.]+$/, "")) ?? "";
+    setPartUploading(true);
+    try {
+      await uploadPartApi(doc.id, file, title.trim() || undefined);
+      toast.success("Parte aggiunta");
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore aggiunta parte");
+    } finally {
+      setPartUploading(false);
+    }
+  };
+
+  const handlePartRename = async (part: DocumentPart, title: string) => {
+    if (!doc || title.trim() === part.title) return;
+    try {
+      await updatePartApi(doc.id, part.link_id, { title: title.trim() || part.title });
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore rinomina parte");
+    }
+  };
+
+  const handlePartUnlink = async (part: DocumentPart) => {
+    if (!doc) return;
+    if (!window.confirm(`Scollegare "${part.title}"? La parte resta in archivio, riutilizzabile.`)) {
+      return;
+    }
+    try {
+      await unlinkPartApi(doc.id, part.link_id);
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore scollegamento parte");
+    }
+  };
+
+  // Persiste il nuovo ordine (sort_order = indice) aggiornando solo le parti
+  // spostate. Aggiornamento ottimistico: la lista si riordina subito.
+  const persistPartOrder = async (next: DocumentPart[]) => {
+    if (!doc) return;
+    const updates = next
+      .map((p, i) => ({ linkId: p.link_id, sortOrder: i, changed: p.sort_order !== i }))
+      .filter((u) => u.changed);
+    setOrderedParts(next.map((p, i) => ({ ...p, sort_order: i })));
+    if (!updates.length) return;
+    try {
+      await Promise.all(
+        updates.map((u) => updatePartApi(doc.id, u.linkId, { sort_order: u.sortOrder }))
+      );
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore riordino parti");
+      await reload();
+    }
+  };
+
+  const handlePartDrop = (dropIndex: number) => {
+    const from = dragIndex;
+    setDragIndex(null);
+    setOverIndex(null);
+    if (from == null || from === dropIndex) return;
+    const next = [...orderedParts];
+    const [moved] = next.splice(from, 1);
+    next.splice(dropIndex, 0, moved);
+    void persistPartOrder(next);
+  };
+
+  const handleLinkExistingPart = async (partDocumentId: string) => {
+    if (!doc || !partDocumentId) return;
+    setLinkPickerValue("");
+    try {
+      await linkPartApi(doc.id, Number(partDocumentId));
+      toast.success("Parte collegata");
+      await reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore collegamento parte");
+    }
+  };
+
   const handleDownload = async () => {
     if (!doc) return;
     try {
@@ -319,6 +468,7 @@ export function DocumentDetailModal({
       doc.content_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -328,24 +478,40 @@ export function DocumentDetailModal({
       headerActions={
         doc && (
           <div className="flex items-center gap-1.5">
-            {(doc.doc_type === "modello_contratto" || doc.doc_type === "compilato") && onFill && (
+            {(doc.doc_type === "modello_contratto" ||
+              doc.doc_type === "parte_contratto" ||
+              doc.doc_type === "modello" ||
+              doc.doc_type === "compilato") &&
+              onFill && (
+                <Button
+                  size="sm"
+                  onClick={() => onFill(doc)}
+                  leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}
+                >
+                  {doc.doc_type === "compilato" ? "Modifica valori" : "Compila"}
+                </Button>
+              )}
+            {canExportPdf && (
               <Button
                 size="sm"
-                onClick={() => onFill(doc)}
-                leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}
+                variant="secondary"
+                onClick={() => setClientLinkOpen(true)}
+                leftIcon={<Icon name="link" className="w-3.5 h-3.5" />}
               >
-                {doc.doc_type === "compilato" ? "Modifica valori" : "Compila"}
+                Genera link cliente
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleDownload}
-              leftIcon={<Icon name="download" className="w-3.5 h-3.5" />}
-            >
-              Scarica
-            </Button>
-            {canExportPdf && (
+            {!isComposite && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleDownload}
+                leftIcon={<Icon name="download" className="w-3.5 h-3.5" />}
+              >
+                Scarica
+              </Button>
+            )}
+            {!isComposite && canExportPdf && (
               <Button size="sm" variant="secondary" onClick={handlePdf}>
                 PDF
               </Button>
@@ -380,7 +546,9 @@ export function DocumentDetailModal({
                     {DOC_TYPE_LABELS[doc.doc_type]}
                   </Badge>
                   <span className="text-[12px] text-muted dark:text-muted-dark">
-                    {doc.original_filename} · {formatDocSize(doc.size_bytes)}
+                    {isComposite
+                      ? `Compositore · ${doc.parts.length} parti`
+                      : `${doc.original_filename} · ${formatDocSize(doc.size_bytes)}`}
                   </span>
                 </div>
                 {doc.source_document_title && (
@@ -501,90 +669,282 @@ export function DocumentDetailModal({
             </div>
           </div>
 
+          {/* ── Parti del contratto (libreria riutilizzabile) ── */}
+          {isComposite && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[13px] font-bold uppercase tracking-wide flex items-center gap-1.5">
+                  <Icon name="document-text" className="w-4 h-4" />
+                  Parti del contratto ({doc.parts.length})
+                </h3>
+                <div className="flex items-center gap-2">
+                  {doc.parts.length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={() => setFieldLayoutOpen(true)}
+                      leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
+                    >
+                      Configura campi sul PDF
+                    </Button>
+                  )}
+                  <input
+                    ref={partInputRef}
+                    type="file"
+                    accept=".pdf,.docx"
+                    className="hidden"
+                    onChange={handleAddPart}
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => partInputRef.current?.click()}
+                    loading={partUploading}
+                    leftIcon={<Icon name="upload" className="w-3.5 h-3.5" />}
+                  >
+                    Nuova parte
+                  </Button>
+                </div>
+              </div>
+              <p className="mb-2 text-[12px] text-muted dark:text-muted-dark">
+                Trascina le parti per riordinarle; in compilazione scegli quali includere → unite in
+                un unico PDF. Le parti sono documenti riutilizzabili anche in altri modelli.
+              </p>
+
+              <div className="mb-3 max-w-md">
+                <SearchableSelect
+                  value={linkPickerValue}
+                  onChange={handleLinkExistingPart}
+                  options={libraryOptions}
+                  placeholder={
+                    libraryOptions.length ? "Collega una parte dalla libreria…" : "Nessun'altra parte in libreria"
+                  }
+                  disabled={libraryOptions.length === 0}
+                  menuLayer="portal"
+                  showAvatar={false}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                {orderedParts.map((part, index) => (
+                  <div
+                    key={part.link_id}
+                    data-part-row
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (overIndex !== index) setOverIndex(index);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      handlePartDrop(index);
+                    }}
+                    className={`flex items-center gap-2 rounded-md border px-3 py-2 transition-colors ${
+                      dragIndex === index
+                        ? "opacity-40"
+                        : overIndex === index
+                          ? "border-ink bg-cream dark:border-paper dark:bg-[#1c1c20]"
+                          : "border-line dark:border-line-dark"
+                    }`}
+                  >
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        setDragIndex(index);
+                        const row = (e.currentTarget as HTMLElement).closest("[data-part-row]");
+                        if (row) e.dataTransfer.setDragImage(row as HTMLElement, 16, 16);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setOverIndex(null);
+                      }}
+                      className="flex-none cursor-grab text-muted transition-colors hover:text-ink active:cursor-grabbing dark:text-muted-dark dark:hover:text-paper"
+                      title="Trascina per riordinare"
+                      aria-label="Trascina per riordinare"
+                    >
+                      <Icon name="dots-vertical" className="h-5 w-5" />
+                    </span>
+                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-line bg-paper text-[11px] font-bold dark:border-line-dark dark:bg-[#131316]">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <input
+                        key={part.link_id + part.title}
+                        defaultValue={part.title}
+                        onBlur={(e) => handlePartRename(part, e.target.value)}
+                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold text-ink outline-none hover:border-line focus:border-ink dark:text-paper dark:hover:border-line-dark dark:focus:border-paper"
+                      />
+                      <span className="px-1 text-[11px] text-muted dark:text-muted-dark">
+                        {part.page_count} pagine · {part.field_count} campi · {part.original_filename}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="danger-ghost"
+                      iconOnly
+                      title="Scollega parte"
+                      aria-label="Scollega parte"
+                      onClick={() => handlePartUnlink(part)}
+                    >
+                      <Icon name="x" className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+                {orderedParts.length === 0 && (
+                  <p className="text-[12px] text-muted dark:text-muted-dark">
+                    Nessuna parte collegata. Collega parti dalla libreria o creane una nuova.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── Campi del modello ── */}
           {isTemplate && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-[13px] font-bold uppercase tracking-wide flex items-center gap-1.5">
                   <Icon name="list" className="w-4 h-4" />
-                  Campi del modello ({doc.template_fields.length})
+                  Campi del documento ({doc.template_fields.length})
                 </h3>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={handleRescan}
-                  loading={rescanLoading}
-                  leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}
-                >
-                  Ri-analizza documento
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => setFieldLayoutOpen(true)}
+                    leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
+                  >
+                    Configura sul PDF
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={handleRescan}
+                    loading={rescanLoading}
+                    leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}
+                  >
+                    Ri-analizza documento
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-1.5">
                 {doc.template_fields.map((field) => (
                   <div
                     key={field.id}
-                    className="grid grid-cols-[1fr_140px_220px_auto] items-center gap-2 rounded-md border border-line dark:border-line-dark px-3 py-2 max-md:grid-cols-1"
+                    className="rounded-md border border-line dark:border-line-dark px-3 py-2"
                   >
-                    <div className="min-w-0">
-                      <Input
-                        defaultValue={field.label}
-                        onBlur={(e) => {
-                          const next = e.target.value.trim();
-                          if (next && next !== field.label) patchField(field, { label: next });
-                        }}
+                    <div className="grid grid-cols-[1fr_140px_220px_auto] items-center gap-2 max-md:grid-cols-1">
+                      <div className="min-w-0">
+                        <Input
+                          defaultValue={field.label}
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            if (next && next !== field.label) patchField(field, { label: next });
+                          }}
+                        />
+                        <p className="mt-0.5 text-[11px] text-muted dark:text-muted-dark truncate">
+                          {"{{" + field.tag_name + "}}"}
+                          {field.occurrences > 1 ? ` · ${field.occurrences} occorrenze` : ""}
+                          {!field.is_in_document && (
+                            <Badge variant="warning" className="ml-2">Non presente nel documento</Badge>
+                          )}
+                        </p>
+                      </div>
+                      <SearchableSelect
+                        value={field.field_type}
+                        onChange={(value) => patchField(field, { field_type: value as DocFieldType })}
+                        options={FIELD_TYPE_OPTIONS}
+                        menuLayer="portal"
+                        showAvatar={false}
                       />
-                      <p className="mt-0.5 text-[11px] text-muted dark:text-muted-dark truncate">
-                        {"{{" + field.tag_name + "}}"}
-                        {field.occurrences > 1 ? ` · ${field.occurrences} occorrenze` : ""}
-                        {!field.is_in_document && (
-                          <Badge variant="warning" className="ml-2">Non presente nel documento</Badge>
-                        )}
-                      </p>
+                      <SearchableSelect
+                        value={field.source_path ?? FREE_TEXT_VALUE}
+                        onChange={(value) =>
+                          patchField(
+                            field,
+                            value === FREE_TEXT_VALUE
+                              ? { clear_source_path: true }
+                              : { source_path: value }
+                          )
+                        }
+                        options={sourceOptionsFor(field.audience)}
+                        placeholder={
+                          field.audience === "internal" ? "Dato azienda / testo libero" : "Dato cliente / testo libero"
+                        }
+                        menuLayer="portal"
+                        showAvatar={false}
+                      />
+                      <Button
+                        size="sm"
+                        variant="danger-ghost"
+                        iconOnly
+                        title="Rimuovi campo"
+                        aria-label="Rimuovi campo"
+                        onClick={() => handleDeleteField(field)}
+                      >
+                        <Icon name="trash" className="w-4 h-4" />
+                      </Button>
                     </div>
-                    <SearchableSelect
-                      value={field.field_type}
-                      onChange={(value) => patchField(field, { field_type: value as DocFieldType })}
-                      options={FIELD_TYPE_OPTIONS}
-                      menuLayer="portal"
-                      showAvatar={false}
-                    />
-                    <SearchableSelect
-                      value={field.source_path ?? FREE_TEXT_VALUE}
-                      onChange={(value) =>
-                        patchField(
-                          field,
-                          value === FREE_TEXT_VALUE
-                            ? { clear_source_path: true }
-                            : { source_path: value }
-                        )
-                      }
-                      options={sourcePathOptions}
-                      menuLayer="portal"
-                      showAvatar={false}
-                    />
-                    <Button
-                      size="sm"
-                      variant="danger-ghost"
-                      iconOnly
-                      title="Rimuovi campo"
-                      aria-label="Rimuovi campo"
-                      onClick={() => handleDeleteField(field)}
-                    >
-                      <Icon name="trash" className="w-4 h-4" />
-                    </Button>
+
+                    {/* Firma cliente: chi compila il campo e se è obbligatorio */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line/60 pt-2 dark:border-line-dark/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+                          Ambito
+                        </span>
+                        <div className="w-44">
+                          <SearchableSelect
+                            value={field.audience}
+                            onChange={(value) => {
+                              const nextAud = value as "client" | "internal";
+                              const grp = groupOfPath(field.source_path);
+                              // Il dato collegato non appartiene al nuovo ambito → torna a testo libero.
+                              const incompatible = !!grp && !groupsForAudience(nextAud).has(grp);
+                              patchField(field, {
+                                audience: nextAud,
+                                ...(incompatible ? { clear_source_path: true } : {}),
+                              });
+                            }}
+                            options={AUDIENCE_OPTIONS}
+                            menuLayer="portal"
+                            showAvatar={false}
+                          />
+                        </div>
+                      </div>
+                      <label className="flex cursor-pointer select-none items-center gap-2 text-[12px] font-semibold">
+                        <Checkbox
+                          checked={field.required}
+                          onChange={(next) => patchField(field, { required: next })}
+                        />
+                        Obbligatorio
+                      </label>
+                    </div>
                   </div>
                 ))}
               </div>
 
               <p className="mt-3 text-[12px] text-muted dark:text-muted-dark">
-                Per aggiungere campi non rilevati usa gli elementi liberi (testo, spunta, firma)
-                direttamente sul documento durante la compilazione.
+                <b>Ambito</b>: «Cliente» = precompilato dai dati ma modificabile dal cliente in firma;
+                «Interno» = dato azienda, non modificabile dal cliente. «Obbligatorio» = il cliente
+                deve compilarlo prima di firmare. Per campi non rilevati usa gli elementi liberi
+                (testo, spunta, firma) durante la compilazione.
               </p>
             </div>
           )}
         </div>
       )}
     </Modal>
+    <GenerateClientLinkModal
+      open={clientLinkOpen}
+      onClose={() => setClientLinkOpen(false)}
+      document={doc}
+    />
+    <FieldLayoutModal
+      open={fieldLayoutOpen}
+      onClose={() => setFieldLayoutOpen(false)}
+      document={doc}
+      onChanged={reload}
+    />
+    </>
   );
 }

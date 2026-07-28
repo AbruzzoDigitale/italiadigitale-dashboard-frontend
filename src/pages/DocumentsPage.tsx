@@ -32,6 +32,7 @@ const TYPE_FILTER_OPTIONS: Array<{ value: TypeFilter; label: string }> = [
   { value: "generico", label: "Documenti" },
   { value: "modello", label: "Modelli" },
   { value: "modello_contratto", label: "Modelli contratto" },
+  { value: "parte_contratto", label: "Parti" },
   { value: "compilato", label: "Compilati" },
 ];
 
@@ -39,6 +40,7 @@ const BADGE_BY_TYPE: Record<DocType, "default" | "info" | "success"> = {
   generico: "default",
   modello: "info",
   modello_contratto: "info",
+  parte_contratto: "info",
   compilato: "success",
 };
 
@@ -237,7 +239,11 @@ export function DocumentsPage() {
         onClose={() => setUploadOpen(false)}
         companies={myCompanies.map((c) => ({ id: c.id, name: c.name, logo: getCompanyLogoUrl(c, theme) }))}
         defaultCompanyId={currentCompanyId}
-        onUploaded={() => refetch()}
+        onUploaded={(doc) => {
+          refetch();
+          // Compositore appena creato: apri il dettaglio per ordinare le parti.
+          if (doc.doc_type === "modello_contratto") setDetailId(doc.id);
+        }}
       />
 
       <DocumentDetailModal
