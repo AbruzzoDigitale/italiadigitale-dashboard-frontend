@@ -28,8 +28,10 @@ function composeFieldToTemplateField(f: ComposeField, index: number): TemplateFi
     id: index + 1,
     tag_name: f.tag_name,
     label: f.label,
+    display_label: f.display_label,
     field_type: f.field_type,
     source_path: f.source_path,
+    group_key: f.group_key,
     // ComposeField non porta required/audience: default neutri (editabile, non obbligatorio).
     required: false,
     audience: "client",

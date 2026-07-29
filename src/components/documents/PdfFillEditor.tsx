@@ -567,49 +567,108 @@ export function PdfFillEditor({
                 {/* Caselle dei campi rilevati */}
                 {(fieldsByPage[metric.page] ?? []).map((field) =>
                   isConfig ? (
-                    // Modalità configurazione: casella cliccabile, colore = ambito.
-                    // Stili inline (niente dipendenza dalle classi Tailwind) per
-                    // garantire che le caselle siano sempre visibili sul PDF.
+                    // Configura + PRECOMPILA: casella colorata per ambito (legenda),
+                    // ma compilabile (input/firma dentro). Focus = seleziona per config.
                     <div
                       key={field.id}
-                      role="button"
                       ref={(el) => {
                         fieldBoxRefs.current[field.id] = el;
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfigFieldId(field.id);
                       }}
                       title={`${field.label} — ${
                         field.audience === "internal" ? "Interno (azienda)" : "Cliente"
                       }${field.required ? " · obbligatorio" : ""}`}
-                      className="absolute cursor-pointer"
+                      className="absolute"
                       style={{
+                        // Geometria esatta del campo (come in compilazione): la casella
+                        // combacia con la riga/casella del PDF sottostante.
                         left: (field.pos_x ?? 0) * scale,
                         top: (field.pos_y ?? 0) * scale,
-                        width: Math.max(10, (field.pos_w ?? 100) * scale),
-                        height: Math.max(14, (field.pos_h ?? 12) * scale),
+                        width: (field.pos_w ?? 100) * scale,
+                        height: Math.max(12, (field.pos_h ?? 12) * scale),
                         borderRadius: 2,
-                        border: `2px solid ${
+                        border: `1.5px solid ${
                           field.audience === "internal" ? "#f59e0b" : "#c41284"
                         }`,
+                        // Sfondo: solo un velo tenue dell'ambito (mai scuro).
                         background:
                           field.audience === "internal"
-                            ? "rgba(245,158,11,0.22)"
-                            : "rgba(196,18,132,0.22)",
-                        boxShadow: configFieldId === field.id ? "0 0 0 2px #111, 0 0 0 4px #fff" : "none",
+                            ? "rgba(245,158,11,0.10)"
+                            : "rgba(196,18,132,0.08)",
+                        // Selezione: anello nel colore dell'ambito (niente nero).
+                        boxShadow:
+                          configFieldId === field.id
+                            ? `0 0 0 2px ${field.audience === "internal" ? "#f59e0b" : "#c41284"}`
+                            : "none",
                       }}
                     >
-                      {/* Esempio del dato dentro la casella, per capire cosa va inserito. */}
-                      <span
-                        className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-nowrap px-1 text-[10px] italic leading-none"
-                        style={{ color: "rgba(0,0,0,0.55)" }}
-                      >
-                        {field.field_type === "signature" ? "Firma" : fieldExample(field)}
-                      </span>
+                      {field.field_type === "signature" ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfigFieldId(field.id);
+                            openFieldSignature();
+                          }}
+                          className="flex h-full w-full items-center justify-center overflow-hidden"
+                          title="Clicca per apporre la firma"
+                        >
+                          {isSignatureValue(values[field.tag_name]) ? (
+                            <img
+                              src={values[field.tag_name]}
+                              alt="Firma"
+                              className="h-full w-full object-contain"
+                              draggable={false}
+                            />
+                          ) : (
+                            <span
+                              className="text-[10px] font-semibold"
+                              style={{ color: field.audience === "internal" ? "#b45309" : "#c41284" }}
+                            >
+                              Firma
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <>
+                          <input
+                            ref={(el) => {
+                              fieldRefs.current[field.tag_name] = el;
+                            }}
+                            value={values[field.tag_name] ?? ""}
+                            onChange={(e) => setValue(field.tag_name, e.target.value)}
+                            onFocus={() => setConfigFieldId(field.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-full w-full px-1 font-semibold outline-none"
+                            style={{
+                              fontSize: Math.max(8, (field.font_size ?? 10) * scale),
+                              // Inline: batte la regola globale .dark .id-modal input
+                              // (sfondo scuro nei modali) che altrimenti annerisce la casella.
+                              background: "transparent",
+                              color: field.audience === "internal" ? "#7c2d12" : "#9d1064",
+                              caretColor: field.audience === "internal" ? "#b45309" : "#c41284",
+                            }}
+                          />
+                          {/* Esempio come overlay (non un placeholder nativo): colore
+                              inline dell'ambito, identico in tema chiaro e scuro. */}
+                          {!(values[field.tag_name] ?? "").trim() && (
+                            <span
+                              className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-nowrap px-1 italic"
+                              style={{
+                                fontSize: Math.max(8, (field.font_size ?? 10) * scale),
+                                color:
+                                  field.audience === "internal"
+                                    ? "rgba(180,83,9,0.85)"
+                                    : "rgba(196,18,132,0.8)",
+                              }}
+                            >
+                              {fieldExample(field)}
+                            </span>
+                          )}
+                        </>
+                      )}
                       {field.required && (
                         <span
-                          className="absolute text-[12px] font-bold leading-none"
+                          className="pointer-events-none absolute text-[12px] font-bold leading-none"
                           style={{ right: -6, top: -8, color: "#dc2626" }}
                         >
                           *
@@ -632,7 +691,12 @@ export function PdfFillEditor({
                       className="absolute flex items-center justify-center overflow-hidden rounded-[2px] border border-dashed border-brand-magenta"
                       style={{
                         left: (field.pos_x ?? 0) * scale,
-                        top: (field.pos_y ?? 0) * scale,
+                        // Su riga di trattini il box è ancorato alla riga e cresce verso
+                        // l'alto (come il PDF finale); altrove resta com'era.
+                        top:
+                          (field.placeholder_kind === "underscore"
+                            ? (field.pos_y ?? 0) + (field.pos_h ?? 0) - Math.max(30, field.pos_h ?? 0)
+                            : (field.pos_y ?? 0)) * scale,
                         width: (field.pos_w ?? 160) * scale,
                         height: Math.max(30, field.pos_h ?? 0) * scale,
                         background: isSignatureValue(values[field.tag_name])
@@ -644,7 +708,7 @@ export function PdfFillEditor({
                         <img
                           src={values[field.tag_name]}
                           alt="Firma"
-                          className="h-full w-full object-contain"
+                          className={`h-full w-full object-contain ${field.placeholder_kind === "underscore" ? "object-bottom" : ""}`}
                           draggable={false}
                         />
                       ) : (

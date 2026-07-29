@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   DOC_TYPE_LABELS,
   formatDocSize,
@@ -44,8 +45,12 @@ const BADGE_BY_TYPE: Record<DocType, "default" | "info" | "success"> = {
   compilato: "success",
 };
 
+const MODEL_TYPES: DocType[] = ["modello", "modello_contratto", "parte_contratto"];
+const isModel = (doc: DocumentItem) => MODEL_TYPES.includes(doc.doc_type);
+
 export function DocumentsPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { theme } = useTheme();
   const { user, activeCompanyId, myCompanies } = useAuth();
   const { selectedCompanyId, setSelectedCompanyId } = useSelectedCompanyId(
@@ -146,91 +151,74 @@ export function DocumentsPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line dark:border-line-dark">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-line dark:border-line-dark bg-cream/50 dark:bg-ink-2/50 text-left">
-                <th className="px-4 py-2.5 font-bold">Documento</th>
-                <th className="px-4 py-2.5 font-bold">Tipo</th>
-                <th className="px-4 py-2.5 font-bold">Collegamenti</th>
-                <th className="px-4 py-2.5 font-bold">Dimensione</th>
-                <th className="px-4 py-2.5 font-bold">Caricato</th>
-                <th className="px-4 py-2.5 font-bold text-right">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((doc) => (
-                <tr
-                  key={doc.id}
-                  className="border-b border-line dark:border-line-dark last:border-0 hover:bg-cream/40 dark:hover:bg-ink-2/40 cursor-pointer"
-                  onClick={() => setDetailId(doc.id)}
-                >
-                  <td className="px-4 py-2.5">
-                    <span className="font-semibold">{doc.title}</span>
-                    <span className="block text-[11px] text-muted dark:text-muted-dark">
-                      {doc.original_filename}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <Badge variant={BADGE_BY_TYPE[doc.doc_type]}>{DOC_TYPE_LABELS[doc.doc_type]}</Badge>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {doc.links.length === 0 ? (
-                      <span className="text-muted dark:text-muted-dark">—</span>
-                    ) : (
-                      <span className="flex flex-wrap gap-1">
-                        {doc.links.slice(0, 3).map((link) => (
-                          <Badge key={link.id}>{link.entity_label ?? `#${link.entity_id}`}</Badge>
-                        ))}
-                        {doc.links.length > 3 && <Badge>+{doc.links.length - 3}</Badge>}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {items.map((doc) => {
+            const model = isModel(doc);
+            return (
+              <div
+                key={doc.id}
+                onClick={() => (model ? navigate(`/documenti/modello/${doc.id}`) : setDetailId(doc.id))}
+                className="group flex cursor-pointer flex-col rounded-xl border border-line bg-paper p-4 transition hover:-translate-y-0.5 hover:border-brand-magenta/50 hover:shadow-md dark:border-line-dark dark:bg-[#0E0F0E]"
+              >
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <span
+                    className={`grid h-10 w-10 flex-none place-items-center rounded-lg ${
+                      model ? "bg-brand-magenta/15 text-brand-magenta" : "bg-cream text-ink dark:bg-ink-2 dark:text-paper"
+                    }`}
+                  >
+                    <Icon name="document-text" className="h-5 w-5" />
+                  </span>
+                  <Badge variant={BADGE_BY_TYPE[doc.doc_type]}>{DOC_TYPE_LABELS[doc.doc_type]}</Badge>
+                </div>
+
+                <h3 className="line-clamp-2 min-h-[2.5rem] text-[14px] font-bold leading-tight">{doc.title}</h3>
+                <p className="mt-1 truncate text-[11px] text-muted dark:text-muted-dark">{doc.original_filename}</p>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  {doc.links.slice(0, 2).map((link) => (
+                    <Badge key={link.id}>{link.entity_label ?? `#${link.entity_id}`}</Badge>
+                  ))}
+                  {doc.links.length > 2 && <Badge>+{doc.links.length - 2}</Badge>}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between border-t border-line/70 pt-2 dark:border-line-dark/70">
+                  <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                    {formatDocSize(doc.size_bytes)}
+                    {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleDateString("it-IT")}` : ""}
+                  </span>
+                  <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                    {model && (
+                      <span className="mr-1 flex items-center gap-1 text-[11px] font-semibold text-brand-magenta opacity-0 transition group-hover:opacity-100">
+                        Apri <Icon name="chevron-right" className="h-3 w-3" />
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap">{formatDocSize(doc.size_bytes)}</td>
-                  <td className="px-4 py-2.5 whitespace-nowrap text-muted dark:text-muted-dark">
-                    {doc.created_at ? new Date(doc.created_at).toLocaleDateString("it-IT") : "—"}
-                    {doc.uploaded_by_name ? ` · ${doc.uploaded_by_name}` : ""}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      iconOnly
+                      title="Scarica"
+                      aria-label="Scarica"
+                      onClick={() => handleDownload(doc)}
+                    >
+                      <Icon name="download" className="h-4 w-4" />
+                    </Button>
+                    {canPdf(doc) && (
                       <Button
                         size="sm"
                         variant="ghost"
                         iconOnly
-                        title="Scarica"
-                        aria-label="Scarica"
-                        onClick={() => handleDownload(doc)}
+                        title="Anteprima PDF"
+                        aria-label="Anteprima PDF"
+                        onClick={() => handlePdf(doc)}
                       >
-                        <Icon name="download" className="w-4 h-4" />
+                        <Icon name="eye" className="h-4 w-4" />
                       </Button>
-                      {canPdf(doc) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          iconOnly
-                          title="Anteprima PDF"
-                          aria-label="Anteprima PDF"
-                          onClick={() => handlePdf(doc)}
-                        >
-                          <Icon name="eye" className="w-4 h-4" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        iconOnly
-                        title="Dettagli"
-                        aria-label="Dettagli"
-                        onClick={() => setDetailId(doc.id)}
-                      >
-                        <Icon name="pencil" className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

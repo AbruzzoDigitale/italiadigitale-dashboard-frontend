@@ -19,6 +19,7 @@ import { useDocuments } from "../../hooks/useDocuments";
 import { DocumentDetailModal } from "./DocumentDetailModal";
 import { DocumentVisualFillModal } from "./DocumentVisualFillModal";
 import { DocumentUploadModal } from "./DocumentUploadModal";
+import { FieldLayoutModal } from "./FieldLayoutModal";
 import { GenerateClientLinkModal } from "./GenerateClientLinkModal";
 import { openDocumentDownload, openDocumentPdfExport } from "./documentActions";
 
@@ -41,6 +42,7 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
   const [detailId, setDetailId] = useState<number | null>(null);
   const [fillDoc, setFillDoc] = useState<DocumentDetail | null>(null);
   const [linkDoc, setLinkDoc] = useState<DocumentItem | null>(null);
+  const [configDoc, setConfigDoc] = useState<DocumentDetail | null>(null);
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [linkableDocs, setLinkableDocs] = useState<DocumentItem[]>([]);
   const [linkableLoading, setLinkableLoading] = useState(false);
@@ -122,6 +124,15 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
       setFillDoc(detail);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore apertura compilazione");
+    }
+  };
+
+  const openConfig = async (doc: DocumentItem) => {
+    try {
+      const detail = await getDocumentApi(doc.id);
+      setConfigDoc(detail);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore apertura configurazione");
     }
   };
 
@@ -223,9 +234,15 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
               </button>
 
               <div className="flex items-center gap-1">
-                {doc.doc_type === "modello_contratto" && (
-                  <Button size="sm" onClick={() => openFill(doc)} leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}>
-                    Compila
+                {["modello_contratto", "parte_contratto", "modello"].includes(doc.doc_type) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => openConfig(doc)}
+                    leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}
+                    title="Configura i campi e precompila i dati/firme azienda (riusati a ogni invio)"
+                  >
+                    Configura e precompila
                   </Button>
                 )}
                 {doc.doc_type === "compilato" && (
@@ -239,9 +256,9 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
                     variant="secondary"
                     onClick={() => setLinkDoc(doc)}
                     leftIcon={<Icon name="link" className="w-3.5 h-3.5" />}
-                    title="Genera link di firma per il cliente"
+                    title="Prepara e invia il documento al cliente per la firma"
                   >
-                    Genera link
+                    Invia al cliente
                   </Button>
                 )}
                 <Button
@@ -319,6 +336,13 @@ export function DocumentsSection({ contractId, companyId }: DocumentsSectionProp
         onClose={() => setLinkDoc(null)}
         document={linkDoc}
         defaultContractId={contractId}
+      />
+
+      <FieldLayoutModal
+        open={configDoc != null}
+        onClose={() => setConfigDoc(null)}
+        document={configDoc}
+        onChanged={() => refetch()}
       />
     </div>
   );

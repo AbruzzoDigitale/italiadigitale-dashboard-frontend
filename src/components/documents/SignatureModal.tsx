@@ -18,6 +18,44 @@ const CANVAS_W = 640;
 const CANVAS_H = 220;
 const SIGN_FONT_STACK = '"Snell Roundhand", "Segoe Script", "Brush Script MT", cursive';
 
+/**
+ * Rifila la canvas ai soli pixel con inchiostro (alpha > soglia), con un piccolo
+ * margine. Così la firma esportata non trascina lo spazio vuoto della tela: nel PDF
+ * finale appoggia esattamente sulla riga invece di "galleggiare".
+ */
+function trimCanvasToInkDataUrl(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  if (!ctx || width === 0 || height === 0) return canvas.toDataURL("image/png");
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > 8) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return canvas.toDataURL("image/png"); // canvas vuota
+  const pad = 2;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext("2d");
+  if (!octx) return canvas.toDataURL("image/png");
+  octx.drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
+  return out.toDataURL("image/png");
+}
+
 export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps) {
   const toast = useToast();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -106,7 +144,7 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setUploaded(canvas.toDataURL("image/png"));
+        setUploaded(trimCanvasToInkDataUrl(canvas));
       };
       img.onerror = () => toast.error("Immagine non leggibile");
       img.src = String(reader.result);
@@ -132,7 +170,7 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
       size -= 4;
     } while (ctx.measureText(text).width > CANVAS_W - 40 && size > 24);
     ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-    return canvas.toDataURL("image/png");
+    return trimCanvasToInkDataUrl(canvas);
   };
 
   const handleConfirm = () => {
@@ -159,7 +197,7 @@ export function SignatureModal({ open, onClose, onConfirm }: SignatureModalProps
       toast.error("Disegna la firma");
       return;
     }
-    const dataUrl = canvasRef.current?.toDataURL("image/png");
+    const dataUrl = canvasRef.current ? trimCanvasToInkDataUrl(canvasRef.current) : null;
     if (dataUrl) {
       onConfirm(dataUrl);
       onClose();

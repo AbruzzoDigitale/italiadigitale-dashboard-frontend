@@ -478,19 +478,15 @@ export function DocumentDetailModal({
       headerActions={
         doc && (
           <div className="flex items-center gap-1.5">
-            {(doc.doc_type === "modello_contratto" ||
-              doc.doc_type === "parte_contratto" ||
-              doc.doc_type === "modello" ||
-              doc.doc_type === "compilato") &&
-              onFill && (
-                <Button
-                  size="sm"
-                  onClick={() => onFill(doc)}
-                  leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}
-                >
-                  {doc.doc_type === "compilato" ? "Modifica valori" : "Compila"}
-                </Button>
-              )}
+            {doc.doc_type === "compilato" && onFill && (
+              <Button
+                size="sm"
+                onClick={() => onFill(doc)}
+                leftIcon={<Icon name="pencil" className="w-3.5 h-3.5" />}
+              >
+                Modifica valori
+              </Button>
+            )}
             {canExportPdf && (
               <Button
                 size="sm"
@@ -498,7 +494,7 @@ export function DocumentDetailModal({
                 onClick={() => setClientLinkOpen(true)}
                 leftIcon={<Icon name="link" className="w-3.5 h-3.5" />}
               >
-                Genera link cliente
+                Invia al cliente
               </Button>
             )}
             {!isComposite && (
@@ -684,7 +680,7 @@ export function DocumentDetailModal({
                       onClick={() => setFieldLayoutOpen(true)}
                       leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
                     >
-                      Configura campi sul PDF
+                      Configura e precompila
                     </Button>
                   )}
                   <input
@@ -813,7 +809,7 @@ export function DocumentDetailModal({
                     onClick={() => setFieldLayoutOpen(true)}
                     leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
                   >
-                    Configura sul PDF
+                    Configura e precompila
                   </Button>
                   <Button
                     size="sm"

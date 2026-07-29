@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  cancelSignatureRequestApi,
   createSignatureRequestApi,
+  fetchFillBaseApi,
   listSignatureRequestsApi,
+  signaturePreviewApi,
+  type ComposeField,
   type DocumentItem,
+  type OverlayElement,
+  type PageMetric,
   type SignatureRequest,
   type SignatureStatus,
+  type TemplateField,
 } from "../../api/documents";
 import { listContractsApi } from "../../api/contracts";
 import { useToast } from "../../context/ToastContext";
@@ -15,23 +22,26 @@ import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { SearchableSelect } from "../ui/SearchableSelect";
 import { SegmentedSwitch } from "../ui/SegmentedSwitch";
+import { Spinner } from "../ui/Spinner";
+import { PdfFillEditor } from "./PdfFillEditor";
 
 interface GenerateClientLinkModalProps {
   open: boolean;
   onClose: () => void;
-  /** Basta l'item: il modal usa id, azienda, titolo e i collegamenti. */
   document: DocumentItem | null;
   /** Contratto da pre-selezionare (es. aprendo dalla scheda del contratto). */
   defaultContractId?: number | null;
 }
 
+type Step = "form" | "review" | "done";
+
 const STATUS_LABEL: Record<SignatureStatus, string> = {
-  draft: "Bozza",
-  sent: "Inviato",
-  opened: "Aperto",
-  filled: "Compilato",
+  draft: "Predisposto",
+  sent: "Inviato al cliente",
+  opened: "Visualizzato dal cliente",
+  filled: "Firmato dal cliente",
   signing: "In firma",
-  signed: "Firmato",
+  signed: "Firmato dal cliente",
   refused: "Rifiutato",
   expired: "Scaduto",
   cancelled: "Annullato",
@@ -41,7 +51,7 @@ const STATUS_VARIANT: Record<SignatureStatus, "default" | "info" | "success" | "
   draft: "default",
   sent: "info",
   opened: "info",
-  filled: "info",
+  filled: "success",
   signing: "warning",
   signed: "success",
   refused: "warning",
@@ -49,9 +59,32 @@ const STATUS_VARIANT: Record<SignatureStatus, "default" | "info" | "success" | "
   cancelled: "default",
 };
 
-function clientLinkUrl(token: string): string {
-  return `${window.location.origin}/firma/${token}`;
+function toTemplateField(f: ComposeField, i: number): TemplateField {
+  return {
+    id: f.field_id ?? i + 1,
+    tag_name: f.tag_name,
+    label: f.label,
+    display_label: f.display_label,
+    field_type: f.field_type,
+    source_path: f.source_path,
+    group_key: f.group_key,
+    required: f.required,
+    audience: f.audience,
+    is_in_document: f.is_in_document,
+    occurrences: 1,
+    placeholder_len: f.placeholder_len,
+    sort_order: i,
+    page: f.page,
+    pos_x: f.pos_x,
+    pos_y: f.pos_y,
+    pos_w: f.pos_w,
+    pos_h: f.pos_h,
+    font_size: f.font_size,
+    placeholder_kind: f.placeholder_kind,
+  };
 }
+
+const clientLinkUrl = (token: string) => `${window.location.origin}/firma/${token}`;
 
 export function GenerateClientLinkModal({
   open,
@@ -61,22 +94,31 @@ export function GenerateClientLinkModal({
 }: GenerateClientLinkModalProps) {
   const toast = useToast();
 
+  const [step, setStep] = useState<Step>("form");
   const [allContracts, setAllContracts] = useState<Array<{ id: number; title: string }>>([]);
   const [contractId, setContractId] = useState<number | null>(null);
-  // Escape hatch: scegli un contratto diverso da quello collegato al documento.
   const [chooseOther, setChooseOther] = useState(false);
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
   const [signerPhone, setSignerPhone] = useState("");
   const [otpChannel, setOtpChannel] = useState<"email" | "sms">("email");
   const [password, setPassword] = useState("");
-  const [saving, setSaving] = useState(false);
 
+  const [loadingReview, setLoadingReview] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [requests, setRequests] = useState<SignatureRequest[]>([]);
   const [created, setCreated] = useState<SignatureRequest | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Contratti GIÀ collegati al documento (dai "Collegamenti"): sono la scelta di default.
+  // Stato di revisione documento
+  const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
+  const [pages, setPages] = useState<PageMetric[]>([]);
+  const [fields, setFields] = useState<TemplateField[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [elements, setElements] = useState<OverlayElement[]>([]);
+  const [signatures, setSignatures] = useState<Record<string, string>>({});
+  const [partIds, setPartIds] = useState<number[]>([]);
+
   const linkedContracts = useMemo(
     () =>
       (doc?.links ?? [])
@@ -87,6 +129,7 @@ export function GenerateClientLinkModal({
 
   useEffect(() => {
     if (!open || !doc) return;
+    setStep("form");
     setSignerName("");
     setSignerEmail("");
     setSignerPhone("");
@@ -95,6 +138,7 @@ export function GenerateClientLinkModal({
     setCreated(null);
     setCopied(false);
     setChooseOther(false);
+    setFileData(null);
     setContractId(defaultContractId ?? linkedContracts[0]?.id ?? null);
     listContractsApi({ company_id: doc.company_id })
       .then((rows) => setAllContracts(rows.map((c) => ({ id: c.id, title: c.title }))))
@@ -103,7 +147,6 @@ export function GenerateClientLinkModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, doc?.id]);
 
-  // Etichetta leggibile del contratto scelto (dai collegamenti o dall'elenco azienda).
   const contractLabel = useMemo(() => {
     if (contractId == null) return null;
     return (
@@ -113,24 +156,48 @@ export function GenerateClientLinkModal({
     );
   }, [contractId, linkedContracts, allContracts]);
 
-  // Con collegamenti presenti mostriamo solo quelli (default); l'elenco completo
-  // compare solo se l'utente sceglie esplicitamente "un altro".
   const useLinkedOnly = linkedContracts.length > 0 && !chooseOther;
   const contractOptions = (useLinkedOnly ? linkedContracts : allContracts).map((c) => ({
     value: String(c.id),
     label: c.title,
   }));
 
-  const handleGenerate = async () => {
-    if (!doc) return;
+  const validateSigner = (): boolean => {
     if (otpChannel === "email" && !signerEmail.trim() && contractId == null) {
       toast.error("Indica l'email del firmatario o scegli un contratto");
-      return;
+      return false;
     }
     if (otpChannel === "sms" && !signerPhone.trim()) {
       toast.error("Per l'OTP via SMS serve il numero del firmatario");
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const goReview = async () => {
+    if (!doc || !validateSigner()) return;
+    setLoadingReview(true);
+    try {
+      const pv = await signaturePreviewApi(doc.id, { contractId });
+      setPartIds(pv.part_ids);
+      setFields(pv.fields.map(toTemplateField));
+      const initial: Record<string, string> = {};
+      for (const f of pv.fields) initial[f.tag_name] = f.value;
+      setValues(initial);
+      setElements([]);
+      setSignatures({});
+      setPages(pv.pages);
+      setFileData(await fetchFillBaseApi(doc.id, pv.part_ids.length ? pv.part_ids : undefined));
+      setStep("review");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore preparazione documento");
+    } finally {
+      setLoadingReview(false);
+    }
+  };
+
+  const approve = async () => {
+    if (!doc) return;
     setSaving(true);
     try {
       const req = await createSignatureRequestApi(doc.id, {
@@ -140,9 +207,14 @@ export function GenerateClientLinkModal({
         signer_phone: signerPhone.trim() || undefined,
         otp_channel: otpChannel,
         password: password.trim() || undefined,
+        part_ids: partIds,
+        values,
+        elements,
+        signatures,
       });
       setCreated(req);
       setRequests((prev) => [req, ...prev]);
+      setStep("done");
       toast.success("Link cliente generato");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore generazione link");
@@ -162,25 +234,83 @@ export function GenerateClientLinkModal({
     }
   };
 
+  const cancelRequest = async (req: SignatureRequest) => {
+    if (!doc) return;
+    if (!window.confirm("Annullare questo invio? Il link non sarà più utilizzabile.")) return;
+    try {
+      const updated = await cancelSignatureRequestApi(doc.id, req.id);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? updated : r)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore annullamento");
+    }
+  };
+
+  const canEdit = !!fileData && !loadingReview;
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Genera link cliente"
+      title={step === "review" ? "Rivedi e approva" : "Invia al cliente"}
       description={doc?.title}
-      icon={<Icon name="link" className="w-5 h-5" />}
-      size="lg"
+      icon={<Icon name={step === "review" ? "pencil" : "link"} className="w-5 h-5" />}
+      size={step === "review" ? "2xl" : "lg"}
+      dialogClassName={step === "review" ? "!max-w-[96vw] h-[92vh]" : ""}
+      mobileFullscreen={step === "review"}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Chiudi
-        </Button>
+        step === "review" ? (
+          <>
+            <Button variant="secondary" onClick={() => setStep("form")} disabled={saving}>
+              Indietro
+            </Button>
+            <Button
+              onClick={approve}
+              loading={saving}
+              disabled={!canEdit}
+              leftIcon={<Icon name="check" className="w-4 h-4" />}
+            >
+              Approva e genera link cliente
+            </Button>
+          </>
+        ) : (
+          <Button variant="secondary" onClick={onClose}>
+            Chiudi
+          </Button>
+        )
       }
     >
-      <div className="space-y-5">
-        {created ? (
+      {step === "review" ? (
+        <div className="flex h-full flex-col gap-2">
+          <p className="flex-none text-[12px] text-muted dark:text-muted-dark">
+            Rivedi i dati già apposti (azienda + cliente) e correggi se serve. Poi
+            <b> Approva e genera link</b>: il cliente potrà modificare solo i propri campi.
+          </p>
+          {!canEdit ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner />
+            </div>
+          ) : (
+            fileData && (
+              <PdfFillEditor
+                fileData={fileData}
+                pages={pages}
+                fields={fields}
+                values={values}
+                onValuesChange={setValues}
+                elements={elements}
+                onElementsChange={setElements}
+                signatures={signatures}
+                onSignaturesChange={setSignatures}
+                hasTextLayer
+              />
+            )
+          )}
+        </div>
+      ) : step === "done" && created ? (
+        <div className="space-y-5">
           <div className="rounded-lg border border-success/40 bg-success/5 p-4">
             <p className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-success">
-              <Icon name="check-circle" className="h-4 w-4" /> Link pronto da inviare al cliente
+              <Icon name="check-circle" className="h-4 w-4" /> Pronto: invia questo link al cliente
             </p>
             <div className="flex items-center gap-2">
               <Input readOnly value={clientLinkUrl(created.token)} className="flex-1" />
@@ -192,23 +322,19 @@ export function GenerateClientLinkModal({
               </Button>
             </div>
             <p className="mt-2 text-[12px] text-muted dark:text-muted-dark">
-              Invialo al cliente ({created.signer_email || created.signer_phone || "firmatario"}).
-              Scade il {created.expires_at ? new Date(created.expires_at).toLocaleDateString("it-IT") : "—"}.
+              Firmatario: {created.signer_email || created.signer_phone || "—"} · scade il{" "}
+              {created.expires_at ? new Date(created.expires_at).toLocaleDateString("it-IT") : "—"}.
             </p>
-            <Button variant="ghost" size="sm" className="mt-2" onClick={() => setCreated(null)}>
-              Genera un altro link
-            </Button>
           </div>
-        ) : (
+        </div>
+      ) : (
+        <div className="space-y-5">
           <div className="space-y-3">
             <div>
               <span className="mb-1 block text-[12px] font-semibold text-muted dark:text-muted-dark">
-                Contratto{" "}
-                <span className="font-normal">(precompila i dati del cliente)</span>
+                Contratto <span className="font-normal">(precompila i dati del cliente)</span>
               </span>
-
               {useLinkedOnly && linkedContracts.length === 1 ? (
-                // Un solo contratto collegato al documento → si usa quello.
                 <div className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 dark:border-line-dark">
                   <span className="min-w-0 truncate text-[13px] font-semibold">{contractLabel}</span>
                   <Button variant="ghost" size="sm" onClick={() => setChooseOther(true)}>
@@ -221,21 +347,10 @@ export function GenerateClientLinkModal({
                     value={contractId != null ? String(contractId) : ""}
                     onChange={(value) => setContractId(value ? Number(value) : null)}
                     options={contractOptions}
-                    placeholder={
-                      useLinkedOnly ? "Scegli tra i contratti collegati" : "Scegli il contratto"
-                    }
+                    placeholder={useLinkedOnly ? "Scegli tra i contratti collegati" : "Scegli il contratto"}
                     menuLayer="portal"
                     showAvatar={false}
                   />
-                  {useLinkedOnly && linkedContracts.length > 1 && (
-                    <button
-                      type="button"
-                      className="mt-1 text-[12px] text-muted underline dark:text-muted-dark"
-                      onClick={() => setChooseOther(true)}
-                    >
-                      Scegli un altro contratto (tutti)
-                    </button>
-                  )}
                   {chooseOther && linkedContracts.length > 0 && (
                     <button
                       type="button"
@@ -247,12 +362,6 @@ export function GenerateClientLinkModal({
                     >
                       Usa il contratto collegato al documento
                     </button>
-                  )}
-                  {linkedContracts.length === 0 && (
-                    <p className="mt-1 text-[12px] text-muted dark:text-muted-dark">
-                      Documento non collegato a un contratto: scegline uno per precompilare i dati del
-                      cliente (o collegane uno dai «Collegamenti»).
-                    </p>
                   )}
                 </>
               )}
@@ -300,53 +409,68 @@ export function GenerateClientLinkModal({
 
             <Input
               label="Password pagina (facoltativa)"
-              type="text"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Se impostata, il cliente la dovrà inserire per aprire il documento"
             />
 
             <Button
-              onClick={handleGenerate}
-              loading={saving}
-              leftIcon={<Icon name="link" className="h-4 w-4" />}
+              onClick={goReview}
+              loading={loadingReview}
+              rightIcon={<Icon name="chevron-right" className="h-4 w-4" />}
             >
-              Genera link
+              Avanti: rivedi il documento
             </Button>
           </div>
-        )}
 
-        {requests.length > 0 && (
-          <div>
-            <h4 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-muted dark:text-muted-dark">
-              Link generati
-            </h4>
-            <ul className="space-y-1.5">
-              {requests.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 dark:border-line-dark"
-                >
-                  <span className="min-w-0 truncate text-[13px]">
-                    <Badge variant={STATUS_VARIANT[r.status]} className="mr-2">
-                      {STATUS_LABEL[r.status]}
-                    </Badge>
-                    {r.signer_name || r.signer_email || r.signer_phone || "Firmatario"}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => copyLink(r.token)}
-                    leftIcon={<Icon name="copy" className="h-3.5 w-3.5" />}
+          {requests.length > 0 && (
+            <div>
+              <h4 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-muted dark:text-muted-dark">
+                Invii
+              </h4>
+              <ul className="space-y-1.5">
+                {requests.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 dark:border-line-dark"
                   >
-                    Copia link
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+                    <span className="min-w-0 truncate text-[13px]">
+                      <Badge variant={STATUS_VARIANT[r.status]} className="mr-2">
+                        {STATUS_LABEL[r.status]}
+                      </Badge>
+                      {r.signer_name || r.signer_email || r.signer_phone || "Firmatario"}
+                    </span>
+                    <div className="flex flex-none items-center gap-1">
+                      {!["signed", "filled", "cancelled"].includes(r.status) && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => copyLink(r.token)}
+                            leftIcon={<Icon name="copy" className="h-3.5 w-3.5" />}
+                          >
+                            Copia link
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger-ghost"
+                            iconOnly
+                            title="Annulla invio"
+                            aria-label="Annulla invio"
+                            onClick={() => cancelRequest(r)}
+                          >
+                            <Icon name="x" className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

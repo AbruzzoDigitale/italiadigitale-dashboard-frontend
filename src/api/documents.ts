@@ -23,8 +23,12 @@ export interface TemplateField {
   id: number;
   tag_name: string;
   label: string;
+  /** Etichetta scelta dall'utente, mostrata al posto del testo estratto dal PDF. */
+  display_label: string | null;
   field_type: DocFieldType;
   source_path: string | null;
+  /** Sezione (area) del form a cui appartiene il campo. */
+  group_key: string | null;
   /** Il cliente deve compilarlo prima di firmare. */
   required: boolean;
   /** "client" = precompilato ma modificabile dal cliente; "internal" = dato azienda, bloccato. */
@@ -113,9 +117,21 @@ export interface DocumentPart {
   created_at?: string | null;
 }
 
+/** Sezione (area) del form di compilazione. */
+export interface FieldArea {
+  key: string;
+  label: string;
+  icon?: string | null;
+  sub?: string | null;
+  /** Solo compositori: documento-parte d'origine dell'area. */
+  part_document_id?: number | null;
+  sort_order?: number;
+}
+
 export interface DocumentDetail extends DocumentItem {
   template_fields: TemplateField[];
   field_values?: Record<string, string> | null;
+  field_areas?: FieldArea[] | null;
   source_document_title?: string | null;
   template_scanned_at?: string | null;
   has_fill_base: boolean;
@@ -136,6 +152,23 @@ export type SignatureStatus =
   | "expired"
   | "cancelled";
 
+/** Audit trail della firma (valore probatorio FES). */
+export interface SignatureAudit {
+  document_title?: string;
+  signer_name?: string | null;
+  signer_email?: string | null;
+  ip?: string | null;
+  user_agent?: string | null;
+  sent_at?: string | null;
+  opened_at?: string | null;
+  signed_at?: string | null;
+  consent?: boolean;
+  consent_text?: string;
+  document_sha256?: string;
+  issuer?: string;
+  timestamp?: { applied?: boolean; provider?: string | null; transaction?: string | null };
+}
+
 export interface SignatureRequest {
   id: number;
   token: string;
@@ -146,8 +179,12 @@ export interface SignatureRequest {
   signer_email: string | null;
   signer_phone: string | null;
   otp_channel: "email" | "sms";
+  has_password?: boolean;
   expires_at: string | null;
   signed_document_id: number | null;
+  opened_at?: string | null;
+  signed_at?: string | null;
+  audit?: SignatureAudit | null;
   created_at: string;
 }
 
@@ -155,8 +192,10 @@ export interface SignatureRequest {
 export interface ComposeField {
   tag_name: string;
   label: string;
+  display_label: string | null;
   field_type: DocFieldType;
   source_path: string | null;
+  group_key: string | null;
   is_in_document: boolean;
   page: number;
   pos_x: number;
@@ -182,6 +221,7 @@ export interface ComposeResult {
   has_text_layer: boolean;
   suggested_title: string;
   fields: ComposeField[];
+  areas: FieldArea[];
 }
 
 export interface FillPrefillField {
@@ -327,9 +367,12 @@ export async function updateTemplateFieldApi(
   fieldId: number,
   body: {
     label?: string;
+    display_label?: string | null;
+    clear_display_label?: boolean;
     field_type?: DocFieldType;
     source_path?: string | null;
     clear_source_path?: boolean;
+    group_key?: string | null;
     required?: boolean;
     audience?: "client" | "internal";
   }
@@ -340,6 +383,35 @@ export async function updateTemplateFieldApi(
     body: JSON.stringify(body),
   });
   return jsonOrThrow(res);
+}
+
+/** Salva l'elenco ordinato delle sezioni (aree) del modello/parte. */
+export async function saveFieldAreasApi(
+  documentId: number,
+  areas: Array<{ key: string; label: string; icon?: string | null; sub?: string | null }>
+): Promise<FieldArea[]> {
+  const res = await authFetch(`${BASE}/${documentId}/field-areas`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ areas }),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Riordina/sposta i campi in un'unica chiamata (drag&drop). */
+export async function reorderTemplateFieldsApi(
+  documentId: number,
+  items: Array<{ field_id: number; group_key?: string | null; sort_order: number }>
+): Promise<void> {
+  const res = await authFetch(`${BASE}/${documentId}/template-fields/reorder`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok && res.status !== 204) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string })?.detail ?? "Impossibile riordinare i campi");
+  }
 }
 
 export async function deleteTemplateFieldApi(documentId: number, fieldId: number): Promise<void> {
@@ -435,10 +507,11 @@ export async function unlinkPartApi(documentId: number, linkId: number): Promise
 /** Campi (coordinate rimappate) + pagine + valori del modello composto. */
 export async function composeApi(
   documentId: number,
-  options: { contractId?: number | null; partIds?: number[] } = {}
+  options: { contractId?: number | null; clientId?: number | null; partIds?: number[] } = {}
 ): Promise<ComposeResult> {
   const qs = new URLSearchParams();
   if (options.contractId != null) qs.set("contract_id", String(options.contractId));
+  if (options.clientId != null) qs.set("client_id", String(options.clientId));
   if (options.partIds?.length) qs.set("parts", options.partIds.join(","));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return jsonOrThrow(await authFetch(`${BASE}/${documentId}/compose${suffix}`));
@@ -514,6 +587,7 @@ export async function createSignatureRequestApi(
   documentId: number,
   body: {
     contract_id?: number | null;
+    client_id?: number | null;
     part_ids?: number[];
     signer_name?: string;
     signer_email?: string;
@@ -521,6 +595,9 @@ export async function createSignatureRequestApi(
     otp_channel: "email" | "sms";
     expires_days?: number;
     password?: string;
+    values?: Record<string, string>;
+    elements?: OverlayElement[];
+    signatures?: Record<string, string>;
   }
 ): Promise<SignatureRequest> {
   const res = await authFetch(`${BASE}/${documentId}/signature-requests`, {
@@ -535,22 +612,48 @@ export async function listSignatureRequestsApi(documentId: number): Promise<Sign
   return jsonOrThrow(await authFetch(`${BASE}/${documentId}/signature-requests`));
 }
 
+/** Anteprima assemblata (dati azienda + cliente) per la revisione admin. */
+export async function signaturePreviewApi(
+  documentId: number,
+  options: { contractId?: number | null; partIds?: number[] } = {}
+): Promise<ComposeResult> {
+  const qs = new URLSearchParams();
+  if (options.contractId != null) qs.set("contract_id", String(options.contractId));
+  if (options.partIds?.length) qs.set("parts", options.partIds.join(","));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/signature-preview${suffix}`));
+}
+
+/** Annulla un invio in corso (il link non sarà più utilizzabile). */
+export async function cancelSignatureRequestApi(
+  documentId: number,
+  sigId: number
+): Promise<SignatureRequest> {
+  const res = await authFetch(`${BASE}/${documentId}/signature-requests/${sigId}/cancel`, {
+    method: "POST",
+  });
+  return jsonOrThrow(res);
+}
+
 // ── Pagina di firma PUBBLICA (cliente, senza account) ─────────────────────────
 
 const SIGN_BASE = `${API_BASE}/api/v1/sign`;
 
+export interface PublicSignArea {
+  key: string;
+  label: string;
+  icon?: string | null;
+  sub?: string | null;
+}
+
+/** Campo LOGICO del form cliente (deduplicato): `tags` = tutte le occorrenze da riempire. */
 export interface PublicSignField {
-  tag_name: string;
+  key: string;
   label: string;
   field_type: DocFieldType;
   required: boolean;
-  page: number;
-  pos_x: number;
-  pos_y: number | null;
-  pos_w: number | null;
-  pos_h: number | null;
-  font_size: number | null;
-  placeholder_kind: "underscore" | "tag" | null;
+  group_key: string | null;
+  tags: string[];
 }
 
 export interface PublicSignData {
@@ -558,6 +661,13 @@ export interface PublicSignData {
   requires_password: boolean;
   document_title: string;
   signer_name: string | null;
+  company_name: string;
+  company_logo: string | null;
+  company_email: string | null;
+  company_phone: string | null;
+  company_website: string | null;
+  company_address: string | null;
+  areas: PublicSignArea[];
   fields: PublicSignField[];
   values: Record<string, string>;
   page_metrics: PageMetric[];
@@ -585,6 +695,28 @@ export async function fetchSignFillBaseApi(token: string, password?: string): Pr
   return res.arrayBuffer();
 }
 
+/** Anteprima PDF (non salva) con dati azienda + cliente correnti. */
+export async function previewSignApi(
+  token: string,
+  body: {
+    password?: string;
+    values: Record<string, string>;
+    elements: OverlayElement[];
+    signatures: Record<string, string>;
+  }
+): Promise<ArrayBuffer> {
+  const res = await fetch(`${SIGN_BASE}/${encodeURIComponent(token)}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error((b as { detail?: string })?.detail ?? "Impossibile generare l'anteprima");
+  }
+  return res.arrayBuffer();
+}
+
 /** Invia campi compilati + firma del cliente. */
 export async function submitSignApi(
   token: string,
@@ -593,6 +725,7 @@ export async function submitSignApi(
     values: Record<string, string>;
     elements: OverlayElement[];
     signatures: Record<string, string>;
+    consent?: boolean;
   }
 ): Promise<{ ok: boolean; document_title: string }> {
   const res = await fetch(`${SIGN_BASE}/${encodeURIComponent(token)}/submit`, {
@@ -619,10 +752,17 @@ export async function updateVisualOverlayApi(
   return jsonOrThrow(res);
 }
 
-export async function getFillPrefillApi(documentId: number, contractId: number): Promise<FillPrefill> {
-  return jsonOrThrow(
-    await authFetch(`${BASE}/${documentId}/fill/prefill?contract_id=${contractId}`)
-  );
+/** Valori auto-risolti del modello. Con contratto o cliente; senza, solo dati azienda. */
+export async function getFillPrefillApi(
+  documentId: number,
+  contractId?: number | null,
+  clientId?: number | null
+): Promise<FillPrefill> {
+  const qs = new URLSearchParams();
+  if (contractId != null) qs.set("contract_id", String(contractId));
+  else if (clientId != null) qs.set("client_id", String(clientId));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return jsonOrThrow(await authFetch(`${BASE}/${documentId}/fill/prefill${suffix}`));
 }
 
 export async function getDocumentDownloadUrlApi(
