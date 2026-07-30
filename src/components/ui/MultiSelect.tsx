@@ -8,6 +8,8 @@ export interface MultiSelectOption {
   label: string;
   color?: string | null;
   avatarUrl?: string | null;
+  /** Icona custom nella riga del menu (es. logo social). */
+  icon?: React.ReactNode;
 }
 
 interface MultiSelectProps {
@@ -288,6 +290,9 @@ export function MultiSelect({
                             />
                           )}
                         </span>
+                        {opt.icon && (
+                          <span className="inline-grid h-5 w-5 flex-shrink-0 place-items-center">{opt.icon}</span>
+                        )}
                         {opt.avatarUrl && (
                           <img
                             src={opt.avatarUrl}

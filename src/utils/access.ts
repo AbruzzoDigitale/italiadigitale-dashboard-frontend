@@ -13,6 +13,7 @@ export type AppRouteKey =
   | "quotes"
   | "clients"
   | "social"
+  | "social-profiles"
   | "catalog"
   | "llm"
   | "profile"
@@ -67,6 +68,10 @@ export function canAccessRoute(
       return permissions.can_view_clients || permissions.allowed_views.includes("clients");
     case "social":
       return permissions.can_view_social_packages || permissions.allowed_views.includes("social");
+    case "social-profiles":
+      // Registro profili social dei clienti: consultabile da tutti (admin, PM,
+      // operatori); la gestione è limitata lato API ad admin/PM.
+      return true;
     case "catalog":
       return permissions.can_view_catalog || permissions.allowed_views.includes("catalog");
     case "llm":

@@ -15,6 +15,8 @@ import { getClientsApi, type Client } from "../../api/clients";
 import { formatEur, getQuoteApi, getQuotesApi, type Quote, type QuoteLineItem } from "../../api/quotes";
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { listWorkTagsApi, type WorkTag } from "../../api/workTags";
+import { listSocialProfilesApi, socialProfileLabel, type SocialProfile } from "../../api/socialProfiles";
+import { SocialIcon } from "../social/SocialIcon";
 import { useToast } from "../../context/ToastContext";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Checkbox";
@@ -139,6 +141,9 @@ export function ContractDetailModal({
   const [clientSaving, setClientSaving] = useState(false);
   const [detailTagIdsDraft, setDetailTagIdsDraft] = useState<number[]>([]);
   const [detailWorkAreaIdsDraft, setDetailWorkAreaIdsDraft] = useState<number[]>([]);
+  const [detailSocialProfileIdsDraft, setDetailSocialProfileIdsDraft] = useState<number[]>([]);
+  // Profili social del cliente del contratto (opzioni del MultiSelect).
+  const [clientSocialProfiles, setClientSocialProfiles] = useState<SocialProfile[]>([]);
   const [workTagModalOpen, setWorkTagModalOpen] = useState(false);
   const [workAreaModalOpen, setWorkAreaModalOpen] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"contract" | "tasks" | "client" | "quotes" | "billing" | "documenti" | "timeline">("contract");
@@ -343,6 +348,7 @@ export function ContractDetailModal({
         setClientIdDraft(detail.client_id != null ? String(detail.client_id) : "");
         setDetailTagIdsDraft((detail.tags ?? []).map((tag) => tag.id));
         setDetailWorkAreaIdsDraft((detail.work_areas ?? []).map((area) => area.id));
+        setDetailSocialProfileIdsDraft((detail.social_profiles ?? []).map((profile) => profile.id));
         setQuoteWizardStep(1);
         setEditingQuoteLabelId(null);
         setEditingQuoteLabelValue("");
@@ -608,6 +614,41 @@ export function ContractDetailModal({
     cancelEditingQuoteLabel();
   };
 
+  // Opzioni profili social: seguono il cliente del contratto. Al cambio cliente
+  // le selezioni non più valide vengono scartate dal draft.
+  useEffect(() => {
+    if (!open || detailData?.client_id == null) {
+      setClientSocialProfiles([]);
+      return;
+    }
+    let cancelled = false;
+    listSocialProfilesApi({ clientId: detailData.client_id })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientSocialProfiles(rows);
+        const validIds = new Set(rows.map((p) => p.id));
+        setDetailSocialProfileIdsDraft((current) =>
+          current.every((id) => validIds.has(id)) ? current : current.filter((id) => validIds.has(id))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientSocialProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, detailData?.client_id]);
+
+  const socialProfileOptions = useMemo(
+    () =>
+      clientSocialProfiles.map((p) => ({
+        id: p.id,
+        label: `${p.platform_label} · ${socialProfileLabel(p)}`,
+        icon: <SocialIcon platform={p.platform} label={p.platform_label} color={p.platform_color} className="h-5 w-5" />,
+      })),
+    [clientSocialProfiles]
+  );
+
   const handleSaveContractNotes = async () => {
     if (!detailData) return;
 
@@ -628,6 +669,7 @@ export function ContractDetailModal({
         lost_notes: hasRichTextContent(lostNotesDraft) ? lostNotesDraft : null,
         tag_ids: detailTagIdsDraft,
         work_area_ids: detailWorkAreaIdsDraft,
+        social_profile_ids: detailSocialProfileIdsDraft,
       });
 
       setDetailData(updated);
@@ -640,6 +682,7 @@ export function ContractDetailModal({
       setEndDateDraft(updated.end_date ?? "");
       setDetailTagIdsDraft((updated.tags ?? []).map((tag) => tag.id));
       setDetailWorkAreaIdsDraft((updated.work_areas ?? []).map((area) => area.id));
+      setDetailSocialProfileIdsDraft((updated.social_profiles ?? []).map((profile) => profile.id));
       onContractUpdated?.(updated);
       toast.success("Note contratto aggiornate");
     } catch (err) {
@@ -892,6 +935,16 @@ export function ContractDetailModal({
                       createActionLabel="Crea tag"
                     />
                   </div>
+
+                  {detailData?.client_id != null && socialProfileOptions.length > 0 && (
+                    <MultiSelect
+                      label="Profili social del cliente"
+                      value={detailSocialProfileIdsDraft}
+                      onChange={setDetailSocialProfileIdsDraft}
+                      options={socialProfileOptions}
+                      placeholder="Seleziona profili social"
+                    />
+                  )}
 
                   <div className="rounded-md border border-line dark:border-line-dark p-3">
                     <div className="mb-2 inline-flex rounded-md border border-line dark:border-line-dark p-1 gap-1">

@@ -8,6 +8,8 @@ export type SearchableSelectOption = {
   keywords?: string;
   disabled?: boolean;
   avatarUrl?: string | null;
+  /** Icona custom al posto di avatar/iniziali (es. logo social). */
+  icon?: React.ReactNode;
   /** Testo secondario allineato a destra nella riga (es. importo). */
   trailing?: string;
 };
@@ -28,6 +30,10 @@ type SearchableSelectProps = {
   showAvatar?: boolean;
   /** "circle" (default) per foto persone; "logo" per loghi aziendali (object-contain, angoli morbidi). */
   avatarShape?: "circle" | "logo";
+  /** Creazione inline dal testo cercato (riga "Crea ..." in fondo al menu). */
+  onCreateOption?: (name: string) => Promise<void> | void;
+  createLoading?: boolean;
+  createActionLabel?: string;
 };
 
 const SELECT_MENU_Z_INDEX = 13000;
@@ -43,6 +49,9 @@ function getInitials(label: string): string {
 
 function OptionAvatar({ option, shape }: { option: SearchableSelectOption; shape: "circle" | "logo" }) {
   const rounded = shape === "logo" ? "rounded" : "rounded-full";
+  if (option.icon) {
+    return <span className="inline-grid h-5 w-5 flex-shrink-0 place-items-center">{option.icon}</span>;
+  }
   if (option.avatarUrl) {
     return (
       <img
@@ -75,10 +84,14 @@ export function SearchableSelect({
   menuLayer = "local",
   showAvatar = true,
   avatarShape = "circle",
+  onCreateOption,
+  createLoading = false,
+  createActionLabel = "Crea",
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [portalRect, setPortalRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [portalRect, setPortalRect] = useState<{ top: number; bottom: number; left: number; width: number; placement: "top" | "bottom"; maxHeight: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -117,12 +130,32 @@ export function SearchableSelect({
   useEffect(() => {
     if (!open) {
       setQuery("");
+      setCreateError(null);
       return;
     }
 
     const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
   }, [open]);
+
+  const createCandidate = query.trim();
+  const hasExactMatch = useMemo(() => {
+    const candidate = createCandidate.toLowerCase();
+    if (!candidate) return false;
+    return options.some((option) => option.label.trim().toLowerCase() === candidate);
+  }, [createCandidate, options]);
+  const canCreateInline = !!onCreateOption && createCandidate.length > 0 && !hasExactMatch;
+
+  const handleCreate = async () => {
+    if (!onCreateOption || !canCreateInline || createLoading) return;
+    setCreateError(null);
+    try {
+      await onCreateOption(createCandidate);
+      setQuery("");
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Errore creazione");
+    }
+  };
 
   useEffect(() => {
     if (!open || menuLayer !== "portal") {
@@ -133,7 +166,19 @@ export function SearchableSelect({
     const updateRect = () => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setPortalRect({ top: rect.top, left: rect.left, width: rect.width });
+      // Auto-flip: se sotto non c'è abbastanza spazio (e sopra ce n'è di più) il menu si
+      // apre verso l'alto; in ogni caso l'altezza max viene limitata allo spazio disponibile
+      // così non finisce mai fuori schermo (viene "accorciato" e resta scrollabile).
+      const GAP = 6;
+      const MENU_MAX = 320;
+      const spaceBelow = window.innerHeight - rect.bottom - GAP;
+      const spaceAbove = rect.top - GAP;
+      let placement: "top" | "bottom" = menuPlacement;
+      if (menuPlacement !== "top" && spaceBelow < 200 && spaceAbove > spaceBelow) placement = "top";
+      if (menuPlacement === "top" && spaceAbove < 200 && spaceBelow > spaceAbove) placement = "bottom";
+      const avail = Math.max(0, placement === "top" ? spaceAbove : spaceBelow);
+      const maxHeight = Math.min(MENU_MAX, avail);
+      setPortalRect({ top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width, placement, maxHeight });
     };
 
     updateRect();
@@ -143,16 +188,31 @@ export function SearchableSelect({
       window.removeEventListener("resize", updateRect);
       window.removeEventListener("scroll", updateRect, true);
     };
-  }, [open, menuLayer]);
+  }, [open, menuLayer, menuPlacement]);
 
+  const effPlacement = menuLayer === "portal" && portalRect ? portalRect.placement : menuPlacement;
   const menu = (
     <div
       ref={menuRef}
-      className={`w-full ${menuLayer === "portal" ? "fixed" : "absolute z-[3100]"} ${menuPlacement === "top" ? (menuLayer === "portal" ? "-translate-y-[calc(100%+4px)]" : "bottom-full mb-1") : "mt-1"}`}
-      style={menuLayer === "portal" && portalRect ? { top: portalRect.top, left: portalRect.left, width: portalRect.width, zIndex: SELECT_MENU_Z_INDEX } : undefined}
+      className={`w-full ${menuLayer === "portal" ? "fixed" : "absolute z-[3100]"} ${effPlacement === "top" ? (menuLayer === "portal" ? "-translate-y-[calc(100%+4px)]" : "bottom-full mb-1") : "mt-1"}`}
+      style={
+        menuLayer === "portal" && portalRect
+          ? {
+              // Ancorato al bordo del trigger: sotto il campo (placement bottom,
+              // con il piccolo gap dato da mt-1) o sopra (placement top).
+              top: effPlacement === "top" ? portalRect.top : portalRect.bottom,
+              left: portalRect.left,
+              width: portalRect.width,
+              zIndex: SELECT_MENU_Z_INDEX,
+            }
+          : undefined
+      }
     >
-      <div className={`${menuPlacement === "top" ? "dd-pop-up" : "dd-pop"} w-full rounded-md border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20] shadow-lg overflow-hidden`}>
-      <div className="p-2 border-b border-line dark:border-[#2a2a2e]">
+      <div
+        className={`${effPlacement === "top" ? "dd-pop-up" : "dd-pop"} flex w-full flex-col rounded-md border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20] shadow-lg overflow-hidden`}
+        style={menuLayer === "portal" && portalRect ? { maxHeight: portalRect.maxHeight } : undefined}
+      >
+      <div className="shrink-0 p-2 border-b border-line dark:border-[#2a2a2e]">
         <div className="relative">
           <Icon
             name="search"
@@ -164,6 +224,10 @@ export function SearchableSelect({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") setOpen(false);
+              if (event.key === "Enter" && canCreateInline && filtered.length === 0) {
+                event.preventDefault();
+                void handleCreate();
+              }
             }}
             placeholder={searchPlaceholder}
             className="w-full h-8 pl-8 pr-2 rounded-md border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] text-[12px] text-ink dark:text-[#f4f4f7] outline-none focus:border-ink dark:focus:border-[#f4f4f7]"
@@ -171,8 +235,8 @@ export function SearchableSelect({
         </div>
       </div>
 
-      <div className="max-h-56 overflow-y-auto p-1">
-        {filtered.length === 0 ? (
+      <div className={`overflow-y-auto p-1 ${menuLayer === "portal" ? "flex-1 min-h-0" : "max-h-56"}`}>
+        {filtered.length === 0 && !canCreateInline ? (
           <div className="px-2 py-2 text-[12px] text-muted dark:text-[#9999a0]">{emptyMessage}</div>
         ) : (
           filtered.map((option, i) => {
@@ -203,6 +267,24 @@ export function SearchableSelect({
               </button>
             );
           })
+        )}
+        {canCreateInline && (
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={createLoading}
+            className="dd-item mt-0.5 w-full rounded border border-dashed border-line px-2 py-1.5 text-left text-[12px] font-semibold text-ink transition-colors hover:bg-cream disabled:opacity-50 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#24242a]"
+          >
+            <span className="flex items-center gap-2">
+              <Icon name="plus" className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {createActionLabel} "{createCandidate}"
+              </span>
+            </span>
+          </button>
+        )}
+        {createError && (
+          <p className="px-2 py-1.5 text-[11.5px] text-danger">{createError}</p>
         )}
       </div>
       </div>

@@ -31,6 +31,7 @@ import { QuoteEditorPage } from "./pages/QuoteEditorPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ConfiguratorModularPage } from "./pages/ConfiguratorModularPage";
 import { SocialPackagesPage } from "./pages/SocialPackagesPage";
+import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
@@ -123,6 +124,7 @@ function AppRoutes() {
         <Route path="requests/edit" element={<RouteAccess routeKey="requests"><QuoteEditorPage /></RouteAccess>} />
         <Route path="catalog" element={<RouteAccess routeKey="catalog"><CatalogPage /></RouteAccess>} />
         <Route path="configuratore" element={<RouteAccess routeKey="configurator"><ConfiguratorModularPage /></RouteAccess>} />
+        <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="social-packages" element={<RouteAccess routeKey="social"><SocialPackagesPage /></RouteAccess>} />
         <Route path="social-packages-presentation" element={<RouteAccess routeKey="social"><SocialPackagesPresentationPage /></RouteAccess>} />
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />

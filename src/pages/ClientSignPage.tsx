@@ -10,7 +10,7 @@ import {
 import { SignaturePad } from "../components/documents/SignaturePad";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
 
@@ -300,7 +300,7 @@ export default function ClientSignPage() {
               return (
                 <div key={area.key}>
                   <div className="mb-2 flex items-center gap-2">
-                    <Icon name={area.icon || "list"} className="h-4 w-4 text-brand-magenta" />
+                    <Icon name={(area.icon || "list") as IconName} className="h-4 w-4 text-brand-magenta" />
                     <span className="text-[12px] font-bold uppercase tracking-wide">{area.label}</span>
                     <span className="h-px flex-1 bg-line dark:bg-line-dark" />
                   </div>

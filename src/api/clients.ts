@@ -398,6 +398,22 @@ export async function getClientApi(id: number): Promise<Client> {
   return res.json();
 }
 
+export interface ClientOption {
+  id: number;
+  name: string;
+}
+
+/** Lista leggera (solo id + nome) per popolare subito le select clienti. */
+export async function listClientOptionsApi(companyId?: number | null): Promise<ClientOption[]> {
+  const qs = companyId != null ? `?company_id=${companyId}` : "";
+  const res = await authFetch(`${API_BASE}/api/v1/clients/options${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare i clienti")}`);
+  }
+  return res.json();
+}
+
 export async function getClientsApi(params?: GetClientsParams): Promise<ClientsListResponse> {
   const qs = new URLSearchParams();
   if (params?.page != null) qs.set("page", String(params.page));

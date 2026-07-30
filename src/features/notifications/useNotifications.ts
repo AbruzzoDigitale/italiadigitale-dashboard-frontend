@@ -220,6 +220,12 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
       // Segnala a chi mostra dati live (es. thread commenti del task aperto) di ricaricarsi.
       emitRealtime();
     });
+    // Canale realtime a livello azienda: qualsiasi modifica a una task in azienda (anche
+    // fatta da altri) fa ricaricare le viste live (board Lavorazioni, task aperta) — senza
+    // toast né ricarica della lista notifiche.
+    es.addEventListener("work_item_changed", () => {
+      emitRealtime();
+    });
     return () => es.close();
   }, [reload, showNotification]);
 

@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 interface AttachmentPickerOption {
   id: number;
   name: string;
+}
+
+/** API imperativa per inserire contenuti al caret (usata dal drag&drop sulla descrizione). */
+export interface RichTextEditorHandle {
+  /** Sposta il caret nel punto schermo (x,y), se dentro l'editor. Mostra la "pipe". */
+  placeCaretFromPoint: (x: number, y: number) => void;
+  /** Inserisce un chip allegato (per id) al caret corrente. */
+  insertAttachmentBadge: (id: number, name: string) => void;
+  /** Inserisce un link al caret corrente. */
+  insertLink: (url: string, text?: string) => void;
+  focus: () => void;
 }
 
 interface RichTextEditorProps {
@@ -126,7 +137,7 @@ export function hasRichTextContent(value: string): boolean {
   return !!documentRoot.body.querySelector("img,video,audio,table,ul,ol,blockquote,hr");
 }
 
-export function RichTextEditor({
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
   label,
   value,
   onChange,
@@ -136,11 +147,13 @@ export function RichTextEditor({
   className,
   transparent = false,
   attachmentPicker,
-}: RichTextEditorProps) {
+}: RichTextEditorProps, ref) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
   const linkRangeRef = useRef<Range | null>(null);
+  // Range dell'ultimo punto di drop (per inserire al caret anche dopo un upload async).
+  const dropRangeRef = useRef<Range | null>(null);
   const [linkTooltipOpen, setLinkTooltipOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -270,6 +283,70 @@ export function RichTextEditor({
     emitChange();
     setAttachMenuOpen(false);
   };
+
+  // ── API imperativa per il drag&drop ─────────────────────────────────────────
+  const placeCaretFromPoint = (x: number, y: number) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    let range: Range | null = null;
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    };
+    if (typeof doc.caretRangeFromPoint === "function") {
+      range = doc.caretRangeFromPoint(x, y);
+    } else if (typeof doc.caretPositionFromPoint === "function") {
+      const pos = doc.caretPositionFromPoint(x, y);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range || !editor.contains(range.startContainer)) return;
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    dropRangeRef.current = range.cloneRange();
+  };
+
+  const insertHtmlAtCaret = (html: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    const liveInEditor =
+      !!selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer);
+    if (!liveInEditor) {
+      // Selezione persa (es. dopo un upload async): ripristina il punto di drop, o vai in fondo.
+      const range = dropRangeRef.current?.cloneRange() ?? (() => {
+        const r = document.createRange();
+        r.selectNodeContents(editor);
+        r.collapse(false);
+        return r;
+      })();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+    document.execCommand("insertHTML", false, html);
+    dropRangeRef.current = null;
+    emitChange();
+  };
+
+  useImperativeHandle(ref, () => ({
+    placeCaretFromPoint,
+    insertAttachmentBadge: (id: number, name: string) => {
+      insertHtmlAtCaret(
+        `<span class="wi-attach-badge" data-attachment-id="${id}" contenteditable="false">${escapeHtml(name)}</span> `,
+      );
+    },
+    insertLink: (url: string, text?: string) => {
+      const safeUrl = escapeHtml(normalizeUrl(url));
+      const label = escapeHtml((text ?? url).trim() || url);
+      insertHtmlAtCaret(`<a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${label}</a> `);
+    },
+    focus: () => editorRef.current?.focus(),
+  }));
 
   // Rileva se il cursore/selezione è dentro un link e, in tal caso, apre il
   // popover di modifica posizionato SOTTO al link cliccato.
@@ -538,4 +615,4 @@ export function RichTextEditor({
 
     </div>
   );
-}
+});

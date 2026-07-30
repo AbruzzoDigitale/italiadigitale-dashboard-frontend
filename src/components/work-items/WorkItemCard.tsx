@@ -1,6 +1,7 @@
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icon";
 import { WorkItemResourceChips } from "./WorkItemResourceChips";
+import { WorkAreaChips } from "./WorkAreaChips";
 import { WorkAreaBadge } from "../work-areas/WorkAreaBadge";
 import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/workItems";
 import { type User } from "../../api/users";
@@ -255,16 +256,7 @@ export function WorkItemCard({
 
       {(areas.length > 0 || scheduleState?.delay_code) && (
         <div className="lv-mid">
-          {areas.map((area) => (
-            <span
-              key={area.id}
-              className="lv-area"
-              style={{ "--area": normColor(area.color) ?? "#8c8d87" } as React.CSSProperties}
-            >
-              <i />
-              {area.name}
-            </span>
-          ))}
+          <WorkAreaChips areas={areas} />
           {scheduleState?.delay_code &&
             (() => {
               // Nota: il "Peso Nx" è stato rimosso su richiesta; resta solo il ritardo.

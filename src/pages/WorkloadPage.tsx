@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
 import { getUsersApi, updateMeApi, type User } from "../api/users";
 import { listRolesApi, type Role } from "../api/roles";
 import {
@@ -1024,6 +1025,15 @@ export function WorkloadPage() {
     viewMode,
     weekOffset,
   ]);
+
+  // Realtime: qualsiasi modifica a una task in azienda (segnale SSE `work_item_changed`
+  // instradato sul bus) ricarica in silenzio la vista attiva. I pesi per-ruolo/fase sono
+  // ricalcolati server-side a ogni fetch, quindi arrivano già aggiornati.
+  useEffect(() => subscribeRealtime(() => {
+    void loadMain({ silent: true });
+    void reloadCalendar();
+    setMultiReloadToken((t) => t + 1);
+  }), [loadMain, reloadCalendar]);
 
   const loadProfiles = useCallback(async () => {
     if (!selectedCompanyId) {

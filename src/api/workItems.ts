@@ -228,6 +228,8 @@ export interface WorkItem {
   company_id: number;
   client_id: number | null;
   contract_ids?: number[];
+  /** Profili social collegati (id dal registro profili social dell'azienda). */
+  social_profile_ids?: number[];
   is_template?: boolean;
   template_source_id?: number | null;
   is_ai_generated?: boolean;
@@ -264,7 +266,7 @@ export interface WorkItem {
   reviewer_user_id?: number | null;
   reviewer_name?: string | null;
   // Scheda Revisione
-  review_stage?: "interna" | "cliente" | null;
+  review_stage?: "interna" | "approvata_interna" | "cliente" | "approvata_cliente" | null;
   rework_count?: number;
   rework_interna?: number;
   last_review_source?: "interna" | "cliente" | null;
@@ -393,6 +395,8 @@ export interface CreateWorkItemPayload {
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
+  /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
+  social_profile_ids?: number[];
   is_PED?: boolean;
   ped_configuration_id?: number | null;
   ped_configuration?: {
@@ -448,6 +452,8 @@ export interface InstantiateTemplatePayload {
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
+  /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
+  social_profile_ids?: number[];
   is_PED?: boolean;
   ped_configuration_id?: number | null;
   ped_configuration?: {

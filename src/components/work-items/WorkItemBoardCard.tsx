@@ -1,6 +1,7 @@
 import "../../pages/work-items-page.css";
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icon";
+import { WorkAreaChips } from "./WorkAreaChips";
 import { fmtHours, formatWorkItemDate, isOverdue } from "./WorkItemCard";
 import { type WorkTag } from "../../api/workItems";
 import { type User } from "../../api/users";
@@ -164,16 +165,7 @@ export function WorkItemBoardCard({
 
       {areas.length > 0 && (
         <div className="lv-mid">
-          {areas.map((area) => (
-            <span
-              key={area.id}
-              className="lv-area"
-              style={{ "--area": normColor(area.color) ?? "#8c8d87" } as React.CSSProperties}
-            >
-              <i />
-              {area.name}
-            </span>
-          ))}
+          <WorkAreaChips areas={areas} />
         </div>
       )}
 

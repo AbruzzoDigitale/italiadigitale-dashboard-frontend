@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   DOC_TYPE_LABELS,
@@ -16,7 +16,6 @@ import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
-import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { Spinner } from "../components/ui/Spinner";
 import { useTheme } from "../context/ThemeContext";
@@ -53,7 +52,7 @@ export function DocumentsPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { user, activeCompanyId, myCompanies } = useAuth();
-  const { selectedCompanyId, setSelectedCompanyId } = useSelectedCompanyId(
+  const { selectedCompanyId } = useSelectedCompanyId(
     activeCompanyId ?? user?.company_id ?? null
   );
   const currentCompanyId = selectedCompanyId ?? activeCompanyId ?? user?.company_id ?? null;
@@ -70,17 +69,6 @@ export function DocumentsPage() {
     search: search.trim() || undefined,
     limit: 500,
   });
-
-  const companyOptions = useMemo(
-    () =>
-      myCompanies.map((c) => ({
-        value: String(c.id),
-        label: c.name,
-        keywords: c.slug ?? "",
-        avatarUrl: getCompanyLogoUrl(c, theme),
-      })),
-    [myCompanies, theme]
-  );
 
   const handleDownload = async (doc: DocumentItem) => {
     try {
@@ -116,17 +104,6 @@ export function DocumentsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        {myCompanies.length > 1 && (
-          <div className="w-56">
-            <SearchableSelect
-              value={currentCompanyId != null ? String(currentCompanyId) : ""}
-              onChange={(value) => setSelectedCompanyId(value ? Number(value) : null)}
-              options={companyOptions}
-              placeholder="Azienda"
-              avatarShape="logo"
-            />
-          </div>
-        )}
         <SegmentedSwitch value={typeFilter} onChange={setTypeFilter} options={TYPE_FILTER_OPTIONS} />
         <div className="w-64 max-md:w-full">
           <Input

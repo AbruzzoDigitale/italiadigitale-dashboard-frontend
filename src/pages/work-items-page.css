@@ -488,6 +488,46 @@
   border-radius: 2px;
   background: var(--area);
 }
+/* Chip "+N" che accorpa le aree extra (vedi WorkAreaChips) */
+.lv-area-more {
+  position: relative;
+  cursor: pointer;
+  color: var(--tx-3);
+  outline: none;
+}
+.lv-area-more:hover,
+.lv-area-more:focus-visible {
+  color: var(--tx);
+  border-color: var(--line-2);
+}
+/* Popover con l'elenco completo delle aree residue */
+.lv-area-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  white-space: nowrap;
+  cursor: default;
+}
+.lv-area-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--surface);
+}
 .lv-peso {
   font-size: 10px;
   color: var(--tx-3);
@@ -575,6 +615,36 @@
 .lv-av.more {
   background: var(--surface-3);
   color: var(--tx-3);
+}
+
+/* ---------------- pannello contratti: apertura/chiusura animata ----------------
+   Lo stesso <aside> passa da .ct-rail (60px) a .ct-panel (316px): la larghezza
+   anima in transizione e le colonne kanban accanto (flex a quota uguale) si
+   ridistribuiscono fluidamente frame per frame. I contenuti scambiati (rail ⇄
+   pannello) entrano in dissolvenza, leggermente ritardata per non farsi
+   schiacciare a metà corsa. */
+.ct-side {
+  transition: width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  will-change: width;
+}
+@keyframes ct-side-swap {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ct-side > * {
+  animation: ct-side-swap 0.26s ease 0.1s both;
+}
+/* Durante l'espansione il contenuto del pannello mantiene il layout finale
+   (viene rivelato, non re-impaginato a larghezze intermedie). */
+.ct-side .ct-panel-head,
+.ct-side .ct-panel-body {
+  min-width: 314px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-side,
+  .ct-side.ct-rail { transition: none; }
+  .ct-side > * { animation: none; }
 }
 
 /* ---------------- pannello contratti (espanso) ---------------- */
@@ -830,7 +900,8 @@
   border: 1px solid color-mix(in srgb, var(--ct-accent) 24%, var(--line));
   border-top: 3px solid var(--ct-accent);
   border-radius: 14px;
-  transition: background 0.15s var(--ease);
+  /* width qui, non solo in .ct-side: questa regola vince sulla shorthand. */
+  transition: background 0.15s var(--ease), width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .ct-rail:hover {
   background: color-mix(in srgb, var(--ct-accent) 14%, var(--surface-2));

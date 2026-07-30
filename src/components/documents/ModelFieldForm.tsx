@@ -2,12 +2,12 @@ import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "reac
 import type { DocFieldType, SourcePathInfo } from "../../api/documents";
 import { Badge } from "../ui/Badge";
 import { Checkbox } from "../ui/Checkbox";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 import { Input } from "../ui/Input";
 import { SearchableSelect, type SearchableSelectOption } from "../ui/SearchableSelect";
 import { SegmentedSwitch } from "../ui/SegmentedSwitch";
 import { SignatureModal } from "./SignatureModal";
-import { fieldLabel, isFilled, type EditorArea, type EditorField, type EditorPart } from "./modelEditor";
+import { fieldLabel, isFilled, type EditorField, type EditorPart } from "./modelEditor";
 
 const isSignatureValue = (v: string): boolean => !!v && v.startsWith("data:image");
 
@@ -158,7 +158,7 @@ export const ModelFieldForm = forwardRef<ModelFieldFormHandle, ModelFieldFormPro
                     {aIdx + 1}
                   </span>
                   <span className="grid h-7 w-7 place-items-center rounded-md bg-brand-magenta/15 text-brand-magenta">
-                    <Icon name={area.icon || "list"} className="h-4 w-4" />
+                    <Icon name={(area.icon || "list") as IconName} className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-bold uppercase tracking-wide">{area.label}</span>

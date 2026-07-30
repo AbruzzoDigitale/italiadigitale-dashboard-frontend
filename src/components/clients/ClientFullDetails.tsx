@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { type Client } from "../../api/clients";
 import { getUsersApi, type User } from "../../api/users";
+import { listSocialProfilesApi, socialProfileLabel, type SocialProfile } from "../../api/socialProfiles";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
 import { type IconName } from "../ui/Icon";
+import { SocialIcon } from "../social/SocialIcon";
 
 function fmt(v: string | null | undefined) {
   return v ?? null;
@@ -117,6 +119,21 @@ export function ClientFullDetails({ client }: ClientFullDetailsProps) {
     };
   }, [client]);
 
+  const [socialProfiles, setSocialProfiles] = useState<SocialProfile[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listSocialProfilesApi({ clientId: client.id })
+      .then((rows) => {
+        if (!cancelled) setSocialProfiles(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSocialProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client.id]);
+
   const fullAddress = useMemo(() => fmtAddress(client), [client]);
   const hasAssignedUsers = assignedUsers.length > 0;
 
@@ -211,6 +228,43 @@ export function ClientFullDetails({ client }: ClientFullDetailsProps) {
           </p>
         )}
       </div>
+
+      {socialProfiles.length > 0 && (
+        <div className="md:col-span-2 bg-paper dark:bg-[#131316] border border-line dark:border-[#2a2a2e] rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Icon name="globe" className="w-3.5 h-3.5 text-muted dark:text-[#9999a0]" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+              Profili social
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {socialProfiles.map((profile) => (
+              <a
+                key={profile.id}
+                href={profile.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2.5 rounded-lg border border-line dark:border-[#2a2a2e] px-3 py-2 hover:border-ink dark:hover:border-[#f4f4f7] transition-colors"
+              >
+                <SocialIcon
+                  platform={profile.platform}
+                  label={profile.platform_label}
+                  color={profile.platform_color}
+                  className="h-8 w-8"
+                />
+                <span className="min-w-0">
+                  <p className="text-[12px] font-semibold text-ink dark:text-[#f4f4f7] truncate">
+                    {socialProfileLabel(profile)}
+                  </p>
+                  <p className="text-[11px] text-muted dark:text-[#9999a0]">
+                    {profile.platform_label}
+                  </p>
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       <InfoCard title="Contatti" iconName="mail">
         <InfoRow label="Email" value={

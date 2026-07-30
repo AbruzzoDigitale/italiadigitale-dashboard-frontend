@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createContractApi, CONTRACT_STAGE_LABELS, CONTRACT_STAGE_ORDER, type ContractCommercialStage, type ContractDetailResponse, type ContractEngagementType, type ContractPricingMode, type ContractType } from "../../api/contracts";
 import { createWorkAreaApi, listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { createWorkTagApi, listWorkTagsApi, type WorkTag } from "../../api/workTags";
+import { listSocialProfilesApi, socialProfileLabel, type SocialProfile } from "../../api/socialProfiles";
+import { SocialIcon } from "../social/SocialIcon";
 import type { Client } from "../../api/clients";
 import { useToast } from "../../context/ToastContext";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
@@ -31,6 +33,7 @@ type ContractCreateState = {
   operational_brief: string;
   tag_ids: number[];
   work_area_ids: number[];
+  social_profile_ids: number[];
 };
 
 const EMPTY_CREATE_FORM: ContractCreateState = {
@@ -47,6 +50,7 @@ const EMPTY_CREATE_FORM: ContractCreateState = {
   operational_brief: "",
   tag_ids: [],
   work_area_ids: [],
+  social_profile_ids: [],
 };
 
 function toIsoDatetimeValue(value: string): string | null {
@@ -150,6 +154,45 @@ export function ContractCreateModal({
     }));
   }, [workAreaOptions, workTagOptions]);
 
+  // Profili social del cliente selezionato: le opzioni seguono il cliente del
+  // contratto; al cambio cliente le selezioni non più valide vengono scartate.
+  const [clientSocialProfiles, setClientSocialProfiles] = useState<SocialProfile[]>([]);
+  useEffect(() => {
+    if (!open || !form.client_id) {
+      setClientSocialProfiles([]);
+      setForm((current) => (current.social_profile_ids.length ? { ...current, social_profile_ids: [] } : current));
+      return;
+    }
+    let cancelled = false;
+    listSocialProfilesApi({ clientId: Number(form.client_id) })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientSocialProfiles(rows);
+        const validIds = new Set(rows.map((p) => p.id));
+        setForm((current) =>
+          current.social_profile_ids.every((id) => validIds.has(id))
+            ? current
+            : { ...current, social_profile_ids: current.social_profile_ids.filter((id) => validIds.has(id)) }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientSocialProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.client_id]);
+
+  const socialProfileOptions = useMemo(
+    () =>
+      clientSocialProfiles.map((p) => ({
+        id: p.id,
+        label: `${p.platform_label} · ${socialProfileLabel(p)}`,
+        icon: <SocialIcon platform={p.platform} label={p.platform_label} color={p.platform_color} className="h-5 w-5" />,
+      })),
+    [clientSocialProfiles]
+  );
+
   const handleCreateWorkTag = async (name: string) => {
     if (!companyId || !name.trim()) return;
     setCreatingWorkTag(true);
@@ -236,6 +279,7 @@ export function ContractCreateModal({
         quote_links: [],
         tag_ids: form.tag_ids,
         work_area_ids: form.work_area_ids,
+        social_profile_ids: form.social_profile_ids,
       });
 
       toast.success("Contratto creato");
@@ -406,6 +450,17 @@ export function ContractCreateModal({
             createActionLabel="Crea tag"
           />
         </div>
+        {form.client_id && socialProfileOptions.length > 0 && (
+          <div className="mt-3">
+            <MultiSelect
+              label="Profili social del cliente"
+              value={form.social_profile_ids}
+              onChange={(value) => updateForm("social_profile_ids", value)}
+              options={socialProfileOptions}
+              placeholder="Seleziona profili social"
+            />
+          </div>
+        )}
         </SectionCard>
 
         <SectionCard icon="annotation" title="Note e brief">

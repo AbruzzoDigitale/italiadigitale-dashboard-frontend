@@ -3,9 +3,16 @@ import { authFetch, API_BASE } from "./auth";
 // Situazioni con peso di default configurabile per azienda (fallback ai default di codice).
 export type WorkloadWeightSituationKey =
   | "review_pm"
+  | "approved_internally_operatore"
+  | "approved_internally_pm"
+  | "review_cliente_operatore"
+  | "review_cliente_pm"
+  | "approved_client_operatore"
+  | "approved_client_pm"
   | "carried_over"
   | "awaiting_publish"
   | "rework"
+  | "rework_cliente"
   | "justified_delay"
   | "client_protection";
 

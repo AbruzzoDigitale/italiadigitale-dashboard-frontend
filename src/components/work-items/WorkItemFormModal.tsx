@@ -48,14 +48,18 @@ import { Icon } from "../ui/Icon";
 import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
 import { EstimatedHoursField } from "../ui/EstimatedHoursField";
-import { LoadWeightField } from "../ui/LoadWeightField";
+// Peso della task ora gestito interamente dalle revisioni (macchina a stati): slider nascosto.
+// import { LoadWeightField } from "../ui/LoadWeightField";
 import { formatDurationHuman } from "../../utils/duration";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { listSocialProfilesApi, socialProfileLabel, type SocialProfile } from "../../api/socialProfiles";
+import { SocialIcon } from "../social/SocialIcon";
 import { Checkbox } from "../ui/Checkbox";
 import { Textarea } from "../ui/Textarea";
 import { Linkify } from "../ui/Linkify";
-import { RichTextEditor } from "../ui/RichTextEditor";
+import { RichTextEditor, type RichTextEditorHandle } from "../ui/RichTextEditor";
+import { TaskAttachmentsBar } from "./TaskAttachmentsBar";
 import { toEditorHtml } from "../../utils/descriptionHtml";
 import { TaskSettingsModal } from "./TaskSettingsModal";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
@@ -64,7 +68,12 @@ import { OverbookingModal } from "./OverbookingModal";
 import { useToast } from "../../context/ToastContext";
 import { useWorkItemDetail } from "../../hooks/useWorkItemDetail";
 import { ReviewTab, type ReviewTabHandle } from "../review/ReviewTab";
-import { detectResourceType } from "../../utils/taskResources";
+import {
+  deriveReviewPhase,
+  reviewPhaseButtons,
+  type ReviewActionKey,
+} from "../review/reviewFlow";
+import { detectResourceType, isHttpResourceUrl } from "../../utils/taskResources";
 import { ResourceIcon } from "./ResourceIcon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -257,6 +266,7 @@ interface WorkItemFormState {
   assignee_ids: number[];
   work_area_ids: number[];
   tag_ids: number[];
+  social_profile_ids: number[];
   client_id: string;
   is_recurring: boolean;
   recurrence_type: "" | WorkItemRecurrenceType;
@@ -330,6 +340,7 @@ const EMPTY_FORM: WorkItemFormState = {
   assignee_ids: [],
   work_area_ids: [],
   tag_ids: [],
+  social_profile_ids: [],
   client_id: "",
   is_recurring: false,
   recurrence_type: "",
@@ -401,6 +412,14 @@ function workItemEventLabel(eventType: string, fieldName?: string | null): strin
       return "Inviata al cliente";
     case "review_unsent_to_client":
       return "Consegna al cliente annullata";
+    case "review_approved_internally":
+      return "Approvata internamente";
+    case "review_approved_by_client":
+      return "Approvata dal cliente";
+    case "review_approved":
+      return "Messa in pubblicazione";
+    case "review_reopened":
+      return "Tornata in revisione";
     case "review_send_back":
       return "Rimandata a correggere";
     case "work_item_date_moved":
@@ -678,12 +697,20 @@ export function WorkItemFormModal({
   // ── Scheda Revisione: le azioni ("Rimanda indietro e correggi" / "Salva e concludi")
   //    vivono nel footer del modale e pilotano la ReviewTab via ref imperativo.
   const reviewRef = useRef<ReviewTabHandle>(null);
-  const [reviewAction, setReviewAction] = useState<null | "sendback" | "conclude">(null);
-  const runReviewAction = async (action: "sendback" | "conclude") => {
-    setReviewAction(action);
+  const [reviewAction, setReviewAction] = useState<null | ReviewActionKey>(null);
+  const runReviewAction = async (key: ReviewActionKey) => {
+    setReviewAction(key);
     try {
-      if (action === "sendback") await reviewRef.current?.sendBack();
-      else await reviewRef.current?.saveConclude();
+      switch (key) {
+        case "sendToReview": await reviewRef.current?.sendToReview(); break;
+        case "approveInternally": await reviewRef.current?.approveInternally(); break;
+        case "sendToClient": await reviewRef.current?.sendToClient(); break;
+        case "approveClient": await reviewRef.current?.approveClient(); break;
+        case "publish": reviewRef.current?.openPublish(); break;
+        case "complete": await reviewRef.current?.complete(); break;
+        case "reopen": await reviewRef.current?.reopen(); break;
+        case "sendBack": reviewRef.current?.openSendBack(); break;
+      }
     } finally {
       setReviewAction(null);
     }
@@ -771,6 +798,40 @@ export function WorkItemFormModal({
       listPedConfigurationsApi(companyId).then(setPedConfigs).catch(() => setPedConfigs([])),
     ]).finally(() => setOptionsLoading(false));
   }, [open, companyId]);
+
+  // ── Profili social del cliente selezionato: le opzioni seguono il cliente della
+  // task; al cambio cliente le selezioni non più valide vengono scartate.
+  const [clientSocialProfiles, setClientSocialProfiles] = useState<SocialProfile[]>([]);
+  useEffect(() => {
+    if (!open || !form.client_id) {
+      setClientSocialProfiles([]);
+      return;
+    }
+    let cancelled = false;
+    listSocialProfilesApi({ clientId: Number(form.client_id) })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientSocialProfiles(rows);
+        const validIds = new Set(rows.map((p) => p.id));
+        setForm((current) =>
+          current.social_profile_ids.every((id) => validIds.has(id))
+            ? current
+            : { ...current, social_profile_ids: current.social_profile_ids.filter((id) => validIds.has(id)) }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientSocialProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.client_id]);
+
+  const socialProfileOptions = clientSocialProfiles.map((p) => ({
+    id: p.id,
+    label: `${p.platform_label} · ${socialProfileLabel(p)}`,
+    icon: <SocialIcon platform={p.platform} label={p.platform_label} color={p.platform_color} className="h-5 w-5" />,
+  }));
 
   // Il commento del cambio stato è transitorio: si azzera ad ogni apertura/cambio task.
   useEffect(() => {
@@ -939,6 +1000,7 @@ export function WorkItemFormModal({
         assignee_ids: baseItem.assignee_ids ?? [],
         work_area_ids: baseItem.work_area_ids ?? [],
         tag_ids: baseItem.tag_ids ?? [],
+        social_profile_ids: baseItem.social_profile_ids ?? [],
         client_id: baseItem.client_id != null ? String(baseItem.client_id) : "",
         is_recurring: baseItem.is_recurring,
         recurrence_type: baseItem.recurrence_type ?? "",
@@ -1179,6 +1241,7 @@ export function WorkItemFormModal({
         assignee_ids: form.assignee_ids,
         work_area_ids: form.work_area_ids,
         tag_ids: form.tag_ids,
+        social_profile_ids: form.social_profile_ids,
         ...(canEditRecurrence
           ? {
               is_recurring: form.is_recurring,
@@ -1355,10 +1418,19 @@ export function WorkItemFormModal({
   // Prima salva i campi del form (senza chiudere), poi esegue l'azione di revisione:
   // così "Salva e concludi" / "Rimanda" non perdono le modifiche (es. assegnatari),
   // soprattutto in vista divisa dove Revisione e Assegnazioni sono visibili insieme.
-  const runReviewActionWithSave = async (action: "sendback" | "conclude") => {
+  const runReviewActionWithSave = async (key: ReviewActionKey) => {
+    // Rimando e pubblicazione aprono un modal dedicato: nessun salvataggio del form.
+    if (key === "sendBack") {
+      reviewRef.current?.openSendBack();
+      return;
+    }
+    if (key === "publish") {
+      reviewRef.current?.openPublish();
+      return;
+    }
     const ok = await handleSave(undefined, { keepOpen: true });
     if (ok !== true) return; // validazione/salvataggio fallito: non procedere
-    await runReviewAction(action);
+    await runReviewAction(key);
   };
 
   // ── Overbooking: chiusura del flusso (riassegna oppure procedi in overbook) ──
@@ -1615,29 +1687,99 @@ export function WorkItemFormModal({
   };
 
   // ── Allegati (file) handlers
-  const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  // Carica (task esistente) o accoda (task nuova) un file; ritorna l'allegato creato o null.
+  const uploadAttachmentFile = async (file: File): Promise<WorkItemAttachment | null> => {
     if (file.size > 20 * 1024 * 1024) {
       toast.error("File troppo grande (max 20 MB)");
-      return;
+      return null;
     }
     if (sourceItem) {
-      // Task esistente: carico subito.
       setAttachmentUploading(true);
       try {
         const created = await uploadWorkItemAttachmentApi(sourceItem.id, file);
         setAttachments((prev) => [...prev, created]);
         toast.success("Allegato caricato");
+        return created;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Errore caricamento allegato");
+        return null;
       } finally {
         setAttachmentUploading(false);
       }
+    }
+    // Task nuova: file in attesa, caricato dopo il salvataggio.
+    setPendingFiles((prev) => [...prev, file]);
+    return null;
+  };
+
+  const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await uploadAttachmentFile(file);
+  };
+
+  // Aggiunge un collegamento (risorsa) da un URL/percorso trascinato o digitato.
+  const addResourceFromUrl = (rawUrl: string) => {
+    const url = (rawUrl ?? "").trim();
+    if (!url) return;
+    setForm((current) => ({
+      ...current,
+      resources: [...current.resources, { type: detectResourceType(url), title: "", url }],
+    }));
+  };
+
+  // Apre un collegamento: http → nuova scheda; percorso NAS/rete → copia negli appunti.
+  const openResource = (url: string) => {
+    const raw = (url ?? "").trim();
+    if (!raw) return;
+    if (isHttpResourceUrl(raw)) {
+      window.open(raw, "_blank", "noopener");
     } else {
-      // Task nuova: tengo il file in attesa, verrà caricato dopo il salvataggio.
-      setPendingFiles((prev) => [...prev, file]);
+      navigator.clipboard?.writeText(raw).then(
+        () => toast.success("Percorso copiato negli appunti"),
+        () => {},
+      );
+    }
+  };
+
+  // ── Drag&drop di file/link direttamente sulla descrizione ────────────────────
+  const descEditorRef = useRef<RichTextEditorHandle | null>(null);
+  const descFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [descDragOver, setDescDragOver] = useState(false);
+
+  const descDragHasPayload = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types || []).some(
+      (t) => t === "Files" || t === "text/uri-list" || t === "text/plain",
+    );
+
+  const looksLikeUrl = (s: string) =>
+    /^\S+$/.test(s) && (/:\/\//.test(s) || s.startsWith("\\\\") || /^[^\s]+\.[^\s]{2,}/.test(s));
+
+  const handleDescDragOver = (e: React.DragEvent) => {
+    if (!descDragHasPayload(e)) return;
+    e.preventDefault();
+    if (descEditing) descEditorRef.current?.placeCaretFromPoint(e.clientX, e.clientY);
+    else setDescDragOver(true);
+  };
+
+  const handleDescDrop = async (e: React.DragEvent) => {
+    if (!descDragHasPayload(e)) return;
+    e.preventDefault();
+    setDescDragOver(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    const uri = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain") || "").trim();
+    // URL/percorso trascinato → collegamento
+    if (!files.length && uri && looksLikeUrl(uri)) {
+      addResourceFromUrl(uri);
+      if (descEditing) descEditorRef.current?.insertLink(uri);
+      return;
+    }
+    // File → allegato (in modifica inserisce anche il chip al caret)
+    for (const file of files) {
+      const created = await uploadAttachmentFile(file);
+      if (descEditing && created) {
+        descEditorRef.current?.insertAttachmentBadge(created.id, attachmentDisplayName(created));
+      }
     }
   };
 
@@ -1756,6 +1898,36 @@ export function WorkItemFormModal({
   // SIA le azioni di revisione — altrimenti le modifiche (es. assegnatari) non si salvano.
   const splitReviewActions =
     !!sourceItem && effectiveSplit && (leftTab === "revisione" || rightTab === "revisione") && canManageReviewer;
+
+  // Fase corrente della revisione (macchina a stati) → coppia di pulsanti contestuali.
+  const reviewPhase = sourceItem
+    ? deriveReviewPhase(sourceItem.status, sourceItem.review_stage, sourceItem.client_approved_at)
+    : "none";
+  const reviewBtns = reviewPhaseButtons(reviewPhase);
+  const renderReviewActionButtons = () => (
+    <>
+      {reviewBtns.secondary ? (
+        <Button
+          variant="secondary"
+          onClick={() => void runReviewActionWithSave(reviewBtns.secondary!.key)}
+          loading={reviewAction === reviewBtns.secondary.key}
+          disabled={saving || reviewAction != null}
+        >
+          {reviewBtns.secondary.label}
+        </Button>
+      ) : null}
+      {reviewBtns.primary ? (
+        <Button
+          variant="primary"
+          onClick={() => void runReviewActionWithSave(reviewBtns.primary!.key)}
+          loading={reviewAction === reviewBtns.primary.key}
+          disabled={saving || reviewAction != null}
+        >
+          {reviewBtns.primary.label}
+        </Button>
+      ) : null}
+    </>
+  );
 
   // Barra schede di una colonna (split) con drag&drop: trascina un chip per
   // spostarlo tra le colonne o riordinarlo; click per attivarlo.
@@ -2445,35 +2617,59 @@ export function WorkItemFormModal({
             </button>
           )}
         </div>
-        {!descEditing && hasDesc ? (
-          <div
-            onClick={() => setDescEditing(true)}
-            title="Clicca per modificare"
-            className="min-h-[40px] cursor-text whitespace-pre-line break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
-          >
-            <Linkify
-              text={form.description}
-              linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]"
-              onAttachmentClick={downloadAttachmentById}
-              attachmentNames={Object.fromEntries(
-                attachments.map((a) => [a.id, attachmentDisplayName(a)])
-              )}
+        <div
+          onDragOver={handleDescDragOver}
+          onDragLeave={() => setDescDragOver(false)}
+          onDrop={(e) => void handleDescDrop(e)}
+          className={
+            "rounded-md transition-shadow" +
+            (descDragOver && !descEditing ? " ring-2 ring-brand-magenta/60" : "")
+          }
+          title={descEditing ? undefined : "Trascina qui file o link per allegarli"}
+        >
+          {!descEditing && hasDesc ? (
+            <div
+              onClick={() => setDescEditing(true)}
+              title="Clicca per modificare"
+              className="min-h-[40px] cursor-text whitespace-pre-line break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+            >
+              <Linkify
+                text={form.description}
+                linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]"
+                onAttachmentClick={downloadAttachmentById}
+                attachmentNames={Object.fromEntries(
+                  attachments.map((a) => [a.id, attachmentDisplayName(a)])
+                )}
+              />
+            </div>
+          ) : (
+            <RichTextEditor
+              ref={descEditorRef}
+              value={form.description}
+              onChange={(html) => updateForm("description", html)}
+              placeholder="Descrizione opzionale…"
+              minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
+              attachmentPicker={{
+                options: attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
+                emptyHint: sourceItem
+                  ? "Carica un file nella sezione Risorse per poterlo inserire."
+                  : "Salva la task e carica un file per poterlo inserire.",
+              }}
             />
-          </div>
-        ) : (
-          <RichTextEditor
-            value={form.description}
-            onChange={(html) => updateForm("description", html)}
-            placeholder="Descrizione opzionale…"
-            minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
-            attachmentPicker={{
-              options: attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
-              emptyHint: sourceItem
-                ? "Carica un file nella sezione Risorse per poterlo inserire."
-                : "Salva la task e carica un file per poterlo inserire.",
-            }}
-          />
-        )}
+          )}
+        </div>
+
+        <input ref={descFileInputRef} type="file" className="hidden" onChange={handleAttachmentSelect} />
+        <TaskAttachmentsBar
+          attachments={attachments}
+          resources={form.resources}
+          pendingFiles={pendingFiles}
+          editing={descEditing}
+          onOpenAttachment={downloadAttachmentById}
+          onOpenResource={openResource}
+          onAddFile={() => descFileInputRef.current?.click()}
+          onAddLink={addResourceFromUrl}
+        />
       </div>
     );
   };
@@ -2537,6 +2733,7 @@ export function WorkItemFormModal({
                 <p className="text-xs text-muted dark:text-muted-dark">Nessuna configurazione PED disponibile. Crea una nuova configurazione.</p>
               ) : (
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.ped_configuration_id}
                   onChange={(value) => updateForm("ped_configuration_id", value)}
                   options={[
@@ -2631,6 +2828,7 @@ export function WorkItemFormModal({
             Parti da un template
           </label>
           <SearchableSelect
+            menuLayer="portal"
             value={selectedTemplateId}
             onChange={(value) => setSelectedTemplateId(value)}
             options={[
@@ -2810,6 +3008,17 @@ export function WorkItemFormModal({
             onCreateClick={isAdmin ? () => setWorkTagModalOpen(true) : undefined}
             createActionLabel="Crea tag"
           />
+          {form.client_id ? (
+            socialProfileOptions.length > 0 && (
+              <MultiSelect
+                label="Profili social"
+                value={form.social_profile_ids}
+                onChange={(v) => updateForm("social_profile_ids", v)}
+                options={socialProfileOptions}
+                placeholder="Seleziona profili social..."
+              />
+            )
+          ) : null}
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderChecklistSection()}
           <div className="h-px bg-line dark:bg-line-dark" />
@@ -2901,26 +3110,7 @@ export function WorkItemFormModal({
             <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
               Chiudi
             </Button>
-            {canManageReviewer && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => void runReviewActionWithSave("sendback")}
-                  loading={reviewAction === "sendback"}
-                  disabled={reviewAction != null}
-                >
-                  Rimanda indietro e correggi
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => void runReviewActionWithSave("conclude")}
-                  loading={reviewAction === "conclude"}
-                  disabled={reviewAction != null}
-                >
-                  Salva e concludi
-                </Button>
-              </>
-            )}
+            {canManageReviewer && renderReviewActionButtons()}
           </>
         ) : (
           // Creazione, vista singola non-revisione, oppure vista DIVISA: sempre "Salva"
@@ -2938,26 +3128,7 @@ export function WorkItemFormModal({
             >
               Salva
             </Button>
-            {splitReviewActions && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => void runReviewActionWithSave("sendback")}
-                  loading={reviewAction === "sendback"}
-                  disabled={saving || reviewAction != null}
-                >
-                  Rimanda indietro e correggi
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => void runReviewActionWithSave("conclude")}
-                  loading={reviewAction === "conclude"}
-                  disabled={saving || reviewAction != null}
-                >
-                  Salva e concludi
-                </Button>
-              </>
-            )}
+            {splitReviewActions && renderReviewActionButtons()}
           </>
         )
       }
@@ -3071,6 +3242,7 @@ export function WorkItemFormModal({
               ref={reviewRef}
               workItemId={sourceItem.id}
               canManage={canManageReviewer}
+              companyId={sourceItem.company_id ?? companyId}
               onChanged={() => void refetchDetail()}
               renderActionsInline={false}
             />
@@ -3123,9 +3295,13 @@ export function WorkItemFormModal({
                       return (
                         <div key={`${event.event_type}-${event.created_at}-${index}`} className={`rounded-md border p-2 ${boxClass}`}>
                           <div className={`text-xs font-semibold ${labelClass}`}>{workItemEventLabel(event.event_type, event.field_name)}</div>
-                          <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                            {new Date(event.created_at).toLocaleString("it-IT")}
-                            {event.actor_name ? ` · ${event.actor_name}` : ""}
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted dark:text-muted-dark">
+                            <span>{new Date(event.created_at).toLocaleString("it-IT")}</span>
+                            {event.actor_name ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-ink dark:text-paper">
+                                <Icon name="user-circle" className="h-3 w-3" /> {event.actor_name}
+                              </span>
+                            ) : null}
                           </div>
                           {segments.length > 0 && (
                             <div className="mt-1 text-xs text-muted dark:text-muted-dark">{segments.join(" · ")}</div>
@@ -3155,6 +3331,7 @@ export function WorkItemFormModal({
                   Template di partenza
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={selectedTemplateId}
                   onChange={(value) => setSelectedTemplateId(value)}
                   options={[
@@ -3259,13 +3436,16 @@ export function WorkItemFormModal({
                 onChange={(v) => updateForm("estimated_hours", v == null ? "" : String(v))}
                 help={WORKLOAD_FIELD_HELP.estimated_hours}
               />
+                {/* Peso della task: ora è tutto gestito dalle revisioni (pesi per-ruolo/fase).
+                    Slider nascosto — il valore resta in form.load_weight_factor (default 1×) e
+                    viene impostato dal flusso di revisione. Ripristinare qui se dovesse servire.
                 <LoadWeightField
                   value={form.load_weight_factor}
                   onChange={(w) => updateForm("load_weight_factor", String(w))}
                   estimatedHours={form.estimated_hours}
                   affectsDailyLoad={form.affects_daily_load}
                   help={WORKLOAD_FIELD_HELP.load_weight_factor}
-                />
+                /> */}
             </div>
               <div className="flex flex-wrap items-center gap-4">
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
@@ -3308,6 +3488,7 @@ export function WorkItemFormModal({
                       Motivo *
                     </label>
                     <SearchableSelect
+                      menuLayer="portal"
                       value={form.left_behind_reason}
                       onChange={handleLeftBehindReasonChange}
                       options={LEFT_BEHIND_REASON_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
@@ -3337,6 +3518,7 @@ export function WorkItemFormModal({
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.status} />
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.status}
                   onChange={(v) => updateForm("status", v as WorkItemStatus)}
                   options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
@@ -3360,6 +3542,7 @@ export function WorkItemFormModal({
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.urgency_level} />
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.urgency_level}
                   onChange={(v) => updateForm("urgency_level", v as UrgencyLevel | "")}
                   options={[
@@ -3462,6 +3645,30 @@ export function WorkItemFormModal({
               onCreateClick={isAdmin ? () => setWorkTagModalOpen(true) : undefined}
               createActionLabel="Crea tag"
             />
+          </SectionCard>
+
+          {/* — Profili social del cliente — */}
+          <SectionCard icon="globe" title="Profili social">
+            {form.client_id ? (
+              socialProfileOptions.length > 0 ? (
+                <MultiSelect
+                  label="Profili collegati"
+                  value={form.social_profile_ids}
+                  onChange={(v) => updateForm("social_profile_ids", v)}
+                  options={socialProfileOptions}
+                  placeholder="Seleziona profili social..."
+                />
+              ) : (
+                <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                  Il cliente non ha profili social in archivio: aggiungili dalla pagina "Profili
+                  social" nel menù.
+                </p>
+              )
+            ) : (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                Seleziona prima un cliente per collegare i suoi profili social.
+              </p>
+            )}
           </SectionCard>
 
           </div>

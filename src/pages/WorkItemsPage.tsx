@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useWorkItems } from "../hooks/useWorkItems";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
 import { useToast } from "../context/ToastContext";
 import { useUndo } from "../context/UndoContext";
 import {
@@ -548,6 +549,9 @@ export function WorkItemsPage() {
     [companyId, assigneeFilter, effectiveFromDate, effectiveToDate, statusFilter, isCompletedFilter, affectsDailyLoadFilter, leftBehindFilter, leftBehindReasonFilter]
   );
   const { workItems, isLoading, error, refetch } = useWorkItems(filterParams);
+  // Realtime: quando lo stream SSE spinge un evento (task modificata/cambio stato/commento),
+  // ricarica in silenzio le lavorazioni senza refresh di pagina.
+  useEffect(() => subscribeRealtime(() => { void refetch(true); }), [refetch]);
   const [displayedWorkItems, setDisplayedWorkItems] = useState<WorkItem[]>([]);
   // Ordinamento delle colonne (per operatore × azienda) + status della card trascinata.
   const [boardSort, setBoardSort] = useState<Record<string, ColumnSort>>({});
@@ -1436,7 +1440,7 @@ export function WorkItemsPage() {
       <div className="wi-page flex min-h-0 flex-1 items-stretch gap-3">
         {canManageWorkItems && (
         <aside
-          className={`shrink-0 ${contractsPanelCollapsed ? "ct-rail" : "ct-panel"}`}
+          className={`shrink-0 ct-side ${contractsPanelCollapsed ? "ct-rail" : "ct-panel"}`}
           onClick={contractsPanelCollapsed ? () => setContractsPanelCollapsed(false) : undefined}
           role={contractsPanelCollapsed ? "button" : undefined}
           tabIndex={contractsPanelCollapsed ? 0 : undefined}
@@ -2442,6 +2446,7 @@ export function WorkItemsPage() {
           <ReviewTab
             workItemId={reviewItem.id}
             canManage={canManageWorkItems}
+            companyId={companyId ?? undefined}
             onChanged={() => void refetch(true)}
             onSentBack={() => { setReviewItem(null); void refetch(true); }}
           />

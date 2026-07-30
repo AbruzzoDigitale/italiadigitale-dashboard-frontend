@@ -46,6 +46,7 @@ import { ColorHexField } from "../components/ui/ColorHexField";
 import { WorkAreasTab } from "../features/company/WorkAreasTab";
 import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
+import { SocialPlatformsTab } from "../features/company/SocialPlatformsTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
 import { NotificheTab } from "../features/company/NotificheTab";
 
@@ -85,7 +86,7 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
+type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
@@ -100,6 +101,7 @@ const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   areas: "Aree",
   roles: "Ruoli",
   tags: "Tag",
+  social: "Social",
 };
 
 const SCHEDULE_KIND_OPTIONS: Array<{ value: CompanyScheduleWindowKind; label: string }> = [
@@ -1856,6 +1858,10 @@ export function CompanyBrandPage() {
 
         {activeTab === "tags" && (
           <WorkTagsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+        )}
+
+        {activeTab === "social" && (
+          <SocialPlatformsTab companyId={companyId} isAdmin={!!user?.is_admin} />
         )}
 
         <CompanySettingModal

@@ -62,7 +62,12 @@ export type IconName =
   | "link"
   | "canva"
   | "drive"
-  | "nas";
+  | "nas"
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "youtube";
 
 interface IconProps {
   name: IconName;
@@ -454,6 +459,42 @@ const paths: Record<IconName, React.ReactNode> = {
       <rect x="3" y="13" width="18" height="7" rx="2" />
       <line x1="7" y1="7.5" x2="7.01" y2="7.5" />
       <line x1="7" y1="16.5" x2="7.01" y2="16.5" />
+    </>
+  ),
+  // Loghi social riadattati a tratto monocromatico (come canva/drive).
+  facebook: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"
+    />
+  ),
+  instagram: (
+    <>
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <line x1="17.2" y1="6.8" x2="17.21" y2="6.8" />
+    </>
+  ),
+  tiktok: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M15 3v9.5a4.5 4.5 0 1 1-4.5-4.5M15 3a6 6 0 0 0 6 6"
+    />
+  ),
+  linkedin: (
+    <>
+      <rect x="2.5" y="2.5" width="19" height="19" rx="3" />
+      <line x1="7" y1="10.5" x2="7" y2="17" />
+      <line x1="7" y1="7.2" x2="7.01" y2="7.2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 17v-4a2.6 2.6 0 0 1 5.2 0v4M11 10.5V17" />
+    </>
+  ),
+  youtube: (
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m10 9.3 5 2.7-5 2.7z" />
     </>
   ),
 };

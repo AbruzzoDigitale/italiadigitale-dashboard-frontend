@@ -1,30 +1,37 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import "./review-tab.css";
 import { useToast } from "../../context/ToastContext";
-import { Input } from "../ui/Input";
 import { Linkify } from "../ui/Linkify";
-import { updateWorkItemApi, type UpdateWorkItemPayload } from "../../api/workItems";
+import { updateWorkItemApi } from "../../api/workItems";
 import {
   listReviewCommentsApi,
   addReviewCommentApi,
   sendToClientApi,
+  approveInternallyApi,
+  approveClientApi,
+  publishApi,
   sendBackApi,
-  approveReviewApi,
+  reopenReviewApi,
   type ReviewComment,
   type ReviewCommentsResponse,
   type ReviewBadge,
-  type ReviewSource,
 } from "../../api/reviewComments";
 import { subscribeRealtime } from "../../features/realtime/realtimeBus";
-import { formatDurationHuman } from "../../utils/duration";
+import { ReviewWeightModal } from "./ReviewWeightModal";
+import {
+  deriveReviewPhase,
+  reviewPhaseButtons,
+  REVIEW_PHASE_LABEL,
+  sendBackSource,
+  type ReviewActionKey,
+} from "./reviewFlow";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scheda "Revisione" del modale Lavorazione.
-//   · Thread commenti/segnalazioni (badge operatore/pm/cliente, chat-style)
-//   · Tempo di lavorazione sul calendario → ricalibra load_weight_factor
-//   · Riprogramma scadenza
-//   · Inviata al cliente (tracciata)
-// Design/logica dal mockup approvato; dati reali via /work-items/{id}/review-*.
+//   · Thread commenti/segnalazioni (badge auto dal ruolo, chat-style)
+//   · Macchina a stati della revisione: pulsanti di fase + modali rimando/pubblicazione
+// Il peso è governato dal flusso di revisione (non più editabile a mano qui); la scadenza
+// si cambia nella scheda Dettagli o nel modal di rimando. Dati via /work-items/{id}/review-*.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type IconName = "chat" | "clock" | "calendar" | "send" | "rework" | "plus" | "building" | "refresh" | "check";
@@ -48,16 +55,8 @@ function Svg({ name, w = 15 }: { name: IconName; w?: number }) {
   );
 }
 
-const BADGE_LABEL: Record<ReviewBadge, string> = { operatore: "Operatore", pm: "PM", cliente: "Cliente" };
+const BADGE_LABEL: Record<ReviewBadge, string> = { operatore: "Operatore", pm: "PM", cliente: "Cliente", admin: "Admin" };
 
-function fmtMin(m: number): string {
-  return formatDurationHuman(m / 60);
-}
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
-  return d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
-}
 function fmtDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -96,17 +95,31 @@ function CommentRow({ c, me }: { c: ReviewComment; me: boolean }) {
 }
 
 export type ReviewTabHandle = {
-  /** Salva tutto e rimanda indietro. */
-  sendBack: () => Promise<void>;
-  /** Salva tutto senza rimandare (ed eventualmente segna inviata al cliente). */
-  saveConclude: () => Promise<void>;
-  /** Approvazione cliente (PED): torna in corso a peso ridotto (~10%), da programmare. */
-  approve: () => Promise<void>;
+  /** In lavorazione → revisione interna. */
+  sendToReview: () => Promise<void>;
+  /** Revisione interna → approvata internamente. */
+  approveInternally: () => Promise<void>;
+  /** Approvata internamente → revisione cliente (inviata al cliente). */
+  sendToClient: () => Promise<void>;
+  /** Revisione cliente → approvata dal cliente. */
+  approveClient: () => Promise<void>;
+  /** Approvata dal cliente → in pubblicazione. */
+  publish: () => Promise<void>;
+  /** In pubblicazione → completata. */
+  complete: () => Promise<void>;
+  /** In pubblicazione → torna in revisione (annulla, riparte il giro). */
+  reopen: () => Promise<void>;
+  /** Apre il modal di rimando (commento + scadenza + peso). */
+  openSendBack: () => void;
+  /** Apre il modal di pubblicazione (commento + peso). */
+  openPublish: () => void;
 };
 
 type ReviewTabProps = {
   workItemId: number;
   canManage: boolean;
+  /** Azienda della task: serve al modal di rimando per il peso configurato. */
+  companyId?: number;
   onChanged?: () => void;
   /** Chiamato dopo un "Rimanda a correggere" andato a buon fine (per chiudere un eventuale modale dedicato). */
   onSentBack?: () => void;
@@ -118,6 +131,7 @@ type ReviewTabProps = {
 export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function ReviewTab({
   workItemId,
   canManage,
+  companyId,
   onChanged,
   onSentBack,
   renderActionsInline = true,
@@ -129,26 +143,14 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
   const [busy, setBusy] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  // composer
+  // composer (nota generica: badge automatico dal ruolo lato server)
   const [text, setText] = useState("");
-  const [badge, setBadge] = useState<ReviewBadge>(canManage ? "pm" : "operatore");
-  const [kind, setKind] = useState<"generic" | "rework">("generic");
-  const [source, setSource] = useState<ReviewSource>("interna");
 
-  // tempo/peso
-  const [mode, setMode] = useState<"preset" | "manual">("preset");
-  const [minutes, setMinutes] = useState<number>(15);
-  const [factorInput, setFactorInput] = useState<string>("0.25");
-
-  // scadenza (campo sempre visibile: si salva coi pulsanti gemelli)
-  const [newDate, setNewDate] = useState<string>("");
-
-  // inviata al cliente (stato locale: viene persistito coi pulsanti gemelli, non al toggle)
-  const [delivered, setDelivered] = useState(false);
+  // modali "Rimanda indietro e correggi" e "Metti in pubblicazione"
+  const [sendBackOpen, setSendBackOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
 
   const review = data?.review ?? null;
-  const baseMin = Math.round((review?.estimated_hours ?? 0) * 60);
-  const hasBase = baseMin > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,14 +158,6 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     try {
       const res = await listReviewCommentsApi(workItemId);
       setData(res);
-      const r = res.review;
-      const f = r.load_weight_factor ?? 1;
-      const bmin = Math.round((r.estimated_hours ?? 0) * 60);
-      setMinutes(bmin > 0 ? Math.max(1, Math.round(f * bmin)) : 15);
-      setFactorInput(f.toFixed(2));
-      setSource(r.review_stage === "cliente" ? "cliente" : "interna");
-      setNewDate(r.deadline_date ?? "");
-      setDelivered(!!r.delivered_to_client_at);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -195,24 +189,6 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [data?.comments.length]);
 
-  // fattore effettivo mostrato/da salvare
-  const factor = useMemo(() => {
-    if (mode === "manual") return Math.max(0, Number(factorInput) || 0);
-    return hasBase ? minutes / baseMin : Number(factorInput) || 0;
-  }, [mode, factorInput, minutes, baseMin, hasBase]);
-  const effMin = Math.round(factor * baseMin);
-
-  const setMinutesSynced = (m: number) => {
-    const v = Math.max(1, Math.round(m));
-    setMinutes(v);
-    if (hasBase) setFactorInput((v / baseMin).toFixed(2));
-  };
-  const setFactorSynced = (f: number) => {
-    const v = Math.max(0, f);
-    setFactorInput(v.toFixed(2));
-    if (hasBase) setMinutes(Math.max(1, Math.round(v * baseMin)));
-  };
-
   const reload = () => {
     void load();
     onChanged?.();
@@ -223,12 +199,7 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     if (!text.trim()) return;
     setBusy(true);
     try {
-      await addReviewCommentApi(workItemId, {
-        author_badge: badge,
-        kind,
-        source: kind === "rework" ? source : null,
-        text: text.trim(),
-      });
+      await addReviewCommentApi(workItemId, { text: text.trim() });
       setText("");
       await load();
     } catch (e) {
@@ -238,28 +209,14 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     }
   };
 
-  // Persistenza comune dei due pulsanti gemelli: tempo/peso + scadenza (se cambiata)
-  // + stato "inviata al cliente" (se cambiato). Niente più salva per singola sezione.
-  const persistCommon = async () => {
-    if (!review) return;
-    const patch: UpdateWorkItemPayload = { load_weight_factor: Number(factor.toFixed(2)) };
-    if (newDate && newDate !== (review.deadline_date ?? "")) patch.deadline_date = newDate;
-    await updateWorkItemApi(workItemId, patch);
-    if (delivered !== !!review.delivered_to_client_at) {
-      await sendToClientApi(workItemId, delivered);
-    }
-  };
-
-  const doSendBack = async () => {
-    if (!review) return;
+  // Wrapper generico per le transizioni di fase (avvia busy, notifica, ricarica).
+  const runTransition = async (fn: () => Promise<unknown>, successMsg: string, closeAfter = false) => {
     setBusy(true);
     try {
-      await persistCommon();
-      await sendBackApi(workItemId, { source, text: text.trim() || null });
-      setText("");
-      toast.success(`Salvato e rimandato a correggere (${source}).`);
+      await fn();
+      toast.success(successMsg);
       reload();
-      onSentBack?.();
+      if (closeAfter) onSentBack?.();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -267,79 +224,69 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     }
   };
 
-  const doSaveConclude = async () => {
-    if (!review) return;
-    setBusy(true);
-    try {
-      await persistCommon();
-      if (text.trim()) {
-        await addReviewCommentApi(workItemId, {
-          author_badge: badge,
-          kind,
-          source: kind === "rework" ? source : null,
-          text: text.trim(),
-        });
-        setText("");
-      }
-      toast.success(delivered ? "Revisione salvata · inviata al cliente." : "Revisione salvata.");
-      reload();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Approvazione cliente (PED): non si completa (è completa solo quando programmata),
-  // torna in corso a peso ridotto (~10%) perché resta solo da programmare/pubblicare.
-  const doApprove = async () => {
-    if (!review) return;
-    setBusy(true);
-    try {
-      if (newDate && newDate !== (review.deadline_date ?? "")) {
-        await updateWorkItemApi(workItemId, { deadline_date: newDate });
-      }
-      await approveReviewApi(workItemId, { text: text.trim() || null });
-      setText("");
-      toast.success("Approvata dal cliente · torna in corso da programmare (10%).");
-      reload();
-      onSentBack?.();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const doSendToReview = () =>
+    runTransition(() => updateWorkItemApi(workItemId, { status: "review" }), "Inviata in revisione.");
+  const doApproveInternally = () =>
+    runTransition(() => approveInternallyApi(workItemId), "Approvata internamente.");
+  const doSendToClient = () =>
+    runTransition(() => sendToClientApi(workItemId, true), "Inviata al cliente.");
+  const doApproveClient = () =>
+    runTransition(() => approveClientApi(workItemId), "Approvata dal cliente.");
+  const doReopen = () =>
+    runTransition(() => reopenReviewApi(workItemId), "Tornata in revisione.");
+  const doComplete = () =>
+    runTransition(() => updateWorkItemApi(workItemId, { status: "completed" }), "Completata.", true);
 
   useImperativeHandle(ref, () => ({
-    sendBack: () => doSendBack(),
-    saveConclude: () => doSaveConclude(),
-    approve: () => doApprove(),
+    sendToReview: () => doSendToReview(),
+    approveInternally: () => doApproveInternally(),
+    sendToClient: () => doSendToClient(),
+    approveClient: () => doApproveClient(),
+    publish: () => { setPublishOpen(true); return Promise.resolve(); },
+    complete: () => doComplete(),
+    reopen: () => doReopen(),
+    openSendBack: () => setSendBackOpen(true),
+    openPublish: () => setPublishOpen(true),
   }));
+
+  // Mappa una chiave azione (da reviewFlow) al relativo handler interno.
+  const runActionKey = (key: ReviewActionKey) => {
+    switch (key) {
+      case "sendToReview": return void doSendToReview();
+      case "approveInternally": return void doApproveInternally();
+      case "sendToClient": return void doSendToClient();
+      case "approveClient": return void doApproveClient();
+      case "publish": return setPublishOpen(true);
+      case "complete": return void doComplete();
+      case "reopen": return void doReopen();
+      case "sendBack": return setSendBackOpen(true);
+    }
+  };
 
   if (loading) return <div className="rv"><div className="rv-state">Caricamento revisione…</div></div>;
   if (error) return <div className="rv"><div className="rv-state">{error} · <button className="rv-btn ghost" onClick={() => void load()}>Riprova</button></div></div>;
   if (!data || !review) return <div className="rv"><div className="rv-state">Nessun dato di revisione.</div></div>;
 
   const meId = data.current_user_id;
-
-  const MIN_PRESETS = [5, 10, 15, 20, 30];
-  const WEIGHT_PRESETS: { label: string; min: number }[] = [
-    { label: "Revisione interna", min: 10 },
-    { label: "Revisione cliente", min: 15 },
-  ];
+  const phase = deriveReviewPhase(review.status, review.review_stage, review.client_approved_at);
+  const phaseBtns = reviewPhaseButtons(phase);
 
   return (
     <div className="rv">
-      {/* stato revisione */}
+      {/* stato revisione: fase corrente della macchina a stati */}
       <div className="rv-chips">
-        <span className="rv-chip review"><Svg name="clock" w={12} /> {review.status === "review" ? "In revisione" : review.status}</span>
-        {review.review_stage ? <span className="rv-chip stage">Fase: {review.review_stage}</span> : null}
+        {phase !== "none" ? (
+          <span className="rv-chip review">
+            <Svg name={phase === "pubblicazione" ? "check" : "clock"} w={12} /> {REVIEW_PHASE_LABEL[phase]}
+          </span>
+        ) : (
+          <span className="rv-chip review"><Svg name="clock" w={12} /> {review.status}</span>
+        )}
         {review.rework_count > 0 ? (
           <span className="rv-chip rework"><Svg name="rework" w={12} /> {review.rework_count} {review.rework_count === 1 ? "rimando" : "rimandi"}</span>
         ) : null}
-        {review.client_approved_at ? (
-          <span className="rv-chip approved"><Svg name="check" w={12} /> In pubblicazione</span>
+        {review.delivered_to_client_at ? (
+          <span className="rv-chip stage"><Svg name="send" w={12} /> Inviata al cliente</span>
         ) : null}
       </div>
 
@@ -359,60 +306,34 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
           </div>
 
           <div className="rv-composer">
-            <div className="rv-fields">
-              <div className="rv-field">
-                <span className="rv-label">Badge</span>
-                <div className="rv-seg">
-                  {(["operatore", "pm", "cliente"] as ReviewBadge[]).map((b) => (
-                    <button key={b} data-role={b} className={badge === b ? "on" : ""} onClick={() => setBadge(b)}>
-                      {b === "cliente" ? <Svg name="building" w={12} /> : null}
-                      {BADGE_LABEL[b]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="rv-field">
-                <span className="rv-label">Tipo</span>
-                <div className="rv-seg">
-                  <button className={kind === "generic" ? "on" : ""} onClick={() => setKind("generic")}>Nota generica</button>
-                  <button className={kind === "rework" ? "on" : ""} onClick={() => setKind("rework")}>Modifica da fare</button>
-                </div>
-              </div>
-            </div>
-
-            {kind === "rework" ? (
-              <div className="rv-rework-strip">
-                <span className="rv-sublabel">Chiesta da</span>
-                <div className="rv-seg">
-                  <button className={source === "interna" ? "on" : ""} onClick={() => setSource("interna")}>Revisione interna</button>
-                  <button className={source === "cliente" ? "on" : ""} onClick={() => setSource("cliente")}>Cliente</button>
-                </div>
-                <span className="rv-strip-desc">
-                  {source === "interna"
-                    ? "Modifica emersa dalla revisione interna (team/PM), prima della consegna al cliente."
-                    : "Modifica richiesta dal cliente dopo la consegna."}
-                </span>
-              </div>
-            ) : null}
-
-            <textarea
-              className="rv-textarea"
-              rows={2}
-              placeholder="Scrivi una nota o una segnalazione…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-
-            <div className="rv-actions">
-              <button className="rv-btn ghost" onClick={() => void addNote()} disabled={busy || !text.trim()}>
-                <Svg name="plus" /> Aggiungi nota
+            <div className="rv-inputwrap">
+              <textarea
+                className="rv-textarea"
+                rows={2}
+                placeholder="Scrivi una nota…"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  // Invio come su WhatsApp: Enter invia, Shift+Enter va a capo.
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!busy && text.trim()) void addNote();
+                  }
+                }}
+              />
+              <button
+                className="rv-send"
+                onClick={() => void addNote()}
+                disabled={busy || !text.trim()}
+                title="Invia"
+                aria-label="Invia nota"
+              >
+                <Svg name="send" w={16} />
               </button>
-              {canManage ? (
-                <span className="rv-actions-hint">
-                  Il commento qui sopra viene salvato anche dai pulsanti in fondo.
-                </span>
-              ) : null}
             </div>
+            <span className="rv-actions-hint">
+              Il badge è automatico dal tuo ruolo. I rimandi si registrano da “Rimanda indietro e correggi”.
+            </span>
           </div>
         </div>
       </section>
@@ -420,162 +341,82 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
       {/* B, C, D: solo revisore/PM. L'operatore vede unicamente i commenti. */}
       {canManage && (
         <>
-      {/* B · TEMPO / PESO */}
-      <section className="rv-card">
-        <div className="rv-card-head">
-          <span className="rv-card-title"><Svg name="clock" /> Tempo di lavorazione sul calendario</span>
-          <span className="rv-card-hint">non cambia il tempo reale della task</span>
-        </div>
-        <div className="rv-card-body">
-          <div className="rv-seg" style={{ marginBottom: 14 }}>
-            <button className={mode === "preset" ? "on" : ""} onClick={() => setMode("preset")}>Preset</button>
-            <button className={mode === "manual" ? "on" : ""} onClick={() => setMode("manual")}>Manuale</button>
-          </div>
+      {/* Peso e scadenza non si gestiscono più qui: il peso è tutto governato dal flusso di
+          revisione (modali di rimando/pubblicazione) e la scadenza dalla scheda Dettagli. */}
 
-          {mode === "preset" ? (
-            <>
-              <div className="rv-subrow">
-                <span className="rv-label">Preset peso</span>
-                <div className="rv-picks">
-                  {WEIGHT_PRESETS.map((p) => (
-                    <button
-                      key={p.label}
-                      className={"rv-pick" + (hasBase && minutes === p.min ? " on" : "")}
-                      onClick={() => setMinutesSynced(p.min)}
-                      disabled={!hasBase}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="rv-subrow">
-                <span className="rv-label">Minuti visualizzati</span>
-                <div className="rv-picks">
-                  {MIN_PRESETS.map((m) => (
-                    <button
-                      key={m}
-                      className={"rv-pick minutes" + (hasBase && minutes === m ? " on" : "")}
-                      onClick={() => setMinutesSynced(m)}
-                      disabled={!hasBase}
-                    >
-                      {m} min
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="rv-manual">
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span className="rv-label">Minuti sul calendario</span>
-                <div className="rv-numwrap">
-                  <button className="stp" onClick={() => setMinutesSynced(minutes - 5)} disabled={!hasBase}>−</button>
-                  <input type="number" min={1} value={minutes} onChange={(e) => setMinutesSynced(Number(e.target.value) || 1)} disabled={!hasBase} />
-                  <span className="unit">min</span>
-                  <button className="stp" onClick={() => setMinutesSynced(minutes + 5)} disabled={!hasBase}>+</button>
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span className="rv-label">Fattore peso</span>
-                <div className="rv-numwrap">
-                  <button className="stp" onClick={() => setFactorSynced(Number(factorInput) - 0.05)}>−</button>
-                  <input type="number" min={0} step={0.05} value={factorInput} onChange={(e) => setFactorSynced(Number(e.target.value) || 0)} />
-                  <span className="unit">×</span>
-                  <button className="stp" onClick={() => setFactorSynced(Number(factorInput) + 0.05)}>+</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="rv-readout">
-            <div className="rv-ro"><span className="k">Tempo base</span><span className="v muted">{hasBase ? fmtMin(baseMin) : "—"}</span></div>
-            <div className="rv-ro"><span className="k">Peso ricalcolato</span><span className="v mag">×{factor.toFixed(2).replace(".", ",")}</span></div>
-            <div className="rv-ro"><span className="k">Sul calendario</span><span className="v cyan">{hasBase ? `${effMin} min` : "—"}</span></div>
-          </div>
-          <div className="rv-hint">
-            {hasBase
-              ? <>Il tempo base resta invariato. <b>peso = minuti scelti ÷ tempo base</b>. Attuale: ×{(review.load_weight_factor ?? 1).toFixed(2).replace(".", ",")}.</>
-              : <>Imposta prima il <b>tempo stimato</b> nella scheda Dettagli per usare i minuti; qui puoi comunque impostare il fattore peso a mano.</>}
-          </div>
-        </div>
-      </section>
-
-      {/* C · SCADENZA */}
-      <section className="rv-card">
-        <div className="rv-card-head">
-          <span className="rv-card-title"><Svg name="calendar" /> Scadenza</span>
-        </div>
-        <div className="rv-card-body">
-          <div className="rv-inline">
-            <span className="rv-deadline"><Svg name="calendar" /> Scadenza attuale: {fmtDate(review.deadline_date)}</span>
-            <div className="rv-reprog">
-              <span className="rv-sublabel">Nuova scadenza</span>
-              <div className="rv-datewrap">
-                <Input
-                  type="date"
-                  value={newDate ?? ""}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  onPostpone={(iso) => setNewDate(iso)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="rv-hint">Cambia la data se serve: viene salvata insieme al resto coi pulsanti in fondo.</div>
-        </div>
-      </section>
-
-      {/* D · CONSEGNA CLIENTE */}
-      <section className="rv-card">
-        <div className="rv-card-body">
-          <div className="rv-deliver">
-            <div className="rv-deliver-l">
-              <div className="rv-deliver-ic"><Svg name="send" w={20} /></div>
-              <div>
-                <div className="rv-deliver-t">Inviata al cliente</div>
-                <div className="rv-deliver-s">Segna la prima consegna al cliente — traccia data, ora e chi l’ha inviata.</div>
-              </div>
-            </div>
-            <button
-              className={"rv-switch" + (delivered ? " on" : "")}
-              role="switch"
-              aria-checked={delivered}
-              aria-label="Inviata al cliente"
-              onClick={() => setDelivered((v) => !v)}
-              disabled={busy || !canManage}
-            />
-          </div>
-          {review.delivered_to_client_at ? (
+      {/* Consegna al cliente: stamp informativo (l'invio avviene col pulsante di fase). */}
+      {review.delivered_to_client_at ? (
+        <section className="rv-card">
+          <div className="rv-card-body">
             <div className="rv-stamp">✓ Consegnata al cliente il <b>{fmtDateTime(review.delivered_to_client_at)}</b></div>
-          ) : delivered ? (
-            <div className="rv-stamp pending">Verrà segnata come inviata al cliente al salvataggio.</div>
-          ) : null}
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : null}
         </>
       )}
 
-      {/* Approvazione cliente: disponibile quando il PED è in revisione cliente. Non
-          completa la task (lo è solo quando programmata): torna in corso al ~10%. */}
-      {canManage && review.status === "review" && review.review_stage === "cliente" ? (
+      {/* Azioni di fase inline: solo dove non c'è un footer dedicato (es. modale Revisione). */}
+      {renderActionsInline && canManage && (phaseBtns.primary || phaseBtns.secondary) ? (
         <div className="rv-submitbar">
-          <button className="rv-btn primary rv-submit" onClick={() => void doApprove()} disabled={busy}>
-            <Svg name="check" /> Approva (cliente) · da programmare
-          </button>
+          {phaseBtns.secondary ? (
+            <button className="rv-btn warn rv-submit" onClick={() => runActionKey(phaseBtns.secondary!.key)} disabled={busy}>
+              <Svg name={phaseBtns.secondary.key === "reopen" ? "refresh" : "rework"} /> {phaseBtns.secondary.label}
+            </button>
+          ) : null}
+          {phaseBtns.primary ? (
+            <button className="rv-btn primary rv-submit" onClick={() => runActionKey(phaseBtns.primary!.key)} disabled={busy}>
+              <Svg name={phaseBtns.primary.key === "sendToClient" || phaseBtns.primary.key === "sendToReview" ? "send" : "check"} /> {phaseBtns.primary.label}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {/* Pulsanti gemelli inline: solo dove non c'è un footer dedicato (es. modale Revisione). */}
-      {renderActionsInline && canManage ? (
-        <div className="rv-submitbar">
-          <button className="rv-btn warn rv-submit" onClick={() => void doSendBack()} disabled={busy}>
-            <Svg name="rework" /> Rimanda indietro e correggi
-          </button>
-          <button className="rv-btn primary rv-submit" onClick={() => void doSaveConclude()} disabled={busy}>
-            <Svg name="check" /> Salva e concludi
-          </button>
-        </div>
-      ) : null}
+      <ReviewWeightModal
+        open={sendBackOpen}
+        onClose={() => setSendBackOpen(false)}
+        title="Rimanda indietro e correggi"
+        description={
+          sendBackSource(phase) === "cliente"
+            ? "Il commento verrà attribuito al cliente come modifica da fare."
+            : "Il commento verrà attribuito al PM come modifica da fare."
+        }
+        confirmLabel="Rimanda indietro"
+        situationKey={sendBackSource(phase) === "cliente" ? "rework_cliente" : "rework"}
+        companyId={companyId}
+        estimatedHours={review.estimated_hours}
+        commentRequired
+        commentPlaceholder="Cosa va corretto…"
+        showDeadline
+        currentDeadline={review.deadline_date}
+        onConfirm={async ({ text, factor, deadline }) => {
+          await sendBackApi(workItemId, {
+            source: sendBackSource(phase),
+            text,
+            load_weight_factor: factor,
+            deadline_date: deadline,
+          });
+          reload();
+          onSentBack?.();
+        }}
+      />
+
+      <ReviewWeightModal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        title="Metti in pubblicazione"
+        description="La task torna in corso con il peso di pubblicazione. Il commento è una nota generica col tuo badge."
+        confirmLabel="Metti in pubblicazione"
+        situationKey="awaiting_publish"
+        companyId={companyId}
+        estimatedHours={review.estimated_hours}
+        commentRequired={false}
+        commentPlaceholder="Nota (facoltativa)…"
+        onConfirm={async ({ text, factor }) => {
+          await publishApi(workItemId, { text: text || null, load_weight_factor: factor });
+          reload();
+          onSentBack?.();
+        }}
+      />
     </div>
   );
 });

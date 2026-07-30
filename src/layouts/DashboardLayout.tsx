@@ -82,6 +82,13 @@ const allNavItems: NavItem[] = [
     routeKey: "controllo-ped",
     group: "operations",
   },
+  {
+    label: "Profili social",
+    to: "/profili-social",
+    icon: <Icon name="globe" />,
+    routeKey: "social-profiles",
+    group: "operations",
+  },
   // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
   // rapidi aprono direttamente in una nuova scheda. Riabilitare quando pronto.
   // {
