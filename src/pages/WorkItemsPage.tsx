@@ -1113,7 +1113,11 @@ export function WorkItemsPage() {
     // Per più task insieme resta il modale rapido con il motivo condiviso.
     const sendBacks = items.filter((it) => isReviewSendBack(it.status, newStatus));
     if (sendBacks.length > 0) {
-      if (items.length === 1) {
+      // Rimando indietro da REVISIONE di una singola task → scheda Revisione
+      // (logica corretta: contatori/peso + thread commenti).
+      // Riapertura da COMPLETATO (o rimando multiplo) → modale rapido con commento
+      // OPZIONALE: la scheda Revisione non offre azioni per una task già completata.
+      if (items.length === 1 && items[0].status === "review") {
         setReviewItem(items[0]);
         return;
       }

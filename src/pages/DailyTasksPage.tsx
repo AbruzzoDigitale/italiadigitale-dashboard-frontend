@@ -3,10 +3,9 @@ import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
 import { getDailyTasksSelfApi, getDailyTasksAdminAccordionApi } from "../api/workload";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
 import { Accordion, type AccordionItem } from "../components/ui/Accordion";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
@@ -175,6 +174,56 @@ function barClass(loadPercent: number): "wl-acc-bar--ok" | "wl-acc-bar--warning"
   return "wl-acc-bar--ok";
 }
 
+// Sezione "marcata" del prototipo: badge numerato, icona magenta, titolo maiuscolo,
+// sottotitolo e azioni nell'header; corpo con padding uniforme.
+function AgSection({
+  n,
+  icon,
+  title,
+  sub,
+  actions,
+  children,
+}: {
+  n?: string;
+  icon: IconName;
+  title: string;
+  sub?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="ag-sec">
+      <header className="ag-sec-h">
+        {n && <span className="ag-sec-n">{n}</span>}
+        <span className="ag-sec-ic">
+          <Icon name={icon} className="w-4 h-4" />
+        </span>
+        <span className="ag-sec-tt">
+          <b>{title}</b>
+          {sub && <span>{sub}</span>}
+        </span>
+        {actions && <span className="ag-sec-act">{actions}</span>}
+      </header>
+      <div className="ag-sec-b">{children}</div>
+    </section>
+  );
+}
+
+function AgKpi({ label, value, tone }: { label: string; value: string; tone?: "mint" | "warn" | "over" }) {
+  return (
+    <div className="ag-kpi">
+      <span className="ag-kpi-l">{label}</span>
+      <b className={`ag-kpi-v${tone ? ` ${tone}` : ""}`}>{value}</b>
+    </div>
+  );
+}
+
+function loadTone(loadPercent: number): "mint" | "warn" | "over" {
+  if (loadPercent >= 100) return "over";
+  if (loadPercent >= 80) return "warn";
+  return "mint";
+}
+
 function renderLoadLegend() {
   return (
     <div className="mb-3 rounded-md border border-line dark:border-line-dark bg-paper dark:bg-ink-soft px-3 py-2">
@@ -223,6 +272,13 @@ export function DailyTasksPage() {
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
   const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
+
+  // Bozza del recap modificabile prima della condivisione; si azzera quando
+  // cambiano i dati o il giorno (torna al testo generato).
+  const [recapDraft, setRecapDraft] = useState<string | null>(null);
+  useEffect(() => {
+    setRecapDraft(null);
+  }, [selfData, targetDate]);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
   // Apertura dei gruppi della vista elenco (per operatore / per cliente): aperti di
@@ -276,12 +332,6 @@ export function DailyTasksPage() {
     void loadData();
   }, [viewMode, targetDate]);
 
-  const getLoadPercentColor = (pct: number) => {
-    if (pct >= 100) return "danger";
-    if (pct >= 80) return "warning";
-    return "success";
-  };
-
   const renderSelfView = () => {
     if (!selfData) return null;
 
@@ -294,7 +344,7 @@ export function DailyTasksPage() {
       .join("");
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-[18px]">
         <div className="flex items-center gap-3">
           {avatar_url ? (
             <img
@@ -313,82 +363,50 @@ export function DailyTasksPage() {
         </div>
 
         {/* KPI Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Task totali
-            </div>
-            <div className="text-2xl font-bold text-ink dark:text-paper">{tasks_total}</div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Completate
-            </div>
-            <div className="text-2xl font-bold text-success">{tasks_completed}</div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Completamento
-            </div>
-            <div className="text-2xl font-bold text-ink dark:text-paper">
-              {completion_rate_percent.toFixed(0)}%
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Carico orario
-            </div>
-            <div className={`text-2xl font-bold ${getLoadPercentColor(load_percent) === "danger" ? "text-danger" : getLoadPercentColor(load_percent) === "warning" ? "text-warning" : "text-success"}`}>
-              {load_percent.toFixed(0)}%
-            </div>
-          </div>
+        <div className="ag-kpis">
+          <AgKpi label="Task totali" value={String(tasks_total)} />
+          <AgKpi label="Completate" value={String(tasks_completed)} tone="mint" />
+          <AgKpi label="Completamento" value={`${completion_rate_percent.toFixed(0)}%`} />
+          <AgKpi label="Carico orario" value={`${load_percent.toFixed(0)}%`} tone={loadTone(load_percent)} />
         </div>
 
-        {/* Next Task */}
-        {next_task ? (
-          <div className={`rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4 ${Boolean(next_task.is_PED ?? next_task.is_ped) ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}`}>
-            <h3 className="font-bold text-sm text-ink dark:text-paper mb-3">Prossima task</h3>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <div className="font-semibold text-ink dark:text-paper">{next_task.title}</div>
+        {/* Prossima task */}
+        <AgSection n="1" icon="target" title="Prossima task" sub="La prima in coda per oggi">
+          {next_task ? (
+            <div className="ag-next">
+              <div className="ag-next-t">
+                {next_task.title}
                 {Boolean(next_task.is_PED ?? next_task.is_ped) && (
-                  <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
+                  <span className="ml-2 inline-flex align-middle rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
                     PED
                   </span>
                 )}
               </div>
-              <div className="text-sm text-muted dark:text-muted-dark">
+              <div className="ag-next-m">
                 {next_task.client_name || "Senza cliente"} · {next_task.status}
               </div>
-              {next_task.start_time && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Inizio: {next_task.start_time}
-                </div>
-              )}
-              {next_task.estimated_hours && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Stimate: {next_task.estimated_hours}h
-                </div>
-              )}
-              {typeof next_task.effective_load_hours === "number" && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Effettive: {next_task.effective_load_hours}h
-                </div>
-              )}
+              <div className="ag-next-h">
+                {[
+                  next_task.start_time ? `Inizio: ${next_task.start_time}` : null,
+                  next_task.estimated_hours ? `Stimate: ${next_task.estimated_hours}h` : null,
+                  typeof next_task.effective_load_hours === "number"
+                    ? `Effettive: ${next_task.effective_load_hours}h`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-line dark:border-line-dark bg-cream dark:bg-ink-2 p-4 text-center text-sm text-muted dark:text-muted-dark">
-            Nessuna prossima task.
-          </div>
-        )}
+          ) : (
+            <div className="rounded-lg border border-dashed border-line dark:border-line-dark bg-cream dark:bg-ink-2 p-4 text-center text-sm text-muted dark:text-muted-dark">
+              Nessuna prossima task.
+            </div>
+          )}
+        </AgSection>
 
-        {/* Recap giornaliero (testo copia & incolla) */}
+        {/* Recap giornaliero */}
         {(() => {
-          const recapText = buildDailyRecapText(selfData, targetDate);
+          const recapText = recapDraft ?? buildDailyRecapText(selfData, targetDate);
           const copyRecap = async () => {
             try {
               await navigator.clipboard.writeText(recapText);
@@ -402,65 +420,81 @@ export function DailyTasksPage() {
             window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recapText)}`);
           };
           return (
-            <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-bold text-ink dark:text-paper">Recap giornaliero</h3>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void copyRecap()} leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}>Copia</Button>
-                  <Button size="sm" variant="ghost" onClick={emailRecap} leftIcon={<Icon name="mail" className="w-3.5 h-3.5" />}>Email</Button>
-                </div>
-              </div>
+            <AgSection
+              n="2"
+              icon="annotation"
+              title="Recap giornaliero"
+              sub="Pronto da condividere su WhatsApp o via email"
+              actions={
+                <>
+                  <button type="button" className="ag-abtn" onClick={() => void copyRecap()}>
+                    <Icon name="copy" className="w-3.5 h-3.5" /> Copia
+                  </button>
+                  <button type="button" className="ag-abtn" onClick={emailRecap}>
+                    <Icon name="mail" className="w-3.5 h-3.5" /> Email
+                  </button>
+                </>
+              }
+            >
               <textarea
-                readOnly
+                className="ag-recap"
                 value={recapText}
-                rows={Math.min(24, recapText.split("\n").length + 1)}
-                onFocus={(event) => event.currentTarget.select()}
-                className="w-full resize-y rounded-md border border-line dark:border-line-dark bg-cream dark:bg-ink-2 px-3 py-2 font-mono text-[12px] leading-5 text-ink dark:text-paper focus:outline-none"
+                onChange={(event) => setRecapDraft(event.target.value)}
+                rows={Math.min(16, recapText.split("\n").length + 1)}
               />
-            </div>
+              <div className="ag-share">
+                <a
+                  className="ag-wa"
+                  href={`https://wa.me/?text=${encodeURIComponent(recapText)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span className="ag-wa-ic">
+                    <Icon name="annotation" className="w-4 h-4" />
+                  </span>
+                  Condividi su WhatsApp
+                </a>
+                <span className="ag-share-hint">Apre WhatsApp con il recap già formattato</span>
+              </div>
+            </AgSection>
           );
         })()}
 
         {/* Task List */}
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-          <div className="px-4 py-3 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
-            <h3 className="font-bold text-sm text-ink dark:text-paper">Task del giorno ({tasks.length})</h3>
-          </div>
+        <AgSection n="3" icon="list" title={`Task del giorno (${tasks.length})`} sub="Le tue lavorazioni di oggi">
           {tasks.length === 0 ? (
-            <div className="p-6 text-center text-sm text-muted dark:text-muted-dark">
+            <div className="p-4 text-center text-sm text-muted dark:text-muted-dark">
               Nessuna task per oggi.
             </div>
           ) : (
-            <div className="pt-3">
-              <div className="wl-acc-tasks">
-                {tasks.map((task: any) => {
-                  // Workload endpoints can expose PED with either is_ped or is_PED.
-                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
-                  const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
-                  return (
-                    <AccLaneTaskCard
-                      key={task.work_item_id}
-                      title={task.title}
-                      hoursLabel={hoursLabel}
-                      timeLabel={task.start_time || null}
-                      clientName={task.client_name}
-                      status={`${Math.round(task.progress_percent ?? 0)}%`}
-                      areaColor={task.work_areas?.[0]?.color ?? null}
-                      isPed={Boolean(task.is_PED ?? task.is_ped)}
-                      priority={Boolean(task.is_priority)}
-                      completed={Boolean(task.is_completed)}
-                      leftBehind={Boolean(task.is_left_behind)}
-                      overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
-                      overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
-                      reworkCount={task.rework_count}
-                      onClick={() => void openTask(task.work_item_id)}
-                    />
-                  );
-                })}
-              </div>
+            <div className="wl-acc-tasks">
+              {tasks.map((task: any) => {
+                // Workload endpoints can expose PED with either is_ped or is_PED.
+                const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
+                return (
+                  <AccLaneTaskCard
+                    key={task.work_item_id}
+                    title={task.title}
+                    hoursLabel={hoursLabel}
+                    timeLabel={task.start_time || null}
+                    clientName={task.client_name}
+                    status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    areaColor={task.work_areas?.[0]?.color ?? null}
+                    isPed={Boolean(task.is_PED ?? task.is_ped)}
+                    priority={Boolean(task.is_priority)}
+                    completed={Boolean(task.is_completed)}
+                    leftBehind={Boolean(task.is_left_behind)}
+                    overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+                    overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                    reworkCount={task.rework_count}
+                    onClick={() => void openTask(task.work_item_id)}
+                  />
+                );
+              })}
             </div>
           )}
-        </div>
+        </AgSection>
       </div>
     );
   };
@@ -521,18 +555,11 @@ export function DailyTasksPage() {
     }
 
     const kpi = (
-      <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Lavorazioni", value: String(uniqueCount), tone: "text-ink dark:text-paper" },
-          { label: "Completate", value: String(completedCount), tone: "text-success" },
-          { label: "Operatori", value: String(usersArr.length), tone: "text-ink dark:text-paper" },
-          { label: "Ore stimate", value: `${fmtRecapHours(uniqueHours)}h`, tone: "text-ink dark:text-paper" },
-        ].map((k) => (
-          <div key={k.label} className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">{k.label}</div>
-            <div className={`text-2xl font-bold ${k.tone}`}>{k.value}</div>
-          </div>
-        ))}
+      <div className="ag-kpis">
+        <AgKpi label="Lavorazioni" value={String(uniqueCount)} />
+        <AgKpi label="Completate" value={String(completedCount)} tone="mint" />
+        <AgKpi label="Operatori" value={String(usersArr.length)} />
+        <AgKpi label="Ore stimate" value={`${fmtRecapHours(uniqueHours)}h`} />
       </div>
     );
 
@@ -587,6 +614,9 @@ export function DailyTasksPage() {
     );
 
     let body: ReactNode;
+    let sectionIcon: IconName = "users";
+    let sectionTitle = "Lavorazioni per operatore";
+    let sectionSub = `${usersArr.length} operatori · ${formatDayLabel(targetDate)}`;
 
     const opName = (op: any) => (op.full_name || op.username || "").toString();
 
@@ -677,6 +707,9 @@ export function DailyTasksPage() {
             : a.clientName.localeCompare(b.clientName, "it"),
         );
 
+      sectionIcon = "building";
+      sectionTitle = "Lavorazioni per cliente";
+      sectionSub = `${clientGroups.length} clienti · ${formatDayLabel(targetDate)}`;
       const clientItems: AccordionItem[] = clientGroups.map((g) => ({ id: `cl-${g.clientName}`, data: g }));
       body = (
         <Accordion
@@ -728,17 +761,18 @@ export function DailyTasksPage() {
         }
       }
       const list = sortByDeadline([...flat.values()], (e) => e.task, deadlineDir);
+      sectionIcon = "list";
+      sectionTitle = "Elenco unico";
+      sectionSub = `${uniqueCount} lavorazioni · ${formatDayLabel(targetDate)}`;
       body = (
-        <div className="rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-3">
-          <div className="wl-acc-tasks">
-            {list.map(({ task, operators }) =>
-              renderExtendedTaskRow(
-                task,
-                task.client_name,
-                operators.map((o) => ({ name: o.name, avatarUrl: o.avatar_url })),
-              ),
-            )}
-          </div>
+        <div className="wl-acc-tasks">
+          {list.map(({ task, operators }) =>
+            renderExtendedTaskRow(
+              task,
+              task.client_name,
+              operators.map((o) => ({ name: o.name, avatarUrl: o.avatar_url })),
+            ),
+          )}
         </div>
       );
     }
@@ -747,7 +781,9 @@ export function DailyTasksPage() {
       <div>
         {kpi}
         {groupToggle}
-        <div className="space-y-4">{body}</div>
+        <AgSection icon={sectionIcon} title={sectionTitle} sub={sectionSub}>
+          {body}
+        </AgSection>
       </div>
     );
   };
@@ -765,12 +801,32 @@ export function DailyTasksPage() {
       );
     }
 
+    // KPI del giorno (lavorazioni deduplicate: una task multi-assegnatario conta una volta).
+    const dedup = new Map<number, any>();
+    for (const u of users) for (const t of u.tasks ?? []) if (!dedup.has(t.work_item_id)) dedup.set(t.work_item_id, t);
+    const dedupedTasks = [...dedup.values()];
+
     const accordionItems: AccordionItem[] = users.map((operatore: any) => ({
       id: operatore.user_id,
       data: operatore,
     }));
 
     return (
+      <div>
+        <div className="ag-kpis">
+          <AgKpi label="Lavorazioni" value={String(dedupedTasks.length)} />
+          <AgKpi
+            label="Completate"
+            value={String(dedupedTasks.filter((t) => Boolean(t.is_completed)).length)}
+            tone="mint"
+          />
+          <AgKpi label="Operatori" value={String(users.length)} />
+          <AgKpi
+            label="Ore stimate"
+            value={`${fmtRecapHours(dedupedTasks.reduce((s, t) => s + (t.effective_load_hours ?? 0), 0))}h`}
+          />
+        </div>
+        <AgSection icon="users" title="Carico del team" sub={`${users.length} operatori · ${formatDayLabel(targetDate)}`}>
       <Accordion
         items={accordionItems}
         isOpen={expandedUsers}
@@ -864,6 +920,8 @@ export function DailyTasksPage() {
           )
         }
       />
+        </AgSection>
+      </div>
     );
   };
 
@@ -876,51 +934,51 @@ export function DailyTasksPage() {
 
       <div className="dt-toolbar-shell mb-5">
         <div className="dt-toolbar-row-single">
-          <div className="dt-toolbar-left">
-            <button
-              type="button"
-              onClick={() => setTargetDate((current) => shiftIsoByDays(current, -1))}
-              className="wl-nav-btn"
-              aria-label="Giorno precedente"
-            >
-              <Icon name="chevron-right" className="h-4 w-4 rotate-180" />
+          <div className="dt-toolbar-left gap-2.5">
+            <div className="ag-tgroup">
+              <button
+                type="button"
+                onClick={() => setTargetDate((current) => shiftIsoByDays(current, -1))}
+                className="ag-tbtn ag-tbtn--nav"
+                aria-label="Giorno precedente"
+              >
+                <Icon name="chevron-right" className="rotate-180" />
+              </button>
+
+              <span className="ag-tgroup-lbl">{formatDayLabel(targetDate)}</span>
+
+              <button
+                type="button"
+                onClick={() => setTargetDate((current) => shiftIsoByDays(current, 1))}
+                className="ag-tbtn ag-tbtn--nav"
+                aria-label="Giorno successivo"
+              >
+                <Icon name="chevron-right" />
+              </button>
+            </div>
+
+            <button type="button" className="ag-tbtn" onClick={() => setTargetDate(getTodayDate())}>
+              <Icon name="calendar" /> Oggi
             </button>
 
-            <div className="wl-range-label">{formatDayLabel(targetDate)}</div>
-
             <button
               type="button"
-              onClick={() => setTargetDate((current) => shiftIsoByDays(current, 1))}
-              className="wl-nav-btn"
-              aria-label="Giorno successivo"
-            >
-              <Icon name="chevron-right" className="h-4 w-4" />
-            </button>
-
-            <button type="button" className="wl-today-btn" onClick={() => setTargetDate(getTodayDate())}>
-              Oggi
-            </button>
-
-            <button
-              type="button"
-              className="wl-ghost-btn wl-ghost-btn--icon"
+              className="ag-tbtn ag-tbtn--sq"
               onClick={() => void loadData()}
               title="Aggiorna"
               aria-label="Aggiorna"
             >
-              <Icon name="refresh-cw" className="w-3.5 h-3.5" />
+              <Icon name="refresh-cw" />
             </button>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Icon name="plus" className="w-3.5 h-3.5" />}
+            <button
+              type="button"
+              className="ag-tbtn ag-tbtn--accent"
               onClick={() => setQuickTaskModalOpen(true)}
               disabled={companyId == null}
-              className="!rounded-full"
             >
-              Task rapida
-            </Button>
+              <Icon name="plus" /> Task rapida
+            </button>
           </div>
 
           {canSeeTeam && (

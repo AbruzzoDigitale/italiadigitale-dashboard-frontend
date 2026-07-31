@@ -44,11 +44,13 @@ const EMPTY_FORM: SocialProfileFormState = {
 
 interface SocialProfilesTabProps {
   companyId: number;
-  /** Admin e PM gestiscono (crea/modifica/elimina); gli operatori consultano. */
+  /** Gestione profili (crea/modifica/elimina): aperta a tutti gli utenti. */
   canManage: boolean;
+  /** Creazione di NUOVI tipi di piattaforma dal dropdown: solo admin/PM. */
+  canCreatePlatforms?: boolean;
 }
 
-export function SocialProfilesTab({ companyId, canManage }: SocialProfilesTabProps) {
+export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = false }: SocialProfilesTabProps) {
   const toast = useToast();
   const [profiles, setProfiles] = useState<SocialProfile[]>([]);
   const [clients, setClients] = useState<Array<{ id: number; name: string }>>([]);
@@ -405,7 +407,7 @@ export function SocialProfilesTab({ companyId, canManage }: SocialProfilesTabPro
                 options={platformOptions}
                 placeholder="Piattaforma"
                 menuLayer="portal"
-                onCreateOption={canManage ? handleCreatePlatform : undefined}
+                onCreateOption={canCreatePlatforms ? handleCreatePlatform : undefined}
                 createLoading={creatingPlatform}
                 createActionLabel="Crea piattaforma"
               />
