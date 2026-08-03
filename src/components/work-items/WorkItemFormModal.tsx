@@ -698,6 +698,7 @@ export function WorkItemFormModal({
   //    vivono nel footer del modale e pilotano la ReviewTab via ref imperativo.
   const reviewRef = useRef<ReviewTabHandle>(null);
   const [reviewAction, setReviewAction] = useState<null | ReviewActionKey>(null);
+  const [statusNavBusy, setStatusNavBusy] = useState(false);
   const runReviewAction = async (key: ReviewActionKey) => {
     setReviewAction(key);
     try {
@@ -1073,6 +1074,27 @@ export function WorkItemFormModal({
     setAddingSlot(false);
     setSlotError(null);
   }, [sourceItem, templateSeedItem, open, defaultWorkDate, defaultStartTime, defaultEstimatedHours, defaultAssigneeIds, isInstantiateMode]);
+
+  // Sincronizza "live" nel form (già idratato) i campi che il flusso di REVISIONE cambia sul
+  // backend — status, peso, scadenza, completata — così i select dei Dettagli (anche in vista
+  // affiancata) e il footer riflettono lo stato reale e un "Salva" non rimanda la task in
+  // "revisione" (es. dopo "Metti in pubblicazione" lo stato diventa "In corso").
+  useEffect(() => {
+    if (!open || !sourceItem) return;
+    if (hydratedFormKeyRef.current == null) return; // solo dopo l'idratazione iniziale
+    setForm((current) => {
+      const next = { ...current };
+      let changed = false;
+      if (current.status !== sourceItem.status) { next.status = sourceItem.status; changed = true; }
+      if (current.is_completed !== sourceItem.is_completed) { next.is_completed = sourceItem.is_completed; changed = true; }
+      const lw = String(sourceItem.load_weight_factor);
+      if (current.load_weight_factor !== lw) { next.load_weight_factor = lw; changed = true; }
+      const dd = sourceItem.deadline_date ?? "";
+      if (current.deadline_date !== dd) { next.deadline_date = dd; changed = true; }
+      return changed ? next : current;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sourceItem?.status, sourceItem?.is_completed, sourceItem?.load_weight_factor, sourceItem?.deadline_date]);
 
   const updateForm = <K extends keyof WorkItemFormState>(key: K, value: WorkItemFormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -1929,6 +1951,70 @@ export function WorkItemFormModal({
     </>
   );
 
+  // Navigatore di stato nel footer: ◄ indietro · [stato] · avanti ►.
+  // Cambiando stato (frecce o dropdown) si SALVA subito via updateWorkItemApi, senza
+  // dover premere "Salva". Pipeline: Da fare → In corso → Revisione → Completato;
+  // il dropdown consente anche il salto manuale. Aggiornamento ottimistico + rollback.
+  const statusOrder = STATUS_OPTIONS.map((o) => o.value);
+  const statusIdx = statusOrder.indexOf(form.status);
+  const changeStatusAndSave = async (newStatus: WorkItemStatus) => {
+    if (!sourceItem || newStatus === form.status || statusNavBusy) return;
+    const prev = form.status;
+    updateForm("status", newStatus); // ottimistico
+    setStatusNavBusy(true);
+    try {
+      const updated = await updateWorkItemApi(sourceItem.id, { status: newStatus });
+      updateForm("status", (updated.status as WorkItemStatus) ?? newStatus);
+      toast.success(`Stato: ${STATUS_OPTIONS.find((o) => o.value === updated.status)?.label ?? updated.status}`);
+      onSaved?.(updated);
+    } catch (e) {
+      updateForm("status", prev); // rollback
+      toast.error(e instanceof Error ? e.message : "Impossibile cambiare stato");
+    } finally {
+      setStatusNavBusy(false);
+    }
+  };
+  const stepStatus = (delta: number) => {
+    const next = statusOrder[statusIdx + delta];
+    if (next) void changeStatusAndSave(next);
+  };
+  const statusNavDisabled = saving || reviewAction != null || statusNavBusy;
+  const renderStatusNavigator = () => (
+    <div className="mr-auto flex items-center gap-1.5">
+      <Button
+        variant="secondary"
+        iconOnly
+        className="!h-[42px] !w-[42px] !rounded-md"
+        title="Stato precedente"
+        aria-label="Stato precedente"
+        disabled={statusIdx <= 0 || statusNavDisabled}
+        onClick={() => stepStatus(-1)}
+        leftIcon={<Icon name="chevron-right" className="h-4 w-4 rotate-180" />}
+      />
+      <div className="w-44">
+        <SearchableSelect
+          menuLayer="portal"
+          value={form.status}
+          onChange={(v) => void changeStatusAndSave(v as WorkItemStatus)}
+          options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          placeholder="Stato"
+          searchPlaceholder="Cerca stato…"
+          disabled={statusNavDisabled}
+        />
+      </div>
+      <Button
+        variant="secondary"
+        iconOnly
+        className="!h-[42px] !w-[42px] !rounded-md"
+        title="Stato successivo"
+        aria-label="Stato successivo"
+        disabled={statusIdx < 0 || statusIdx >= statusOrder.length - 1 || statusNavDisabled}
+        onClick={() => stepStatus(1)}
+        leftIcon={<Icon name="chevron-right" className="h-4 w-4" />}
+      />
+    </div>
+  );
+
   // Barra schede di una colonna (split) con drag&drop: trascina un chip per
   // spostarlo tra le colonne o riordinarlo; click per attivarlo.
   const renderSplitTabBar = (side: "left" | "right") => {
@@ -2664,11 +2750,22 @@ export function WorkItemFormModal({
           attachments={attachments}
           resources={form.resources}
           pendingFiles={pendingFiles}
+          socials={clientSocialProfiles}
+          linkedSocialIds={form.social_profile_ids}
           editing={descEditing}
           onOpenAttachment={downloadAttachmentById}
           onOpenResource={openResource}
           onAddFile={() => descFileInputRef.current?.click()}
           onAddLink={addResourceFromUrl}
+          onToggleSocial={(id) =>
+            setForm((current) => ({
+              ...current,
+              social_profile_ids: current.social_profile_ids.includes(id)
+                ? current.social_profile_ids.filter((x) => x !== id)
+                : [...current.social_profile_ids, id],
+            }))
+          }
+          onOpenSocial={openResource}
         />
       </div>
     );
@@ -3117,6 +3214,7 @@ export function WorkItemFormModal({
           // (persiste i campi del form, es. assegnatari). In divisa, se la Revisione è
           // visibile in una colonna, si aggiungono anche le azioni di revisione.
           <>
+            {sourceItem && renderStatusNavigator()}
             <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
               {sourceItem ? "Chiudi" : "Annulla"}
             </Button>

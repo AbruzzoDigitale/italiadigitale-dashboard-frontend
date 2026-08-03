@@ -240,6 +240,20 @@
 .dark .lv-card.sent-client {
   background: color-mix(in srgb, #2ec3f3 20%, var(--surface));
 }
+/* In pubblicazione (approvata dal cliente): sfondo pieno come "al cliente" ma con
+   il colore DEDICATO della pubblicazione (viola), non il cyan del cliente. */
+.lv-card.publishing {
+  border-color: #7c3aed;
+  background: color-mix(in srgb, #7c3aed 14%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #7c3aed 45%, transparent);
+}
+.lv-card.publishing::before {
+  width: 5px;
+  background: #7c3aed;
+}
+.dark .lv-card.publishing {
+  background: color-mix(in srgb, #7c3aed 20%, var(--surface));
+}
 
 /* Rimandata da revisione: 1 rimando → giallo, 2+ → rosso (gravità crescente).
    Definite dopo .sent-client così, in caso di più stati, vince la severità del rimando. */
@@ -326,7 +340,10 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
+  /* Con gli avvisi accorpati nel triangolo i badge sono pochi: restano su una sola
+     riga (niente a-capo) e non si restringono; è il nome cliente a troncare se serve. */
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   justify-content: flex-end;
 }
 .lv-warn {
@@ -334,6 +351,43 @@
 }
 .lv-star {
   color: var(--magenta);
+}
+/* Avvisi accorpati nel triangolo: chip cliccabile (+N) con popover dell'elenco. */
+.lv-warnchip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  outline: none;
+  color: var(--magenta);
+}
+.lv-warnchip.late {
+  color: #b07d00;
+}
+.dark .lv-warnchip.late {
+  color: var(--amber);
+}
+.lv-warnchip-n {
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+.lv-warn-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  white-space: nowrap;
 }
 .lv-badge {
   font-size: 8.5px;
@@ -377,6 +431,15 @@
 .dark .lv-badge.ai {
   color: oklch(0.8 0.12 264);
 }
+/* in pubblicazione (approvata dal cliente) — colore dedicato viola */
+.lv-badge.publishing {
+  background: color-mix(in srgb, #7c3aed 16%, transparent);
+  color: #6d28d9;
+  border: 1px solid color-mix(in srgb, #7c3aed 34%, transparent);
+}
+.dark .lv-badge.publishing {
+  color: #c4b5fd;
+}
 /* collegata a contratto (positivo) */
 .lv-badge.ok {
   background: color-mix(in srgb, var(--mint) 18%, transparent);
@@ -392,11 +455,25 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  /* A riposo occupa spazio ZERO: i badge restano tutti a destra. In hover si espande
+     con lo stesso motion delle notifiche, spingendo i badge verso sinistra. */
   opacity: 0;
-  transition: opacity 0.14s var(--ease);
+  max-width: 0;
+  overflow: hidden;
+  transform: translateX(4px);
+  transition:
+    max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
 }
 .lv-card:hover .lv-actions {
   opacity: 1;
+  max-width: 160px;
+  transform: translateX(0);
+}
+/* In hover il nome cliente può restringersi di più per fare posto ai pulsanti. */
+.lv-card:hover .lv-client {
+  min-width: 3em;
 }
 .lv-act {
   display: grid;
@@ -420,6 +497,11 @@
 
 .lv-client {
   display: flex;
+  /* Il nome cliente ha priorità con una larghezza minima; in hover si restringe per
+     fare posto ai pulsanti (vedi .lv-card:hover .lv-client). */
+  flex: 1 1 auto;
+  min-width: 5.5em;
+  transition: min-width 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   align-items: center;
   gap: 5px;
   font-size: 10px;

@@ -16,8 +16,12 @@ export interface DashboardLayout {
   settings: Record<string, unknown>;
 }
 
+/** Piattaforma del layout: desktop e mobile hanno layout indipendenti. */
+export type DashboardPlatform = "desktop" | "mobile";
+
 export interface UpdateDashboardLayoutPayload extends DashboardLayout {
   company_id: number;
+  platform?: DashboardPlatform;
 }
 
 function parseApiError(body: unknown, fallback: string): string {
@@ -28,8 +32,13 @@ function parseApiError(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function getDashboardLayoutApi(companyId: number): Promise<DashboardLayout> {
-  const res = await authFetch(`${API_BASE}/api/v1/me/dashboard-layout?company_id=${companyId}`);
+export async function getDashboardLayoutApi(
+  companyId: number,
+  platform: DashboardPlatform = "desktop",
+): Promise<DashboardLayout> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/me/dashboard-layout?company_id=${companyId}&platform=${platform}`,
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare la dashboard")}`);

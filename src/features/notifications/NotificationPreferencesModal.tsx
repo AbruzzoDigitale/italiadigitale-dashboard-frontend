@@ -14,6 +14,8 @@ import {
   type NotificationPreferences,
 } from "./notificationPreferences";
 import { emitNotificationToast } from "./notificationToastBus";
+import { ensurePushSubscription } from "./pushSubscription";
+import { sendPushTestApi } from "../../api/push";
 
 interface NotificationPreferencesModalProps {
   open: boolean;
@@ -76,17 +78,62 @@ export function NotificationPreferencesModal({ open, onClose }: NotificationPref
     }
   };
 
-  const sendTestNotification = () => {
+  const sendTestNotification = async () => {
+    if (typeof Notification === "undefined") {
+      toast.error("Questo browser non supporta le notifiche desktop.");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      toast.error('Permesso browser non concesso: usa "Attiva" qui sopra.');
+      setBrowserPerm(Notification.permission);
+      return;
+    }
+    // Canale reale: iscrizione Web Push + notifica di prova dal BACKEND (stesso
+    // percorso delle notifiche vere: arriva anche a scheda chiusa/full screen).
+    const pushReady = await ensurePushSubscription();
+    if (pushReady) {
+      try {
+        await sendPushTestApi();
+        toast.success(
+          "Prova inviata dal server via push: il banner di sistema arriva entro qualche secondo (anche con la scheda in background)."
+        );
+        return;
+      } catch {
+        /* backend push non disponibile: prova locale qui sotto */
+      }
+    }
     try {
       const n = new Notification("Notifica di prova · Italia Digitale", {
         body: "Se la vedi, le notifiche desktop funzionano.",
         tag: "italiadigitale-test",
       });
+      // Esito REALE dal sistema: senza questi eventi `new Notification` fallisce in
+      // silenzio (nessun errore) quando è l'OS a sopprimere il banner — ed è la
+      // causa tipica dei "non mi arriva niente".
+      let settled = false;
+      n.onshow = () => {
+        settled = true;
+        toast.success(
+          "Il sistema ha MOSTRATO la notifica (in alto a destra su macOS, in basso a destra su Windows). Se non l'hai vista: Full Screen, Non disturbare/Focus o stile avvisi."
+        );
+      };
+      n.onerror = () => {
+        settled = true;
+        toast.error(
+          "Il sistema operativo ha BLOCCATO la notifica: controlla i permessi notifiche del browser nelle impostazioni di sistema."
+        );
+      };
       n.onclick = () => {
         window.focus();
         n.close();
       };
-      toast.info("Notifica di prova inviata: guarda l'angolo dello schermo.");
+      window.setTimeout(() => {
+        if (!settled) {
+          toast.info(
+            "Nessuna conferma dal sistema: se il banner non è comparso, il blocco è nelle impostazioni notifiche del sistema operativo (non nel browser)."
+          );
+        }
+      }, 2500);
     } catch {
       toast.error("Il browser ha rifiutato la notifica di prova.");
     }
@@ -226,7 +273,7 @@ export function NotificationPreferencesModal({ open, onClose }: NotificationPref
                   </div>
                 </div>
                 {browserPerm === "granted" && (
-                  <Button size="sm" variant="secondary" onClick={sendTestNotification}>
+                  <Button size="sm" variant="secondary" onClick={() => void sendTestNotification()}>
                     Invia prova
                   </Button>
                 )}
@@ -245,8 +292,10 @@ export function NotificationPreferencesModal({ open, onClose }: NotificationPref
               {browserPerm === "granted" && (
                 <p className="pl-11 text-xs leading-relaxed text-muted dark:text-muted-dark">
                   Se la prova non appare: su <b>macOS</b> controlla Impostazioni di Sistema → Notifiche → consenti il
-                  browser; su <b>Windows</b> Impostazioni → Sistema → Notifiche e disattiva "Non disturbare"/Assistente
-                  notifiche.
+                  browser, spegni <b>Focus/Non disturbare</b> e ricorda che col browser a <b>schermo intero</b> i
+                  banner non vengono mostrati (serve "Consenti notifiche con schermo intero" oppure esci dal full
+                  screen); su <b>Windows</b> Impostazioni → Sistema → Notifiche: attiva le notifiche per il browser e
+                  disattiva "Non disturbare"/Assistente notifiche.
                 </p>
               )}
             </div>

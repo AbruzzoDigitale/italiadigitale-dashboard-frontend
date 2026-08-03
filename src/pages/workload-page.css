@@ -2228,10 +2228,12 @@
   border-radius: 2px;
 }
 
-/* Vista operatore: poche schede inline + menu "···". Niente scroll orizzontale, così
-   il dropdown non viene tagliato dall'overflow della barra. */
+/* Vista operatore: poche schede inline + menu "···". Niente scroll orizzontale (il
+   dropdown è in portal, non viene tagliato); se le tab + "···" non stanno in larghezza
+   la riga va a capo, così il "···" non finisce mai fuori schermo. */
 .wlcal-tray-tabs--priority {
   overflow: visible;
+  flex-wrap: wrap;
 }
 
 .wlcal-tray-more {
@@ -2295,20 +2297,19 @@
 }
 
 /* Backdrop trasparente a tutto schermo: chiude il menu al click fuori. */
+/* Menu renderizzato in portal su <body>: deve stare sopra il drawer (z 1900). */
 .wlcal-tray-more-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 1950;
   border: 0;
   background: transparent;
   cursor: default;
 }
 
 .wlcal-tray-more-menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  right: 0;
-  z-index: 31;
+  position: fixed;
+  z-index: 1951;
   min-width: 190px;
   display: flex;
   flex-direction: column;

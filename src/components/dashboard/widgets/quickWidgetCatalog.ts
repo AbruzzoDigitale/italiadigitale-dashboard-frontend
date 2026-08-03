@@ -19,6 +19,7 @@ export const QUICK_WIDGETS: QuickWidgetDef[] = [
   { type: "qw-requests", label: "Richieste", description: "Ultime richieste ricevute.", icon: "annotation", requiresRoute: "requests" },
   { type: "qw-daily-tasks", label: "Attività del giorno", description: "Le tue attività di oggi.", icon: "clock", requiresRoute: "daily-tasks" },
   { type: "qw-workload", label: "Workload", description: "Carico del team per utente.", icon: "activity", requiresRoute: "workload", privilegedOnly: true },
+  { type: "qw-workload-heatmap", label: "Heatmap workload", description: "Carico settimanale a griglia: tu (operatore) o tutto il team (PM/admin).", icon: "activity", requiresRoute: "workload" },
   { type: "qw-quick-links", label: "Collegamenti rapidi", description: "I tuoi link salvati.", icon: "link" },
   { type: "qw-recent-clients", label: "Ultimi clienti", description: "Clienti aggiunti di recente.", icon: "users", requiresRoute: "clients" },
   { type: "qw-clients-situation", label: "Situazioni clienti", description: "Stato commerciale per cliente.", icon: "activity", requiresRoute: "clients-situation" },

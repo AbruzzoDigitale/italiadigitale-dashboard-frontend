@@ -10,6 +10,7 @@ import { WorkItemsWidget } from "../quickwidgets/WorkItemsWidget";
 import { RequestsWidget } from "../quickwidgets/RequestsWidget";
 import { DailyTasksWidget } from "../quickwidgets/DailyTasksWidget";
 import { WorkloadWidget } from "../quickwidgets/WorkloadWidget";
+import { WorkloadHeatmapWidget } from "../quickwidgets/WorkloadHeatmapWidget";
 import { QuickLinksWidget } from "../quickwidgets/QuickLinksWidget";
 import { RecentClientsWidget } from "../quickwidgets/RecentClientsWidget";
 import { ClientsSituationWidget } from "../quickwidgets/ClientsSituationWidget";
@@ -107,6 +108,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDef> = {
   "qw-requests": { type: "qw-requests", label: "Richieste", defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 }, render: () => <RequestsWidget /> },
   "qw-daily-tasks": { type: "qw-daily-tasks", label: "Attività del giorno", defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 }, render: () => <DailyTasksWidget /> },
   "qw-workload": { type: "qw-workload", label: "Workload", defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 }, render: () => <WorkloadWidget /> },
+  "qw-workload-heatmap": { type: "qw-workload-heatmap", label: "Heatmap workload", defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, render: () => <WorkloadHeatmapWidget /> },
   "qw-quick-links": { type: "qw-quick-links", label: "Collegamenti rapidi", defaultSize: { w: 3, h: 4 }, minSize: { w: 2, h: 3 }, render: () => <QuickLinksWidget /> },
   "qw-recent-clients": { type: "qw-recent-clients", label: "Ultimi clienti", defaultSize: { w: 4, h: 4 }, minSize: { w: 3, h: 3 }, render: () => <RecentClientsWidget /> },
   "qw-clients-situation": { type: "qw-clients-situation", label: "Situazioni clienti", defaultSize: { w: 5, h: 4 }, minSize: { w: 4, h: 3 }, render: () => <ClientsSituationWidget /> },

@@ -15,6 +15,7 @@ import { DEFAULT_NOTIFICATION_PREFERENCES, type NotificationPreferences } from "
 import type { NotifItem, NotifTabKey } from "./notificationsData";
 import { emitNotificationToast } from "./notificationToastBus";
 import { emitRealtime } from "../realtime/realtimeBus";
+import { ensurePushSubscription, isPushSubscriptionActive } from "./pushSubscription";
 
 /** Titolo/corpo dal payload SSE (fallback generico se non è JSON). */
 function parseNotifPayload(ev?: MessageEvent): { title: string; body: string } {
@@ -116,6 +117,9 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
       typeof document !== "undefined" && (document.hidden || !document.hasFocus());
     const { title, body } = parseNotifPayload(ev);
     if (isAway && canDesktop) {
+      // Con l'iscrizione Web Push attiva è il SERVICE WORKER a mostrare il banner
+      // di sistema (arriva anche a scheda chiusa): qui non duplichiamo.
+      if (isPushSubscriptionActive()) return;
       try {
         const n = new Notification(title, {
           body,
@@ -170,6 +174,9 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
         }
         if (perm !== "granted") return;
         pushRef.current = true;
+        // Iscrizione Web Push (service worker): banner di sistema affidabili
+        // anche a scheda chiusa/in background. Idempotente, no-op se non supportato.
+        void ensurePushSubscription();
         if (typeof localStorage !== "undefined" && !localStorage.getItem("notif_autoactivated")) {
           localStorage.setItem("notif_autoactivated", "1");
           const base = prefsRef.current ?? DEFAULT_NOTIFICATION_PREFERENCES;
@@ -190,6 +197,14 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
       window.removeEventListener("pointerdown", onFirstGesture);
       window.removeEventListener("keydown", onFirstGesture);
     };
+  }, []);
+
+  // Permesso già concesso in visite precedenti: iscrivi subito il browser al
+  // Web Push (nessun gesto utente richiesto quando il permesso c'è già).
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      void ensurePushSubscription();
+    }
   }, []);
 
   const reload = useCallback(async () => {

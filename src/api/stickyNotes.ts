@@ -1,4 +1,5 @@
 import { authFetch, API_BASE } from "./auth";
+import type { DashboardPlatform } from "./dashboardLayout";
 
 const BASE = `${API_BASE}/api/v1/sticky-notes`;
 
@@ -48,13 +49,26 @@ async function jsonOrThrow<T>(res: Response, fallback: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function listStickyNotesApi(companyId: number): Promise<StickyNote[]> {
-  return jsonOrThrow(await authFetch(`${BASE}?company_id=${companyId}`), "Impossibile caricare le note");
+export async function listStickyNotesApi(
+  companyId: number,
+  platform: DashboardPlatform = "desktop",
+): Promise<StickyNote[]> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}?company_id=${companyId}&platform=${platform}`),
+    "Impossibile caricare le note",
+  );
 }
 
-export async function createStickyNoteApi(companyId: number, body: StickyNoteCreate): Promise<StickyNote> {
+export async function createStickyNoteApi(
+  companyId: number,
+  body: StickyNoteCreate,
+  platform: DashboardPlatform = "desktop",
+): Promise<StickyNote> {
   return jsonOrThrow(
-    await authFetch(`${BASE}?company_id=${companyId}`, { method: "POST", body: JSON.stringify(body) }),
+    await authFetch(`${BASE}?company_id=${companyId}&platform=${platform}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
     "Impossibile creare la nota",
   );
 }
@@ -69,9 +83,13 @@ export async function updateStickyNoteApi(id: number, body: StickyNoteUpdate): P
 export async function bulkUpdateStickyNotesApi(
   companyId: number,
   notes: StickyNoteGeometry[],
+  platform: DashboardPlatform = "desktop",
 ): Promise<StickyNote[]> {
   return jsonOrThrow(
-    await authFetch(`${BASE}/bulk?company_id=${companyId}`, { method: "PUT", body: JSON.stringify({ notes }) }),
+    await authFetch(`${BASE}/bulk?company_id=${companyId}&platform=${platform}`, {
+      method: "PUT",
+      body: JSON.stringify({ notes }),
+    }),
     "Impossibile salvare le note",
   );
 }

@@ -16,10 +16,11 @@ import {
   deleteStickyNoteApi,
   type StickyNote,
 } from "../../api/stickyNotes";
+import type { DashboardPlatform } from "../../api/dashboardLayout";
 
 // Metriche identiche alla DashboardGrid: le note "vivono" nella stessa griglia a
 // celle dei widget, così posso bloccarne la sovrapposizione ai widget (ma non tra loro).
-const COLS = DEFAULT_COLS;
+// COLS è ora per-istanza (12 desktop, 2 anteprima mobile) — vedi prop `cols`.
 const ROW_H = 76;
 const GAP = 16;
 const MIN_W = 2;
@@ -42,6 +43,10 @@ interface Props {
   onWidgetsPreview: (widgets: WidgetInstance[] | null) => void;
   /** Salva il nuovo layout widget dopo drop/aggiunta/eliminazione di note. */
   onWidgetsCommit: (widgets: WidgetInstance[]) => void;
+  /** Colonne della griglia (default 12 desktop; 2 per l'anteprima mobile). */
+  cols?: number;
+  /** Piattaforma delle note (default desktop): note indipendenti desktop/mobile. */
+  platform?: DashboardPlatform;
 }
 
 type DragKind = "move" | "resize";
@@ -66,9 +71,10 @@ export interface StickyNotesHandle {
 }
 
 export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function StickyNotesLayer(
-  { companyId, editing, widgets, onNoteRectsChange, onWidgetsPreview, onWidgetsCommit },
+  { companyId, editing, widgets, onNoteRectsChange, onWidgetsPreview, onWidgetsCommit, cols, platform = "desktop" },
   ref,
 ) {
+  const COLS = cols ?? DEFAULT_COLS;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [notes, setNotes] = useState<StickyNote[]>([]);
@@ -104,11 +110,11 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
   // Caricamento.
   useEffect(() => {
     let alive = true;
-    listStickyNotesApi(companyId)
+    listStickyNotesApi(companyId, platform)
       .then((data) => { if (alive) setNotes(data); })
       .catch(() => { if (alive) setNotes([]); });
     return () => { alive = false; };
-  }, [companyId]);
+  }, [companyId, platform]);
 
   const cellToPx = (r: Rect) => ({
     left: r.x * (colW + GAP),
@@ -173,7 +179,7 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
         text: "",
         color: NOTE_COLORS[0],
         x: slot.x, y: slot.y, w: MIN_W, h: MIN_H,
-      });
+      }, platform);
       setNotes((cur) => [...cur, created]);
       onWidgetsCommit(reflowWidgets([...notes.map(rectOf), rectOf(created)]));
       setLightbox({ groupKey: `s${created.id}`, index: 0 });
@@ -286,7 +292,7 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
             const g = geom.find((x) => x.id === n.id);
             return g ? { ...n, ...g } : n;
           }));
-          void bulkUpdateStickyNotesApi(companyId, geom).then(setNotes).catch(() => {});
+          void bulkUpdateStickyNotesApi(companyId, geom, platform).then(setNotes).catch(() => {});
           const finalOverrides = new Map(last);
           finalOverrides.set(dragged.id, { x: base.x, y: base.y, w: base.w, h: base.h });
           onWidgetsCommit(reflowWidgets(noteRectsWith(finalOverrides)));
@@ -307,7 +313,7 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
         const g = geom[0];
         void updateStickyNoteApi(g.id, { x: g.x, y: g.y, w: g.w, h: g.h }).catch(() => {});
       } else if (geom.length > 1) {
-        void bulkUpdateStickyNotesApi(companyId, geom).catch(() => {});
+        void bulkUpdateStickyNotesApi(companyId, geom, platform).catch(() => {});
       }
       onWidgetsCommit(reflowWidgets(noteRectsWith(last)));
     };
@@ -334,7 +340,7 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
     try {
       const created = await createStickyNoteApi(companyId, {
         text: "", color: ref.color, ...base, group_id: gid, z: maxZ + 1,
-      });
+      }, platform);
       setNotes((prev) => [
         ...prev.map((n) =>
           existingGid == null && n.id === ref.id ? { ...n, group_id: gid, z: 0, ...base } : n,

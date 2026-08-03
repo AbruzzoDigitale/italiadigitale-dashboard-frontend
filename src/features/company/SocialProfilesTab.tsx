@@ -24,6 +24,7 @@ import { Modal } from "../../components/ui/Modal";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { Textarea } from "../../components/ui/Textarea";
 import { SocialIcon } from "../../components/social/SocialIcon";
+import { SegmentedSwitch } from "../../components/ui/SegmentedSwitch";
 import { useToast } from "../../context/ToastContext";
 
 type SocialProfileFormState = {
@@ -41,6 +42,23 @@ const EMPTY_FORM: SocialProfileFormState = {
   client_id: "",
   notes: "",
 };
+
+// Opzioni "quanti profili per pagina" (Infinity = tutti).
+const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
+const DEFAULT_PAGE_SIZE = 12;
+
+/** Numeri di pagina da mostrare: tutti fino a 7, altrimenti finestra con ellissi. */
+function pageNumbers(current: number, total: number): Array<number | "…"> {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const wanted = new Set([1, 2, current - 1, current, current + 1, total - 1, total]);
+  const list = [...wanted].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out: Array<number | "…"> = [];
+  list.forEach((p, i) => {
+    if (i > 0 && p - (list[i - 1] as number) > 1) out.push("…");
+    out.push(p);
+  });
+  return out;
+}
 
 interface SocialProfilesTabProps {
   companyId: number;
@@ -142,6 +160,46 @@ export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = f
       return `${p.name} ${p.url} ${p.client_name ?? ""}`.toLowerCase().includes(q);
     });
   }, [search, platformFilter, profiles]);
+
+  // Vista lista/griglia (preferenza ricordata per browser) + paginazione client-side.
+  const [view, setView] = useState<"list" | "grid">(() =>
+    typeof localStorage !== "undefined" && localStorage.getItem("social_profiles_view") === "grid"
+      ? "grid"
+      : "list"
+  );
+  const changeView = (v: "list" | "grid") => {
+    setView(v);
+    try {
+      localStorage.setItem("social_profiles_view", v);
+    } catch {
+      /* storage non disponibile: ignora */
+    }
+  };
+  // Quanti profili per pagina (0 = tutti), preferenza ricordata per browser.
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const raw = typeof localStorage !== "undefined" ? Number(localStorage.getItem("social_profiles_page_size")) : NaN;
+    return raw === 0 || (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? raw : DEFAULT_PAGE_SIZE;
+  });
+  const changePageSize = (size: number) => {
+    setPageSize(size);
+    setPage(1);
+    try {
+      localStorage.setItem("social_profiles_page_size", String(size));
+    } catch {
+      /* storage non disponibile: ignora */
+    }
+  };
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [search, platformFilter, companyId]);
+  const effectiveSize = pageSize === 0 ? Math.max(1, filteredProfiles.length) : pageSize;
+  const totalPages = Math.max(1, Math.ceil(filteredProfiles.length / effectiveSize));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = useMemo(
+    () => filteredProfiles.slice((safePage - 1) * effectiveSize, safePage * effectiveSize),
+    [filteredProfiles, safePage, effectiveSize]
+  );
 
   const openCreate = () => {
     setEditingProfile(null);
@@ -266,6 +324,17 @@ export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = f
             menuLayer="portal"
           />
         </div>
+        <div className="ml-auto">
+          <SegmentedSwitch
+            value={view}
+            onChange={changeView}
+            ariaLabel="Vista profili social"
+            options={[
+              { value: "list", label: <><Icon name="list" className="w-3.5 h-3.5" />Lista</> },
+              { value: "grid", label: <><Icon name="grid" className="w-3.5 h-3.5" />Griglia</> },
+            ]}
+          />
+        </div>
       </div>
 
       {error && (
@@ -275,46 +344,145 @@ export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = f
       )}
 
       {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="h-14 rounded-md border border-line bg-cream/60 animate-pulse dark:border-[#2a2a2e] dark:bg-[#1c1c20]"
-            />
-          ))}
-        </div>
+        view === "grid" ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div
+                key={index}
+                className="sp-pop-in sp-skeleton h-40 rounded-xl border border-line dark:border-[#2a2a2e]"
+                style={{ animationDelay: `${index * 45}ms` }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className="sp-pop-in sp-skeleton h-14 rounded-md border border-line dark:border-[#2a2a2e]"
+                style={{ animationDelay: `${index * 45}ms` }}
+              />
+            ))}
+          </div>
+        )
       ) : filteredProfiles.length === 0 ? (
         <div className="rounded-md border border-dashed border-line dark:border-[#2a2a2e] px-4 py-8 text-sm text-muted dark:text-[#9999a0]">
           {canManage ? "Nessun profilo social: crea il primo." : "Nessun profilo social disponibile."}
         </div>
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {pageItems.map((profile, index) => (
+            <div
+              key={profile.id}
+              className="sp-pop-in flex flex-col gap-3 rounded-xl border border-line bg-cream p-4 transition-colors hover:border-brand-magenta/50 dark:border-[#2a2a2e] dark:bg-[#1c1c20]"
+              style={{ animationDelay: `${Math.min(index, 11) * 40}ms` }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <SocialIcon
+                    platform={profile.platform}
+                    label={profile.platform_label}
+                    color={profile.platform_color}
+                    className="h-9 w-9"
+                  />
+                  <div className="min-w-0">
+                    <p
+                      className="truncate text-[13.5px] font-bold text-ink dark:text-[#f4f4f7]"
+                      title={socialProfileLabel(profile)}
+                    >
+                      {socialProfileLabel(profile)}
+                    </p>
+                    <p className="truncate text-[11px] text-muted dark:text-[#9999a0]">{profile.platform_label}</p>
+                  </div>
+                </div>
+                {canManage && (
+                  <div className="flex flex-none items-center gap-1">
+                    <button
+                      type="button"
+                      title="Modifica"
+                      aria-label="Modifica"
+                      onClick={() => openEdit(profile)}
+                      className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
+                    >
+                      <Icon name="pencil" className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Elimina"
+                      aria-label="Elimina"
+                      onClick={() => setDeletingProfile(profile)}
+                      className="inline-grid h-7 w-7 place-items-center rounded-md border border-danger/20 bg-danger/5 text-danger transition-colors hover:bg-danger/10"
+                    >
+                      <Icon name="trash" className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {profile.client_name && (
+                <Badge variant="info" className="max-w-full self-start">
+                  <span className="min-w-0 truncate" title={profile.client_name}>
+                    {profile.client_name}
+                  </span>
+                </Badge>
+              )}
+
+              <a
+                href={profile.url}
+                target="_blank"
+                rel="noreferrer"
+                title={profile.url}
+                className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-brand-magenta hover:underline"
+              >
+                <Icon name="link" className="h-3.5 w-3.5 flex-none" />
+                <span className="min-w-0 flex-1 truncate">{profile.url.replace(/^https?:\/\/(www\.)?/, "")}</span>
+              </a>
+
+              {profile.notes && (
+                <p className="line-clamp-2 break-words text-[12px] text-muted dark:text-[#9999a0]" title={profile.notes}>
+                  {profile.notes}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-y-2">
+          {/* table-fixed: le colonne hanno larghezza stabile e gli URL/nomi lunghi
+              vengono troncati con ellissi invece di sfondare sulle celle vicine. */}
+          <table className="w-full min-w-[880px] table-fixed border-separate border-spacing-y-2">
             <thead>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
-                <th className="px-3 py-1">Profilo</th>
-                <th className="px-3 py-1">Cliente</th>
-                <th className="px-3 py-1">URL</th>
+                <th className="px-3 py-1 w-[26%]">Profilo</th>
+                <th className="px-3 py-1 w-[17%]">Cliente</th>
+                <th className="px-3 py-1 w-[25%]">URL</th>
                 <th className="px-3 py-1">Note</th>
-                {canManage && <th className="px-3 py-1 text-right">Azioni</th>}
+                {canManage && <th className="px-3 py-1 w-[205px] text-right">Azioni</th>}
               </tr>
             </thead>
             <tbody>
-              {filteredProfiles.map((profile) => (
-                <tr key={profile.id} className="align-top bg-cream dark:bg-[#1c1c20]">
+              {pageItems.map((profile, index) => (
+                <tr
+                  key={profile.id}
+                  className="sp-pop-in align-top bg-cream dark:bg-[#1c1c20]"
+                  style={{ animationDelay: `${Math.min(index, 11) * 30}ms` }}
+                >
                   <td className="px-3 py-3 rounded-l-md">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <SocialIcon
                         platform={profile.platform}
                         label={profile.platform_label}
                         color={profile.platform_color}
                         className="h-8 w-8"
                       />
-                      <div>
-                        <p className="text-[13.5px] font-bold text-ink dark:text-[#f4f4f7]">
+                      <div className="min-w-0">
+                        <p
+                          className="truncate text-[13.5px] font-bold text-ink dark:text-[#f4f4f7]"
+                          title={socialProfileLabel(profile)}
+                        >
                           {socialProfileLabel(profile)}
                         </p>
-                        <p className="text-[11px] text-muted dark:text-[#9999a0]">
+                        <p className="truncate text-[11px] text-muted dark:text-[#9999a0]">
                           {profile.platform_label}
                         </p>
                       </div>
@@ -322,24 +490,33 @@ export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = f
                   </td>
                   <td className="px-3 py-3 text-[13px]">
                     {profile.client_name ? (
-                      <Badge variant="info">{profile.client_name}</Badge>
+                      <Badge variant="info" className="max-w-full">
+                        <span className="min-w-0 truncate" title={profile.client_name}>
+                          {profile.client_name}
+                        </span>
+                      </Badge>
                     ) : (
                       <span className="text-muted dark:text-[#9999a0] opacity-60">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-3 text-[13px] max-w-[260px]">
+                  <td className="px-3 py-3 text-[13px]">
                     <a
                       href={profile.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 text-brand-magenta hover:underline break-all"
+                      title={profile.url}
+                      className="flex min-w-0 items-center gap-1.5 text-brand-magenta hover:underline"
                     >
                       <Icon name="link" className="w-3.5 h-3.5 flex-none" />
-                      <span className="truncate">{profile.url.replace(/^https?:\/\/(www\.)?/, "")}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {profile.url.replace(/^https?:\/\/(www\.)?/, "")}
+                      </span>
                     </a>
                   </td>
-                  <td className="px-3 py-3 text-[12.5px] text-muted dark:text-[#9999a0] max-w-[220px]">
-                    <span className="line-clamp-2">{profile.notes || "—"}</span>
+                  <td className="px-3 py-3 text-[12.5px] text-muted dark:text-[#9999a0]">
+                    <span className="line-clamp-2 break-words" title={profile.notes ?? undefined}>
+                      {profile.notes || "—"}
+                    </span>
                   </td>
                   {canManage && (
                     <td className="px-3 py-3 rounded-r-md">
@@ -367,6 +544,78 @@ export function SocialProfilesTab({ companyId, canManage, canCreatePlatforms = f
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!isLoading && filteredProfiles.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[12px] text-muted dark:text-[#9999a0]">
+              {filteredProfiles.length} {filteredProfiles.length === 1 ? "profilo" : "profili"}
+              {totalPages > 1 && ` · pagina ${safePage} di ${totalPages}`}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+                Mostra
+              </span>
+              {[...PAGE_SIZE_OPTIONS, 0].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => changePageSize(size)}
+                  className={`inline-grid h-7 min-w-8 place-items-center rounded-md border px-1.5 text-[11.5px] font-semibold transition-colors ${
+                    pageSize === size
+                      ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
+                      : "border-line text-muted hover:bg-cream hover:text-ink dark:border-[#2a2a2e] dark:text-[#9999a0] dark:hover:bg-[#1c1c20] dark:hover:text-[#f4f4f7]"
+                  }`}
+                >
+                  {size === 0 ? "Tutti" : size}
+                </button>
+              ))}
+            </div>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Pagina precedente"
+                disabled={safePage === 1}
+                onClick={() => setPage(safePage - 1)}
+                className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+              >
+                <Icon name="chevron-right" className="h-3.5 w-3.5 rotate-180" />
+              </button>
+              {pageNumbers(safePage, totalPages).map((p, i) =>
+                p === "…" ? (
+                  <span key={`gap-${i}`} className="px-1 text-[12px] text-muted dark:text-[#9999a0]">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPage(p)}
+                    className={`inline-grid h-8 min-w-8 place-items-center rounded-md border px-1.5 text-[12px] font-semibold transition-colors ${
+                      p === safePage
+                        ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
+                        : "border-line text-ink hover:bg-cream dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+              <button
+                type="button"
+                aria-label="Pagina successiva"
+                disabled={safePage === totalPages}
+                onClick={() => setPage(safePage + 1)}
+                className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+              >
+                <Icon name="chevron-right" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../ui/Icon";
 import { Avatar } from "../ui/Avatar";
@@ -101,6 +101,40 @@ export function WorkloadTray({
   const overflowTabs = priorityTabs ? allTabs.filter((t) => !priorityTabs.includes(t.key)) : [];
   const activeOverflow = overflowTabs.find((t) => t.key === tab) ?? null;
   const [moreOpen, setMoreOpen] = useState(false);
+  // Il menu "···" è renderizzato in un portal con posizione fixed: la tray (e il drawer
+  // su mobile) hanno `overflow: hidden`/transform, che altrimenti taglierebbero il dropdown.
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
+
+  const openMore = () => {
+    const btn = moreBtnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const MENU_W = 200;
+    const menuH = overflowTabs.length * 38 + 12;
+    const margin = 8;
+    const left = Math.min(
+      Math.max(margin, rect.right - MENU_W),
+      window.innerWidth - MENU_W - margin,
+    );
+    const openUp = rect.bottom + menuH + margin > window.innerHeight;
+    const top = openUp ? Math.max(margin, rect.top - menuH - 2) : rect.bottom + 2;
+    setMorePos({ top, left });
+    setMoreOpen(true);
+  };
+
+  // Chiudi il menu se la pagina scorre o cambia dimensione: la posizione fixed è
+  // calcolata una volta, quindi resterebbe "staccata" dal pulsante.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = () => setMoreOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [moreOpen]);
 
   const itemsOf = (g: WorkloadTrayGroup) =>
     tab === "reassign" ? g.reassign
@@ -190,9 +224,10 @@ export function WorkloadTray({
         {overflowTabs.length > 0 && (
           <div className="wlcal-tray-more">
             <button
+              ref={moreBtnRef}
               type="button"
               className={`wlcal-tray-more-btn ${activeOverflow ? "on" : ""}`}
-              onClick={() => setMoreOpen((o) => !o)}
+              onClick={() => (moreOpen ? setMoreOpen(false) : openMore())}
               aria-haspopup="menu"
               aria-expanded={moreOpen}
               title="Altre schede"
@@ -203,7 +238,7 @@ export function WorkloadTray({
                 <span className="wlcal-tray-more-dots" aria-hidden>···</span>
               )}
             </button>
-            {moreOpen && (
+            {moreOpen && morePos && createPortal(
               <>
                 <button
                   type="button"
@@ -212,7 +247,11 @@ export function WorkloadTray({
                   tabIndex={-1}
                   onClick={() => setMoreOpen(false)}
                 />
-                <div className="wlcal-tray-more-menu" role="menu">
+                <div
+                  className="wlcal-tray-more-menu"
+                  role="menu"
+                  style={{ position: "fixed", top: morePos.top, left: morePos.left, right: "auto" }}
+                >
                   {overflowTabs.map((t) => (
                     <button
                       key={t.key}
@@ -226,7 +265,8 @@ export function WorkloadTray({
                     </button>
                   ))}
                 </div>
-              </>
+              </>,
+              document.body,
             )}
           </div>
         )}

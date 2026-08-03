@@ -614,3 +614,28 @@ button:active > .nav-ico {
 @media (prefers-reduced-motion: reduce) {
   .sn-slide-next, .sn-slide-prev { animation: none; }
 }
+
+/* Skeleton "shimmer" (caricamento profili social): lampo di luce che scorre. */
+@keyframes sp-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.sp-skeleton {
+  background: linear-gradient(100deg, #efede8 40%, #fbfaf8 50%, #efede8 60%);
+  background-size: 200% 100%;
+  animation: sp-shimmer 1.3s ease-in-out infinite;
+}
+.dark .sp-skeleton {
+  background: linear-gradient(100deg, #1c1c20 40%, #27272d 50%, #1c1c20 60%);
+  background-size: 200% 100%;
+}
+/* Ingresso a cascata degli elementi appena caricati (usato con animationDelay). */
+@keyframes sp-pop-in {
+  0% { opacity: 0; transform: translateY(10px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.sp-pop-in { animation: sp-pop-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .sp-skeleton { animation: none; }
+  .sp-pop-in { animation: none; }
+}

@@ -6,12 +6,53 @@ import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate
 import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
 import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
 import { QuickLinksSection } from "../components/quicklinks/QuickLinksSection";
+import { MobileDashboardEditor } from "../components/dashboard/MobileDashboardEditor";
 import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Badge } from "../components/ui/Badge";
+
+function ProfileNavButton({
+  active,
+  onClick,
+  icon,
+  title,
+  subtitle,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: IconName;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2.5 rounded-lg border px-4 py-3 text-left transition-colors ${
+        active
+          ? "border-brand-magenta/50 bg-brand-magenta/5"
+          : "border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] hover:bg-cream dark:hover:bg-[#1c1c20]"
+      }`}
+    >
+      <span
+        className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-md ${
+          active ? "bg-brand-magenta/15 text-brand-magenta" : "bg-cream text-muted dark:bg-[#1c1c20] dark:text-[#9999a0]"
+        }`}
+      >
+        <Icon name={icon} className="h-[18px] w-[18px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block text-[13px] font-bold ${active ? "text-brand-magenta" : "text-ink dark:text-[#f4f4f7]"}`}>
+          {title}
+        </span>
+        <span className="block text-[11px] text-muted dark:text-[#9999a0]">{subtitle}</span>
+      </span>
+    </button>
+  );
+}
 
 export function ProfilePage() {
   const { user, myCompanies, activeCompanyId, login: _login } = useAuth();
@@ -26,6 +67,7 @@ export function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [avatarSrc, setAvatarSrc] = useState(user?.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
+  const [section, setSection] = useState<"profile" | "mobile">("profile");
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const set = (k: keyof UpdateUserPayload, v: string) =>
@@ -105,8 +147,9 @@ export function ProfilePage() {
       {/* ── Two-column layout (profile-layout in CSS prototipo) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
 
-        {/* ── Left: profile card ── */}
-        <div className="bg-cream dark:bg-[#1c1c20] rounded-lg p-6 text-center lg:sticky lg:top-5">
+        {/* ── Left: profile card + azioni ── */}
+        <div className="flex flex-col gap-3 lg:sticky lg:top-5">
+          <div className="bg-cream dark:bg-[#1c1c20] rounded-lg p-6 text-center">
           {/* Avatar large */}
           <div className="relative w-[120px] h-[120px] mx-auto mb-4">
             <div className="w-full h-full rounded-full bg-ink dark:bg-[#f4f4f7] text-paper dark:text-ink flex items-center justify-center font-display font-bold overflow-hidden"
@@ -200,9 +243,55 @@ export function ProfilePage() {
               </div>
             </div>
           )}
+          </div>
+
+          {/* Schede: navigazione tra impostazioni profilo e dashboard mobile */}
+          <nav className="flex flex-col gap-2">
+            <ProfileNavButton
+              active={section === "profile"}
+              onClick={() => setSection("profile")}
+              icon="user-circle"
+              title="Impostazioni profilo"
+              subtitle="Dati, sicurezza, account"
+            />
+            <ProfileNavButton
+              active={section === "mobile"}
+              onClick={() => setSection("mobile")}
+              icon="grid"
+              title="Dashboard mobile"
+              subtitle="Widget e note del telefono"
+            />
+          </nav>
         </div>
 
-        {/* ── Right: form ── */}
+        {/* ── Right: impostazioni profilo OPPURE dashboard mobile ── */}
+        {section === "mobile" ? (
+        <div className="flex flex-col gap-5">
+          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+            <h2
+              className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+              style={{ fontSize: "17px" }}
+            >
+              Dashboard mobile
+            </h2>
+            <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+              Widget e note della dashboard del telefono, indipendenti dal desktop, per l'azienda
+              attiva
+              {myCompanies.find((c) => c.id === activeCompanyId)?.name
+                ? ` (${myCompanies.find((c) => c.id === activeCompanyId)?.name})`
+                : ""}
+              .
+            </p>
+            {activeCompanyId != null ? (
+              <MobileDashboardEditor companyId={activeCompanyId} />
+            ) : (
+              <p className="text-[13px] text-muted dark:text-[#9999a0]">
+                Seleziona un'azienda attiva per personalizzare la dashboard mobile.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : (
         <div className="flex flex-col gap-5">
 
           {/* Info personali */}
@@ -298,6 +387,7 @@ export function ProfilePage() {
             </Button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

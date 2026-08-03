@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getDashboardLayoutApi,
   updateDashboardLayoutApi,
+  type DashboardPlatform,
   type DashboardWidget,
 } from "../api/dashboardLayout";
 import type { WidgetInstance } from "../components/dashboard/widgets/types";
@@ -22,7 +23,10 @@ function toInstances(widgets: DashboardWidget[]): WidgetInstance[] {
  * Carica e salva il layout dashboard dell'utente per l'azienda attiva.
  * Salvataggio ottimistico fire-and-forget (mirror del pattern preferenze).
  */
-export function useDashboardLayout(companyId: number | null) {
+export function useDashboardLayout(
+  companyId: number | null,
+  platform: DashboardPlatform = "desktop",
+) {
   const [widgets, setWidgets] = useState<WidgetInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -43,7 +47,7 @@ export function useDashboardLayout(companyId: number | null) {
     let cancelled = false;
     setLoading(true);
     setLoaded(false);
-    getDashboardLayoutApi(companyId)
+    getDashboardLayoutApi(companyId, platform)
       .then((layout) => {
         if (cancelled) return;
         settingsRef.current = layout.settings ?? {};
@@ -62,13 +66,14 @@ export function useDashboardLayout(companyId: number | null) {
     return () => {
       cancelled = true;
     };
-  }, [companyId]);
+  }, [companyId, platform]);
 
   const persist = useCallback(
     (next: WidgetInstance[]) => {
       if (companyId == null) return;
       void updateDashboardLayoutApi({
         company_id: companyId,
+        platform,
         widgets: next.map((w) => ({
           id: w.id,
           type: w.type,
@@ -81,7 +86,7 @@ export function useDashboardLayout(companyId: number | null) {
         settings: settingsRef.current,
       }).catch(() => {});
     },
-    [companyId],
+    [companyId, platform],
   );
 
   const setAndPersist = useCallback(

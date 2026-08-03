@@ -40,9 +40,18 @@ interface DashboardGridProps {
   onConfigChange?: (id: string, patch: Record<string, unknown>) => void;
   /** Ostacoli fissi (le note) che i widget devono evitare durante il reflow. */
   reserved?: Rect[];
+  /** Numero di colonne della griglia (default 12 = desktop; usa 2 per l'anteprima mobile). */
+  cols?: number;
+  /** Se false, NON collassa a colonna singola su schermi stretti (per l'anteprima telefono
+   *  a colonne fisse, dove l'editing resta attivo). Default true (comportamento desktop). */
+  narrowCollapse?: boolean;
+  /** Override della larghezza minima (in colonne) dei widget in resize. Serve all'anteprima
+   *  mobile a 2 colonne, dove i minSize a 12 colonne dei widget desktop impedirebbero di
+   *  scendere sotto la larghezza piena. Default: la minSize del widget. */
+  minCol?: number;
 }
 
-export function DashboardGrid({ items, editing, onLayoutChange, onRemove, onConfigChange, reserved }: DashboardGridProps) {
+export function DashboardGrid({ items, editing, onLayoutChange, onRemove, onConfigChange, reserved, cols: colsProp, narrowCollapse, minCol }: DashboardGridProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const dragRef = useRef<DragState | null>(null);
@@ -63,8 +72,10 @@ export function DashboardGrid({ items, editing, onLayoutChange, onRemove, onConf
     return () => ro.disconnect();
   }, []);
 
-  const narrow = width > 0 && width < NARROW;
-  const cols = narrow ? 1 : COLS;
+  const collapse = narrowCollapse !== false;
+  const colsBase = colsProp ?? COLS;
+  const narrow = collapse && width > 0 && width < NARROW;
+  const cols = narrow ? 1 : colsBase;
   const colW = cols > 0 && width > 0 ? (width - (cols - 1) * GAP) / cols : 0;
 
   // Ref aggiornati a ogni render: i listener globali (creati una volta) li leggono.
@@ -136,7 +147,7 @@ export function DashboardGrid({ items, editing, onLayoutChange, onRemove, onConf
       startClientY: e.clientY,
       orig: { x: item.x, y: item.y, w: item.w, h: item.h },
       ghost: { x: item.x, y: item.y, w: item.w, h: item.h },
-      minW: def?.minSize.w ?? 2,
+      minW: minCol ?? def?.minSize.w ?? 2,
       minH: def?.minSize.h ?? 2,
       dx: 0,
       dy: 0,
