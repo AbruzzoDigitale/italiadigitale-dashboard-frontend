@@ -20,15 +20,18 @@ export function SocialProfilesPage() {
   const canCreatePlatforms = !!user?.is_admin || user?.access_level === "project_manager";
 
   return (
-    <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
+    <div className="px-6 py-8 mx-auto w-full h-full flex flex-col min-h-0 animate-fadeIn">
       <PageSectionHeader icon={<Icon name="globe" className="w-6 h-6" />} title="Profili social" />
 
       {currentCompanyId != null && (
-        <SocialProfilesTab
-          companyId={currentCompanyId}
-          canManage
-          canCreatePlatforms={canCreatePlatforms}
-        />
+        <div className="flex-1 min-h-0">
+          <SocialProfilesTab
+            companyId={currentCompanyId}
+            canManage
+            canCreatePlatforms={canCreatePlatforms}
+            fillHeight
+          />
+        </div>
       )}
     </div>
   );

@@ -228,6 +228,8 @@ export interface WorkItem {
   company_id: number;
   client_id: number | null;
   contract_ids?: number[];
+  /** True se un monitoraggio social collegato ha un profilo in allarme. */
+  has_monitor_alert?: boolean;
   /** Profili social collegati (id dal registro profili social dell'azienda). */
   social_profile_ids?: number[];
   is_template?: boolean;

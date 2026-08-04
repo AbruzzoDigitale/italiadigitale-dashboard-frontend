@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../hooks/useAuth";
 import { Icon, type IconName } from "../../components/ui/Icon";
 import {
   buildNotifGroups,
@@ -359,7 +360,14 @@ function EmptyState({ label }: { label?: string }) {
 }
 
 // Rotta di destinazione per una notifica (dove "entrare" al click).
-function routeForItem(item: NotifItem): string | null {
+function routeForItem(item: NotifItem, isManager: boolean): string | null {
+  // Avviso monitoraggio social senza task collegata: fallback per ruolo.
+  // (Con task collegata la notifica ha entity_type "work_item" → apre la task.)
+  if (item.type === "social_inactivity" && item.entity_type === "social_monitor") {
+    if (isManager) return item.entity_id != null ? `/monitoraggio-social?monitor=${item.entity_id}` : "/monitoraggio-social";
+    // Operatore: pagina social con le pagine incriminate espanse (scope = id profilo).
+    return item.scope ? `/profili-social?only=${item.scope}` : "/profili-social";
+  }
   const isTask = item.tab === "task" || item.entity_type === "work_item";
   if (isTask && item.entity_id != null) return `/work-items?open=${item.entity_id}`;
   // Richiesta: apre direttamente l'editor di QUELLA richiesta, non la lista.
@@ -387,6 +395,8 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
     unarchiveMany,
   } = notifications;
   const navigate = useNavigate();
+  const { permissions } = useAuth();
+  const isMonitorManager = !!permissions?.is_admin || !!permissions?.is_project_manager;
   const [tab, setTabState] = useState<ViewKey>("task");
   const [comFilter, setComFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState(false);
@@ -454,7 +464,7 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
   // Click su una notifica: la segna letta e "entra" nella richiesta/task/ecc.
   const handleActivate = (item: NotifItem) => {
     if (!item.archived) markRead(item.id);
-    const to = routeForItem(item);
+    const to = routeForItem(item, isMonitorManager);
     if (to) {
       onClose();
       navigate(to);
@@ -508,10 +518,12 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
               <button
                 key={tb.key}
                 type="button"
+                title={tb.label}
                 className={`nt-tab${tab === tb.key ? " on" : ""}`}
                 onClick={() => setTab(tb.key)}
               >
-                <Icon name={tb.icon} className="h-[15px] w-[15px]" /> {tb.label}
+                <Icon name={tb.icon} className="h-[15px] w-[15px]" />
+                <span className="nt-tab-label">{tb.label}</span>
                 {counts[tb.key] > 0 && <span className="nt-tab-badge">{counts[tb.key]}</span>}
               </button>
             ))}
@@ -620,6 +632,9 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
             <GroupedList groups={buildNotifGroups("contratti", itemsByTab("contratti"))} actions={rowActions} />
           )}
           {tab === "comunicazioni" && <FlatList items={comItems} actions={rowActions} />}
+          {tab === "monitoraggi" && (
+            <FlatList items={itemsByTab("monitoraggi")} actions={rowActions} emptyLabel="Nessun avviso di monitoraggio" />
+          )}
           {isArchivio && <FlatList items={archived} actions={rowActions} emptyLabel="Nessuna notifica archiviata" />}
         </div>
 

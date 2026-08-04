@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
@@ -14,6 +14,16 @@ import { getWorkItemApi, type WorkItem } from "../api/workItems";
 import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
 import { formatDurationHuman } from "../utils/duration";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
+import { getRecapTemplateApi } from "../api/dailyRecap";
+import {
+  defaultRecapTemplate,
+  renderRecapFromTemplate,
+  type RecapTemplate,
+} from "../features/daily-recap/recapTemplate";
+import { WhatsAppPreview } from "../features/daily-recap/WhatsAppPreview";
+import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
 
@@ -98,69 +108,9 @@ function fmtRecapHours(value: number | null | undefined): string {
   return v % 1 === 0 ? String(v) : v.toFixed(1);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function recapTaskLine(task: any): string {
-  const client = task?.client_name ? `[${task.client_name}] ` : "";
-  // Mostra la stima PROPRIA della task: `effective_load_hours` e' il peso sul carico
-  // dell'utente (in revisione vale 0) e come numero da leggere sarebbe fuorviante.
-  const hours = typeof task?.estimated_hours === "number" ? task.estimated_hours : (task?.effective_load_hours ?? 0);
-  let line = `  - ${client}${task?.title ?? "Senza titolo"} (${fmtRecapHours(hours)}h)`;
-  const note = task?.left_behind_note || task?.left_behind_reason;
-  if (note) line += ` — ${note}`;
-  return line;
-}
-
-// Costruisce il testo del recap dal payload self (usa `recap` se presente, altrimenti i KPI/tasks).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildDailyRecapText(selfData: any, dateIso: string): string {
-  const displayName = selfData?.full_name || selfData?.username || "Utente";
-  const dateLabel = dateFromIso(dateIso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const lines: string[] = [`RECAP — ${displayName} — ${dateLabel}`, ""];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const section = (title: string, items: any[] | undefined) => {
-    if (!items || items.length === 0) return;
-    lines.push(`${title} (${items.length}):`);
-    items.forEach((task) => lines.push(recapTaskLine(task)));
-    lines.push("");
-  };
-
-  const recap = selfData?.recap;
-  if (recap) {
-    lines.push(`Task di oggi: ${recap.today_total} (completate ${recap.done_count} · in corso ${recap.in_progress_count} · da fare ${recap.todo_count})`);
-    if (recap.in_review_count > 0) lines.push(`Fatte e in revisione: ${recap.in_review_count}`);
-    if (recap.overdue_count > 0) lines.push(`Arretrate: ${recap.overdue_count}`);
-    lines.push(`Carico oggi: ${fmtRecapHours(recap.estimated_hours_today)}h / ${fmtRecapHours(recap.capacity_hours)}h · Tracciate: ${fmtRecapHours(recap.actual_hours_today)}h`);
-    if (recap.overdue_hours > 0) lines.push(`Da recuperare (arretrato): ${fmtRecapHours(recap.overdue_hours)}h`);
-    lines.push("");
-    section("COMPLETATE", recap.done);
-    section("IN CORSO", recap.in_progress);
-    section("FATTE E IN REVISIONE", recap.in_review);
-    section("DA FARE", recap.todo);
-    section("ARRETRATE", recap.overdue);
-  } else {
-    // Fallback: il backend non espone ancora il recap → ricostruisco da tasks/KPI.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tasks: any[] = selfData?.tasks ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isDone = (t: any) => t.is_completed || t.status === "completed" || t.status === "done";
-    const done = tasks.filter(isDone);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const inProgress = tasks.filter((t: any) => !isDone(t) && (t.status === "in_progress" || t.status === "review"));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const todo = tasks.filter((t: any) => !isDone(t) && t.status !== "in_progress" && t.status !== "review");
-    const cap = selfData?.max_capacity_hours_day;
-    lines.push(`Task totali: ${selfData?.tasks_total ?? tasks.length}`);
-    lines.push(`Completate: ${selfData?.tasks_completed ?? done.length} · In corso: ${inProgress.length} · Da fare: ${todo.length}`);
-    lines.push(`Carico stimato: ${fmtRecapHours(selfData?.estimated_hours_total)}h${typeof cap === "number" ? ` / ${fmtRecapHours(cap)}h` : ""} · Tracciate: ${fmtRecapHours(selfData?.actual_hours_total)}h`);
-    lines.push("");
-    section("COMPLETATE", done);
-    section("IN CORSO", inProgress);
-    section("DA FARE", todo);
-  }
-
-  return lines.join("\n").trimEnd();
-}
+// Il testo del recap è generato dal TEMPLATE aziendale (personalizzabile in
+// Impostazioni azienda → Recap); senza personalizzazione si usa il default di
+// serie. Vedi src/features/daily-recap/recapTemplate.ts.
 
 function loadClass(loadPercent: number): "wl-acc-load--ok" | "wl-acc-load--warning" | "wl-acc-load--overload" {
   if (loadPercent >= 100) return "wl-acc-load--overload";
@@ -247,7 +197,8 @@ function renderLoadLegend() {
 }
 
 export function DailyTasksPage() {
-  const { user, permissions } = useAuth();
+  const { user, permissions, myCompanies } = useAuth();
+  const { theme } = useTheme();
   const isAdmin = !!permissions?.is_admin;
   // Visibilità team: admin e Project Manager (scoped alla propria azienda dal backend).
   const canSeeTeam = isAdmin || !!permissions?.is_project_manager;
@@ -273,12 +224,31 @@ export function DailyTasksPage() {
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
   const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
 
-  // Bozza del recap modificabile prima della condivisione; si azzera quando
-  // cambiano i dati o il giorno (torna al testo generato).
+  // Bozza del recap modificabile prima della condivisione; si azzera al cambio
+  // giorno. NON si azzera sui refresh realtime: una modifica manuale in corso
+  // non deve sparire perché è arrivato un aggiornamento dati.
   const [recapDraft, setRecapDraft] = useState<string | null>(null);
+  // false = anteprima formattata stile WhatsApp; true = textarea per ritocchi.
+  const [recapEditing, setRecapEditing] = useState(false);
   useEffect(() => {
     setRecapDraft(null);
-  }, [selfData, targetDate]);
+    setRecapEditing(false);
+  }, [targetDate]);
+
+  // Logo dell'azienda selezionata: immagine del "gruppo" nella chat finta del recap.
+  const companyLogoUrl = useMemo(() => {
+    const company = myCompanies.find((c) => c.id === companyId);
+    return company ? getCompanyLogoUrl(company, theme) : null;
+  }, [myCompanies, companyId, theme]);
+
+  // Template aziendale del recap (null = default di serie).
+  const [recapTemplate, setRecapTemplate] = useState<RecapTemplate | null>(null);
+  useEffect(() => {
+    if (companyId == null) return;
+    getRecapTemplateApi(companyId)
+      .then(setRecapTemplate)
+      .catch(() => setRecapTemplate(null));
+  }, [companyId]);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
   // Apertura dei gruppi della vista elenco (per operatore / per cliente): aperti di
@@ -302,8 +272,9 @@ export function DailyTasksPage() {
     }
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       if (viewMode === "self") {
@@ -320,17 +291,34 @@ export function DailyTasksPage() {
         setAdminData(data);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Errore caricamento attività";
-      setError(message);
-      toast.error(message);
+      // In un refresh silenzioso (realtime) un errore transitorio non deve
+      // disturbare: la vista resta sull'ultimo dato buono.
+      if (!silent) {
+        const message = err instanceof Error ? err.message : "Errore caricamento attività";
+        setError(message);
+        toast.error(message);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadData();
   }, [viewMode, targetDate]);
+
+  // Realtime: lo stream SSE (canale azienda work_item_changed + notifiche personali,
+  // instradato sul bus) ricarica in silenzio la vista attiva — vale per operatore,
+  // PM e admin su tutte e tre le viste (Elenco/Team/Mie task).
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+  useEffect(
+    () =>
+      subscribeRealtime(() => {
+        void loadDataRef.current({ silent: true });
+      }),
+    []
+  );
 
   const renderSelfView = () => {
     if (!selfData) return null;
@@ -406,7 +394,8 @@ export function DailyTasksPage() {
 
         {/* Recap giornaliero */}
         {(() => {
-          const recapText = recapDraft ?? buildDailyRecapText(selfData, targetDate);
+          const recapText =
+            recapDraft ?? renderRecapFromTemplate(recapTemplate ?? defaultRecapTemplate(), selfData, targetDate);
           const copyRecap = async () => {
             try {
               await navigator.clipboard.writeText(recapText);
@@ -427,6 +416,10 @@ export function DailyTasksPage() {
               sub="Pronto da condividere su WhatsApp o via email"
               actions={
                 <>
+                  <button type="button" className="ag-abtn" onClick={() => setRecapEditing((v) => !v)}>
+                    <Icon name={recapEditing ? "eye" : "pencil"} className="w-3.5 h-3.5" />
+                    {recapEditing ? "Anteprima" : "Modifica"}
+                  </button>
                   <button type="button" className="ag-abtn" onClick={() => void copyRecap()}>
                     <Icon name="copy" className="w-3.5 h-3.5" /> Copia
                   </button>
@@ -436,25 +429,41 @@ export function DailyTasksPage() {
                 </>
               }
             >
-              <textarea
-                className="ag-recap"
-                value={recapText}
-                onChange={(event) => setRecapDraft(event.target.value)}
-                rows={Math.min(16, recapText.split("\n").length + 1)}
-              />
+              {recapEditing ? (
+                <textarea
+                  className="ag-recap"
+                  value={recapText}
+                  onChange={(event) => setRecapDraft(event.target.value)}
+                  rows={Math.min(16, recapText.split("\n").length + 1)}
+                />
+              ) : (
+                <WhatsAppPreview text={recapText} avatarUrl={companyLogoUrl} />
+              )}
               <div className="ag-share">
-                <a
+                <button
+                  type="button"
                   className="ag-wa"
-                  href={`https://wa.me/?text=${encodeURIComponent(recapText)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={() => {
+                    // Il testo NON passa più nell'URL: il ponte wa.me → app desktop
+                    // corrompe le emoji (→ "�"). Copiamo il recap negli appunti e
+                    // apriamo l'app sul selettore chat: si incolla e le emoji sono
+                    // perfette (il copia-incolla è l'unico canale affidabile).
+                    void navigator.clipboard
+                      ?.writeText(recapText)
+                      .then(() => toast.success("Recap copiato: scegli la chat e incolla (Ctrl+V)."))
+                      .catch(() => toast.error("Copia non riuscita: usa il pulsante Copia."));
+                    window.location.href = "whatsapp://send";
+                  }}
                 >
                   <span className="ag-wa-ic">
                     <Icon name="annotation" className="w-4 h-4" />
                   </span>
                   Condividi su WhatsApp
-                </a>
-                <span className="ag-share-hint">Apre WhatsApp con il recap già formattato</span>
+                </button>
+                <span className="ag-share-hint">
+                  Copia il recap e apre WhatsApp: scegli la chat e incolla (Ctrl+V) — così emoji e
+                  formattazione restano perfette. Se l'app non si apre, apri WhatsApp e incolla.
+                </span>
               </div>
             </AgSection>
           );

@@ -635,7 +635,28 @@ button:active > .nav-ico {
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 .sp-pop-in { animation: sp-pop-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Verifica riuscita: il badge "Verificato" entra con un piccolo scatto elastico,
+   la spunta si disegna e parte un anello di conferma (motion graphic). */
+@keyframes sp-verified-pop {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.sp-verified-pop { animation: sp-verified-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes sp-check-draw {
+  from { stroke-dashoffset: 14; }
+  to { stroke-dashoffset: 0; }
+}
+.sp-check-draw { stroke-dasharray: 14; animation: sp-check-draw 0.5s 0.08s cubic-bezier(0.65, 0, 0.35, 1) both; }
+@keyframes sp-verified-ring {
+  0% { box-shadow: 0 0 0 0 rgba(34, 160, 90, 0.5); }
+  100% { box-shadow: 0 0 0 9px rgba(34, 160, 90, 0); }
+}
+.sp-verified-ring { animation: sp-verified-ring 0.7s ease-out both; }
+
 @media (prefers-reduced-motion: reduce) {
   .sp-skeleton { animation: none; }
   .sp-pop-in { animation: none; }
+  .sp-verified-pop, .sp-check-draw, .sp-verified-ring { animation: none; }
 }

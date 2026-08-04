@@ -46,6 +46,11 @@ export interface SocialProfile {
   name: string;
   url: string;
   notes: string | null;
+  /** Raggiungibilità Meta: valorizzata dall'endpoint di verifica. */
+  meta_verified_at: string | null;
+  meta_page_id: string | null;
+  meta_ig_business_id: string | null;
+  meta_verify_error: string | null;
   created_by: number | null;
   created_at: string | null;
   updated_at: string | null;
@@ -103,6 +108,54 @@ export async function updateSocialProfileApi(id: number, body: SocialProfileUpda
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res);
+}
+
+/** Verifica se il profilo IG/FB è raggiungibile via API Meta (portfolio Business). */
+export async function verifySocialProfileMetaApi(id: number): Promise<SocialProfile> {
+  const res = await authFetch(`${BASE}/${id}/verify`, { method: "POST" });
+  return jsonOrThrow(res);
+}
+
+export interface FeedChild {
+  media_url: string | null;
+  media_type: string | null;
+  thumbnail_url: string | null;
+}
+
+export interface FeedPost {
+  external_post_id: string | null;
+  content_type: string;
+  posted_at: string | null;
+  permalink: string | null;
+  caption: string | null;
+  media_type: string | null;
+  thumbnail_url: string | null;
+  media_url: string | null;
+  children: FeedChild[];
+  like_count: number | null;
+  comments_count: number | null;
+}
+
+export interface SocialProfileFeed {
+  supported: boolean;
+  error: string | null;
+  posts: FeedPost[];
+  stories: FeedPost[];
+}
+
+/** Anteprima live degli ultimi post di un profilo (IG/FB). Panoramica cliente. */
+export async function getSocialProfileFeedApi(id: number, limit = 12): Promise<SocialProfileFeed> {
+  return jsonOrThrow(await authFetch(`${BASE}/${id}/feed?limit=${limit}`));
+}
+
+/** Verifica in blocco più profili IG/FB. Ritorna i profili aggiornati. */
+export async function verifySocialProfilesBulkApi(ids: number[]): Promise<SocialProfile[]> {
+  const res = await authFetch(`${BASE}/verify-bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
   });
   return jsonOrThrow(res);
 }

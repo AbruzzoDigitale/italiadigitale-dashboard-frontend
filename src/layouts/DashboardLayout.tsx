@@ -89,6 +89,13 @@ const allNavItems: NavItem[] = [
     routeKey: "social-profiles",
     group: "operations",
   },
+  {
+    label: "Monitoraggio social",
+    to: "/monitoraggio-social",
+    icon: <Icon name="activity" />,
+    routeKey: "social-monitors",
+    group: "operations",
+  },
   // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
   // rapidi aprono direttamente in una nuova scheda. Riabilitare quando pronto.
   // {

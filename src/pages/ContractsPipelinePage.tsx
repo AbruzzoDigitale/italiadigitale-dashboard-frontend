@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { createLeadApi, getClientsApi, type Client } from "../api/clients";
+import { createLeadApi, deleteClientApi, getClientsApi, type Client } from "../api/clients";
 import {
   bulkDeleteContractsApi,
   CONTRACT_STAGE_LABELS,
@@ -447,6 +447,8 @@ export function ContractsPipelinePage() {
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [leadForm, setLeadForm] = useState(EMPTY_LEAD_FORM);
   const [leadSaving, setLeadSaving] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Client | null>(null);
+  const [leadDeleting, setLeadDeleting] = useState(false);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -845,6 +847,22 @@ export function ContractsPipelinePage() {
       toast.error(err instanceof Error ? err.message : "Errore salvataggio lead");
     } finally {
       setLeadSaving(false);
+    }
+  };
+
+  // Eliminazione lead: soft delete del cliente-appunto (sparisce dalla colonna Bozza).
+  const deleteLead = async () => {
+    if (!leadToDelete) return;
+    setLeadDeleting(true);
+    try {
+      await deleteClientApi(leadToDelete.id);
+      setLeads((current) => current.filter((l) => l.id !== leadToDelete.id));
+      toast.success("Lead eliminato");
+      setLeadToDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore eliminazione lead");
+    } finally {
+      setLeadDeleting(false);
     }
   };
 
@@ -1485,13 +1503,24 @@ export function ContractsPipelinePage() {
                           <div className="pipe-c-foot">
                             <span className="pipe-c-upd">Richiesta {formatIsoDate(lead.lead_date)}</span>
                             {isAdmin && (
-                              <button
-                                type="button"
-                                className="pipe-c-lead-cta"
-                                onClick={() => convertLeadToQuote(lead)}
-                              >
-                                Converti in preventivo
-                              </button>
+                              <span className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  className="pipe-c-lead-cta"
+                                  onClick={() => convertLeadToQuote(lead)}
+                                >
+                                  Converti in preventivo
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Elimina lead"
+                                  aria-label="Elimina lead"
+                                  onClick={() => setLeadToDelete(lead)}
+                                  className="inline-grid h-6 w-6 flex-none place-items-center rounded-md border border-danger/20 bg-danger/5 text-danger transition-colors hover:bg-danger/10"
+                                >
+                                  <Icon name="trash" className="h-3 w-3" />
+                                </button>
+                              </span>
                             )}
                           </div>
                         </div>
@@ -2313,6 +2342,31 @@ export function ContractsPipelinePage() {
             onChange={(event) => setLeadForm((current) => ({ ...current, lead_date: event.target.value }))}
           />
         </div>
+      </Modal>
+
+      <Modal
+        open={!!leadToDelete}
+        onClose={() => {
+          if (!leadDeleting) setLeadToDelete(null);
+        }}
+        title="Elimina lead"
+        description="Il lead viene rimosso dalla pipeline (archiviato in anagrafica)."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLeadToDelete(null)} disabled={leadDeleting}>
+              Annulla
+            </Button>
+            <Button variant="danger" onClick={() => void deleteLead()} loading={leadDeleting}>
+              Elimina
+            </Button>
+          </>
+        }
+      >
+        <p className="font-body text-sm text-ink dark:text-paper">
+          Sei sicuro di voler eliminare il lead{" "}
+          <strong>{leadToDelete ? leadToDelete.commercial_name || leadToDelete.name : ""}</strong>?
+        </p>
       </Modal>
 
       <ContractFromQuoteModal

@@ -68,6 +68,8 @@ import { OverbookingModal } from "./OverbookingModal";
 import { useToast } from "../../context/ToastContext";
 import { useWorkItemDetail } from "../../hooks/useWorkItemDetail";
 import { ReviewTab, type ReviewTabHandle } from "../review/ReviewTab";
+import { TaskMonitoringTab } from "../../features/social/TaskMonitoringTab";
+import { getMonitorForWorkItemApi } from "../../api/socialMonitors";
 import {
   deriveReviewPhase,
   reviewPhaseButtons,
@@ -547,15 +549,16 @@ export interface WorkItemFormModalProps {
 }
 
 // ── Schede del modal modifica (layout affiancato personalizzabile) ─────────────
-type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline";
+type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline" | "monitoraggio";
 const WI_TAB_LABEL: Record<WiTabId, string> = {
   dettagli: "Dettagli",
   assegnazioni: "Assegnazioni & Tag",
   checklist: "Checklist & PED",
   revisione: "Revisione",
   timeline: "Timeline eventi",
+  monitoraggio: "Monitoraggio",
 };
-const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline"];
+const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline", "monitoraggio"];
 const DEFAULT_WI_LAYOUT: { left: WiTabId[]; right: WiTabId[] } = {
   left: ["dettagli", "assegnazioni", "checklist"],
   right: ["revisione", "timeline"],
@@ -729,9 +732,28 @@ export function WorkItemFormModal({
 
   // Utente corrente: in creazione la task viene preassegnata a lui con le sue aree.
   // Ref per leggerlo nell'effetto di init senza farlo rientrare nelle dipendenze.
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, permissions } = useAuth();
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
+
+  // Scheda Monitoraggio: admin/PM la vedono sempre (in modifica); gli operatori
+  // solo se un monitor è collegato e reso visibile (l'endpoint filtra lato server).
+  const isMonitorManager = !!permissions?.is_admin || !!permissions?.is_project_manager;
+  const [taskMonitorLinked, setTaskMonitorLinked] = useState(false);
+  useEffect(() => {
+    if (!open || !sourceItem || isMonitorManager) {
+      setTaskMonitorLinked(false);
+      return;
+    }
+    let cancelled = false;
+    getMonitorForWorkItemApi(sourceItem.id)
+      .then((m) => !cancelled && setTaskMonitorLinked(!!m))
+      .catch(() => !cancelled && setTaskMonitorLinked(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sourceItem?.id, isMonitorManager]); // eslint-disable-line react-hooks/exhaustive-deps
+  const canSeeMonitorTab = !!sourceItem && (isMonitorManager || taskMonitorLinked);
   const autofilledRef = useRef(false);
 
   // ── Form
@@ -2018,7 +2040,7 @@ export function WorkItemFormModal({
   // Barra schede di una colonna (split) con drag&drop: trascina un chip per
   // spostarlo tra le colonne o riordinarlo; click per attivarlo.
   const renderSplitTabBar = (side: "left" | "right") => {
-    const ids = layout[side];
+    const ids = layout[side].filter((id) => id !== "monitoraggio" || canSeeMonitorTab);
     const active = side === "left" ? leftTab : rightTab;
     const setActive = side === "left" ? setLeftTab : setRightTab;
     return (
@@ -3333,8 +3355,16 @@ export function WorkItemFormModal({
           {/* Schede modifica — contenuti in mappa, layout singolo/affiancato sotto */}
           {(() => {
           const sections: Record<WiTabId, () => ReactNode> = {
-            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null,
+            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null, monitoraggio: () => null,
           };
+          sections.monitoraggio = () => sourceItem ? (
+            <TaskMonitoringTab
+              workItemId={sourceItem.id}
+              companyId={sourceItem.company_id ?? companyId}
+              clientId={sourceItem.client_id ?? null}
+              isManager={isMonitorManager}
+            />
+          ) : null;
           sections.revisione = () => sourceItem ? (
             <ReviewTab
               ref={reviewRef}
@@ -3882,20 +3912,20 @@ export function WorkItemFormModal({
               <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:pr-5">
                 {renderSplitTabBar("left")}
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  {leftTab ? sections[leftTab]() : renderEmptyPane()}
+                  {leftTab && (leftTab !== "monitoraggio" || canSeeMonitorTab) ? sections[leftTab]() : renderEmptyPane()}
                 </div>
               </div>
               <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 border-line dark:border-line-dark lg:border-l lg:pl-5">
                 {renderSplitTabBar("right")}
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  {rightTab ? sections[rightTab]() : renderEmptyPane()}
+                  {rightTab && (rightTab !== "monitoraggio" || canSeeMonitorTab) ? sections[rightTab]() : renderEmptyPane()}
                 </div>
               </div>
             </div>
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-1 border-b border-line dark:border-line-dark">
-                {WI_TAB_ORDER.map((id) => (
+                {WI_TAB_ORDER.filter((id) => id !== "monitoraggio" || canSeeMonitorTab).map((id) => (
                   <button
                     key={id}
                     type="button"
@@ -3910,7 +3940,7 @@ export function WorkItemFormModal({
                   </button>
                 ))}
               </div>
-              {sections[editTab]()}
+              {sections[editTab === "monitoraggio" && !canSeeMonitorTab ? "dettagli" : editTab]()}
             </>
           );
           })()}

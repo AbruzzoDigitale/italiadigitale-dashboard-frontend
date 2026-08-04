@@ -143,6 +143,9 @@ export function WorkItemCard({
   if (item.is_deadline_locked) {
     warnings.push({ key: "nondeg", label: "Scadenza non derogabile", tone: "nondeg" });
   }
+  if (item.has_monitor_alert) {
+    warnings.push({ key: "monitor", label: "Monitoraggio social: profilo in allarme", tone: "late" });
+  }
 
   return (
     <div

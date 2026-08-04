@@ -11,7 +11,7 @@ export interface NotifTypeMeta {
   tone: NotifTone;
 }
 
-export type NotifTabKey = "task" | "richieste" | "contratti" | "comunicazioni";
+export type NotifTabKey = "task" | "richieste" | "contratti" | "comunicazioni" | "monitoraggi";
 
 /** Forma allineata a NotificationResponse del backend. */
 export interface NotifItem {
@@ -56,6 +56,8 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   c_scadenza: { label: "In scadenza", icon: "clock", tone: "amber" },
   // richieste
   richiesta: { label: "Richiesta", icon: "mail", tone: "indigo" },
+  // monitoraggio social
+  social_inactivity: { label: "Social non aggiornato", icon: "activity", tone: "amber" },
   // comunicazioni
   com_operatore: { label: "Operatore", icon: "users", tone: "mint" },
   com_area: { label: "Area", icon: "grid", tone: "indigo" },
@@ -118,6 +120,7 @@ export const NOTIF_TABS: { key: NotifTabKey; label: string; icon: IconName }[] =
   { key: "richieste", label: "Richieste", icon: "mail" },
   { key: "contratti", label: "Contratti", icon: "document-text" },
   { key: "comunicazioni", label: "Comunicazioni", icon: "annotation" },
+  { key: "monitoraggi", label: "Monitoraggi", icon: "activity" },
 ];
 
 export const NOTIF_COM_FILTERS: { key: string; label: string; tone?: NotifTone }[] = [

@@ -47,6 +47,7 @@ import { WorkAreasTab } from "../features/company/WorkAreasTab";
 import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
 import { SocialPlatformsTab } from "../features/company/SocialPlatformsTab";
+import { DailyRecapTemplateTab } from "../features/company/DailyRecapTemplateTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
 import { NotificheTab } from "../features/company/NotificheTab";
 
@@ -86,7 +87,7 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social";
+type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "recap";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
@@ -102,6 +103,7 @@ const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   roles: "Ruoli",
   tags: "Tag",
   social: "Social",
+  recap: "Recap",
 };
 
 const SCHEDULE_KIND_OPTIONS: Array<{ value: CompanyScheduleWindowKind; label: string }> = [
@@ -1862,6 +1864,10 @@ export function CompanyBrandPage() {
 
         {activeTab === "social" && (
           <SocialPlatformsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+        )}
+
+        {activeTab === "recap" && (
+          <DailyRecapTemplateTab companyId={companyId} isAdmin={!!user?.is_admin} />
         )}
 
         <CompanySettingModal
