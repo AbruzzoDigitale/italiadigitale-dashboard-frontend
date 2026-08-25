@@ -20,6 +20,7 @@ export type IconName =
   | "plus"
   | "pencil"
   | "trash"
+  | "archive"
   | "search"
   | "upload"
   | "check"
@@ -60,6 +61,7 @@ export type IconName =
   | "dots-horizontal"
   | "dots-vertical"
   | "link"
+  | "unlink"
   | "canva"
   | "drive"
   | "nas"
@@ -174,6 +176,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="2" y="3" width="20" height="5" rx="1" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 12h4" />
     </>
   ),
   search: (
@@ -436,6 +445,13 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  unlink: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m5.17 11.75-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 2v3M2 8h3M16 19v3M19 16h3" />
     </>
   ),
   // Canva: badge circolare con una "C" stilizzata (monocromatico, non il logo a colori).

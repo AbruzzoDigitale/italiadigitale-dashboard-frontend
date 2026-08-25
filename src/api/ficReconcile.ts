@@ -27,6 +27,12 @@ export interface ReconcileLine {
   numero_fattura: number | null;
   importo: number | null;
   data_movimento: string | null; // "YYYY-MM-DD"
+  /** Data del documento su FIC. Serve a riconoscerlo quando manca il numero
+   *  (le spese su FIC hanno quasi sempre `number` vuoto). */
+  data_documento?: string | null;
+  /** Numero della fattura del FORNITORE (es. "8/A"): per le spese è l'unico
+   *  numero esistente ed è quello che compare nelle causali dei bonifici. */
+  numero_fornitore?: string | null;
   beneficiario: string | null;
   descrizione: string | null;
   /** Scadenza della prima rata non pagata (YYYY-MM-DD). */
@@ -58,8 +64,17 @@ export interface ReconcileMovement {
   pagante: string | null;
   causale: string | null;
   nfatture: number[];
+  /** Numeri citati in causale nella loro forma originale ("8/FE", "1/15"): per le
+   *  spese è il numero del fornitore, l'unico esistente. */
+  riferimenti?: string[];
   stato: MovementStato;
   assigned_line_id: number | null;
+  /** Perché resta senza abbinamento: di norma il documento su FIC è già saldato,
+   *  quindi non compare più tra quelli aperti. */
+  nota?: string | null;
+  /** True se la nota è provata dal numero citato in causale: il movimento è
+   *  chiuso e non va più proposto tra quelli da abbinare. */
+  nota_certa?: boolean;
 }
 
 export interface ReconcileRun {
@@ -75,6 +90,8 @@ export interface ReconcileRun {
   righe_ko: number;
   user_id: number | null;
   created_at: string | null;
+  /** Fuori dallo storico "Caricamenti recenti" (archiviato, non cancellato). */
+  archived?: boolean;
   lines?: ReconcileLine[];
   movements?: ReconcileMovement[];
 }
@@ -129,14 +146,56 @@ export async function confirmRunApi(runId: number, lineIds?: number[]): Promise<
   return jsonOrThrow(res);
 }
 
+/** Esito di un aggiornamento: cosa è cambiato su FIC dall'ultimo caricamento. */
+export interface RefreshSummary {
+  saldate_su_fic: number;
+  nuovi_abbinamenti: number;
+  nuove_fatture: number;
+  bonifici_liberi: number;
+}
+
+/**
+ * Ricontrolla la situazione su FIC senza ricaricare il file della banca: toglie
+ * dalla coda le fatture saldate a mano nel frattempo, riabbina quelle ancora
+ * aperte ai bonifici liberi e aggiunge le fatture aperte nuove.
+ *
+ * Con `lineIds` l'aggiornamento è mirato a quelle righe: più rapido (legge da FIC
+ * solo i documenti collegati) ma non porta dentro le fatture nuove.
+ */
+export async function refreshRunApi(
+  runId: number,
+  lineIds?: number[],
+): Promise<ReconcileRun & { refresh: RefreshSummary }> {
+  const res = await authFetch(`${BASE}/runs/${runId}/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(lineIds && lineIds.length ? { line_ids: lineIds } : {}),
+  });
+  return jsonOrThrow(res);
+}
+
 export async function retryRunApi(runId: number): Promise<ReconcileRun> {
   const res = await authFetch(`${BASE}/runs/${runId}/retry`, { method: "POST" });
   return jsonOrThrow(res);
 }
 
-export async function listRunsApi(tipo?: ReconcileTipo): Promise<{ runs: ReconcileRun[] }> {
-  const suffix = tipo ? `?tipo=${tipo}` : "";
+/** Storico dei caricamenti. `archived: true` restituisce SOLO quelli archiviati. */
+export async function listRunsApi(tipo?: ReconcileTipo, archived = false): Promise<{ runs: ReconcileRun[] }> {
+  const qs = new URLSearchParams();
+  if (tipo) qs.set("tipo", tipo);
+  if (archived) qs.set("archived", "true");
+  const suffix = qs.toString() ? `?${qs}` : "";
   const res = await authFetch(`${BASE}/runs${suffix}`);
+  return jsonOrThrow(res);
+}
+
+/** Toglie (o rimette) un caricamento dallo storico. Non cancella nulla. */
+export async function archiveRunApi(runId: number, archived = true): Promise<{ id: number; archived: boolean }> {
+  const res = await authFetch(`${BASE}/runs/${runId}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archived }),
+  });
   return jsonOrThrow(res);
 }
 

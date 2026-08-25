@@ -32,6 +32,8 @@ export interface CreditNoteCheck {
   note_scollegate: number;
   user_id: number | null;
   created_at: string | null;
+  /** Fuori dallo storico "Verifiche recenti" (archiviata, non cancellata). */
+  archived?: boolean;
   lines?: CreditNoteLine[];
 }
 
@@ -59,8 +61,22 @@ export async function runCreditNoteCheckApi(params?: { anni?: string; ficCompany
   return jsonOrThrow(res);
 }
 
-export async function listCreditNoteChecksApi(): Promise<{ runs: CreditNoteCheck[] }> {
-  const res = await authFetch(`${BASE}/runs`);
+/** Storico delle verifiche. `archived: true` restituisce SOLO quelle archiviate. */
+export async function listCreditNoteChecksApi(archived = false): Promise<{ runs: CreditNoteCheck[] }> {
+  const res = await authFetch(`${BASE}/runs${archived ? "?archived=true" : ""}`);
+  return jsonOrThrow(res);
+}
+
+/** Toglie (o rimette) una verifica dallo storico. Non cancella nulla. */
+export async function archiveCreditNoteCheckApi(
+  checkId: number,
+  archived = true,
+): Promise<{ id: number; archived: boolean }> {
+  const res = await authFetch(`${BASE}/runs/${checkId}/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archived }),
+  });
   return jsonOrThrow(res);
 }
 

@@ -18,10 +18,13 @@ export interface SocialMonitorTarget {
   is_active: boolean;
   inactivity_days_override: number | null;
   last_post_at: string | null;
+  last_carousel_at: string | null;
   last_reel_at: string | null;
   last_story_at: string | null;
   last_checked_at: string | null;
   is_alerting: boolean;
+  last_error: string | null;
+  last_error_at: string | null;
 }
 
 export interface SocialMonitorRecipient {
@@ -35,6 +38,7 @@ export interface SocialMonitor {
   client_id: number | null;
   client_name: string | null;
   work_item_id: number | null;
+  work_item_title: string | null;
   name: string;
   is_active: boolean;
   auto_disable_at: string | null;
@@ -46,11 +50,18 @@ export interface SocialMonitor {
   analysis_depth: number;
   fetch_insights: boolean;
   check_posts: boolean;
+  check_carousels: boolean;
   check_reels: boolean;
   check_stories: boolean;
   posts_inactivity_days: number;
+  carousels_inactivity_days: number;
   reels_inactivity_days: number;
   stories_inactivity_days: number;
+  check_pace: boolean;
+  target_posts_per_month: number | null;
+  target_carousels_per_month: number | null;
+  target_reels_per_month: number | null;
+  target_stories_per_month: number | null;
   notify_in_app: boolean;
   notify_push: boolean;
   operators_can_view: boolean;
@@ -76,11 +87,18 @@ export interface SocialMonitorCreate {
   analysis_depth?: number;
   fetch_insights?: boolean;
   check_posts?: boolean;
+  check_carousels?: boolean;
   check_reels?: boolean;
   check_stories?: boolean;
   posts_inactivity_days?: number;
+  carousels_inactivity_days?: number;
   reels_inactivity_days?: number;
   stories_inactivity_days?: number;
+  check_pace?: boolean;
+  target_posts_per_month?: number | null;
+  target_carousels_per_month?: number | null;
+  target_reels_per_month?: number | null;
+  target_stories_per_month?: number | null;
   notify_in_app?: boolean;
   notify_push?: boolean;
   operators_can_view?: boolean;
@@ -113,9 +131,30 @@ export interface SocialAlert {
   triggered_at: string | null;
   days_inactive: number | null;
   last_post_at: string | null;
+  expected_count: number | null;
+  actual_count: number | null;
   last_reminder_at: string | null;
   resolved_at: string | null;
   resolved_reason: string | null;
+}
+
+export interface PaceRow {
+  target_id: number;
+  social_profile_id: number;
+  platform: string | null;
+  profile_name: string | null;
+  content_type: string;
+  label: string;
+  target_per_month: number;
+  expected: number;
+  actual: number;
+  deficit: number;
+  behind: boolean;
+  window_start: string | null;
+  window_end: string | null;
+  elapsed_days: number;
+  expected_gap_days: number | null;
+  actual_gap_days: number | null;
 }
 
 export interface PeriodCount {
@@ -180,6 +219,11 @@ export async function getMonitorForWorkItemApi(workItemId: number): Promise<Soci
   return jsonOrThrow(await authFetch(`${BASE}/for-work-item/${workItemId}`));
 }
 
+/** Crea un monitor pre-compilato dalla configurazione PED della task (admin/PM). */
+export async function suggestMonitorFromWorkItemApi(workItemId: number): Promise<SocialMonitor> {
+  return jsonOrThrow(await authFetch(`${BASE}/suggest-from-work-item/${workItemId}`, { method: "POST" }));
+}
+
 export async function createMonitorApi(body: SocialMonitorCreate): Promise<SocialMonitor> {
   return jsonOrThrow(
     await authFetch(BASE, {
@@ -210,6 +254,11 @@ export async function deleteMonitorApi(id: number): Promise<void> {
 
 export async function runMonitorNowApi(id: number): Promise<SocialMonitor> {
   return jsonOrThrow(await authFetch(`${BASE}/${id}/run`, { method: "POST" }));
+}
+
+/** Ritmo pubblicazioni vs PED (per profilo e tipo). Vuoto se il monitor non ha check_pace. */
+export async function getMonitorPaceApi(id: number): Promise<PaceRow[]> {
+  return jsonOrThrow(await authFetch(`${BASE}/${id}/pace`));
 }
 
 // ── Letture ─────────────────────────────────────────────────────────────────

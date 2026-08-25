@@ -16,6 +16,7 @@ import type { NotifItem, NotifTabKey } from "./notificationsData";
 import { emitNotificationToast } from "./notificationToastBus";
 import { emitRealtime } from "../realtime/realtimeBus";
 import { ensurePushSubscription, isPushSubscriptionActive } from "./pushSubscription";
+import { cachePushOpenMode } from "./pushOpenPreference";
 
 /** Titolo/corpo dal payload SSE (fallback generico se non è JSON). */
 function parseNotifPayload(ev?: MessageEvent): { title: string; body: string } {
@@ -81,6 +82,9 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
         userSoundRef.current = p.sound_enabled;
         pushRef.current = p.push_enabled;
         toastRef.current = p.toast_enabled ?? true;
+        // Copia locale della scelta "dove apro la notifica": il clic arriva dal
+        // service worker e va gestito senza aspettare il server.
+        cachePushOpenMode(p.push_open_mode ?? "ask");
       })
       .catch(() => {
         userSoundRef.current = true;

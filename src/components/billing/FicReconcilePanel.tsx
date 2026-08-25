@@ -9,7 +9,9 @@ import {
   listPaymentAccountsApi,
   uploadReconciliationApi,
   confirmRunApi,
+  refreshRunApi,
   retryRunApi,
+  archiveRunApi,
   listRunsApi,
   getRunApi,
   assignMovementApi,
@@ -54,6 +56,9 @@ const TONE_META: Record<Tone, { label: string; cls: string }> = {
   err: { label: "Errore", cls: "err" },
 };
 
+/** True se la riga è informativa: documento già saldato su FIC prima del caricamento. */
+const isGiaSaldata = (l: ReconcileLine) => Boolean((l.raw_json as { gia_saldata_fuori?: boolean } | null)?.gia_saldata_fuori);
+
 function lineTone(l: ReconcileLine): Tone {
   if (l.esito === "ok") return "ok";
   if (l.esito === "errore") return "err";
@@ -80,7 +85,7 @@ function bucketOf(l: ReconcileLine): Bucket {
 const SECTIONS: { key: Bucket; title: string; hint: string; tone: Tone; defaultOpen: boolean }[] = [
   { key: "verificare", title: "Da verificare", hint: "Dubbie: controlla e conferma manualmente", tone: "incerto", defaultOpen: true },
   { key: "certi", title: "Certe — pronte da registrare", hint: "Abbinamento sicuro", tone: "certo", defaultOpen: true },
-  { key: "riconciliate", title: "Riepilogo riconciliate", hint: "Registrate su FIC in questa sessione", tone: "ok", defaultOpen: false },
+  { key: "riconciliate", title: "Riconciliate", hint: "Registrate ora, oppure già saldate su FIC prima di questo caricamento", tone: "ok", defaultOpen: false },
   { key: "senza", title: "Senza pagamento — non scadute", hint: "Nessun bonifico attribuibile, ma non ancora scadute", tone: "nessuno", defaultOpen: false },
   { key: "scadute", title: "Scadute — da sollecitare", hint: "Oltre la scadenza e non pagate, ordinate per ritardo", tone: "nessuno", defaultOpen: false },
 ];
@@ -103,8 +108,61 @@ function ToneBadge({ tone }: { tone: Tone }) {
   return <span className={"fr-badge fr-badge-" + m.cls}>{m.label}</span>;
 }
 
-/** True se la riga è registrabile (abbinata e ancora in anteprima). */
-const isSelectable = (l: ReconcileLine) => l.esito === "da_registrare";
+// Forme giuridiche e parole vuote: senza toglierle "S.R.L." farebbe combaciare
+// qualsiasi azienda con qualsiasi altra (stessa logica del backend).
+const STOPWORD_NOME = new Set([
+  "srl", "srls", "spa", "snc", "sas", "sapa", "scarl", "scrl", "sc", "ss", "soc",
+  "societa", "responsabilita", "limitata", "semplificata", "cooperativa", "coop",
+  "consorzio", "impresa", "ditta", "di", "c", "e", "the", "and", "in", "il", "la", "lo",
+]);
+
+const tokenNome = (s: string | null): string[] =>
+  (s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2 && !STOPWORD_NOME.has(t));
+
+/** True se due nomi (cliente/fornitore e pagante del movimento) sono la stessa controparte. */
+function stessaControparte(a: string | null, b: string | null): boolean {
+  const ta = tokenNome(a);
+  const tb = tokenNome(b);
+  if (!ta.length || !tb.length) return false;
+  return ta[0] === tb[0] || ta.some((t) => tb.includes(t));
+}
+
+/** Data del documento su FIC: quando la riga è abbinata `data_movimento` diventa
+ *  la data del pagamento, quindi si preferisce il campo dedicato. */
+const docDate = (l: ReconcileLine) => l.data_documento ?? l.data_movimento;
+
+const MESI_IT = [
+  "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+  "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+];
+
+/** Tutte le forme in cui si può scrivere una data cercandola: "30/06/2026",
+ *  "30-06-2026", "2026-06-30", "06/2026", "giugno 2026", "giugno". */
+function chiaviData(iso: string | null): string {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
+  if (!m) return "";
+  const [, anno, mese, giorno] = m;
+  const nome = MESI_IT[Number(mese) - 1] ?? "";
+  return [
+    `${giorno}/${mese}/${anno}`,
+    `${giorno}-${mese}-${anno}`,
+    `${giorno}.${mese}.${anno}`,
+    `${anno}-${mese}-${giorno}`,
+    `${mese}/${anno}`,
+    `${nome} ${anno}`,
+  ].join(" ");
+}
+
+/** True se la riga è registrabile su FIC (abbinata a un bonifico). */
+const isRegistrabile = (l: ReconcileLine) => l.esito === "da_registrare";
+
+/** True se la riga si può selezionare: registrabile, oppure ancora aperta e quindi
+ *  da ricontrollare su FIC (le "senza pagamento" si aggiornano, non si registrano). */
+const isSelectable = (l: ReconcileLine) => l.esito !== "ok" && l.fic_document_id != null;
 
 function LinesTable({
   lines,
@@ -113,6 +171,8 @@ function LinesTable({
   onToggle,
   onToggleAll,
   onUnassign,
+  onRefreshLine,
+  refreshingLine,
 }: {
   lines: ReconcileLine[];
   selectable: boolean;
@@ -120,6 +180,9 @@ function LinesTable({
   onToggle: (id: number) => void;
   onToggleAll: (checked: boolean, ids: number[]) => void;
   onUnassign?: (lineId: number) => void;
+  /** Aggiorna da FIC la singola fattura (stato + eventuale riabbinamento). */
+  onRefreshLine?: (lineId: number) => void;
+  refreshingLine?: number | null;
 }) {
   const [openCausali, setOpenCausali] = useState<Set<number>>(new Set());
   const toggleCausale = (id: number) =>
@@ -163,8 +226,30 @@ function LinesTable({
                     ) : null}
                   </td>
                 ) : null}
-                <td className="mono">{l.numero_fattura != null ? "#" + l.numero_fattura : "—"}</td>
-                <td className="fr-desc">{l.beneficiario || l.descrizione || "—"}</td>
+                {/* Le spese non hanno numero su FIC: al suo posto la data del
+                    documento, che è ciò che le distingue (canone giugno/luglio). */}
+                <td className="mono">
+                  {l.numero_fattura != null ? (
+                    "#" + l.numero_fattura
+                  ) : l.numero_fornitore ? (
+                    <span
+                      className="fr-doc-data"
+                      title={`Numero della fattura del fornitore · documento del ${dataIt(docDate(l))}`}
+                    >
+                      n.{l.numero_fornitore}
+                    </span>
+                  ) : (
+                    <span className="fr-doc-data" title="Data del documento su FIC (nessun numero)">
+                      {dataIt(docDate(l))}
+                    </span>
+                  )}
+                </td>
+                <td className="fr-desc">
+                  {l.beneficiario || "—"}
+                  {l.descrizione && l.beneficiario ? (
+                    <span className="fr-doc-descr">{l.descrizione}</span>
+                  ) : null}
+                </td>
                 <td className="ta-r mono">{beuro(l.importo)}</td>
                 <td className="mono">
                   {dataIt(l.data_movimento)}
@@ -178,7 +263,13 @@ function LinesTable({
                   ) : null}
                 </td>
                 <td>
-                  <ToneBadge tone={tone} />
+                  {isGiaSaldata(l) ? (
+                    <span className="fr-badge fr-badge-ok" title="Saldata su FIC prima di questo caricamento">
+                      Già saldata
+                    </span>
+                  ) : (
+                    <ToneBadge tone={tone} />
+                  )}
                   {l.is_acconto ? <span className="fr-badge fr-badge-acconto">Acconto</span> : null}
                   {l.match_reason ? <span className="fr-reason">{l.match_reason}</span> : null}
                 </td>
@@ -204,6 +295,22 @@ function LinesTable({
                     <a className="fr-link" href={l.fic_document_url} target="_blank" rel="noreferrer">
                       <Icon name="document-text" className="h-[13px] w-[13px]" /> FIC
                     </a>
+                  ) : null}
+                  {onRefreshLine && l.fic_document_id ? (
+                    <button
+                      type="button"
+                      className="fr-refresh-line"
+                      disabled={refreshingLine != null}
+                      onClick={() => onRefreshLine(l.id)}
+                      title="Ricontrolla questa fattura su FIC: se l'hai già saldata a mano esce dalla coda, altrimenti riprova l'abbinamento"
+                    >
+                      {refreshingLine === l.id ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <Icon name="refresh-cw" className="h-3 w-3" />
+                      )}{" "}
+                      Aggiorna
+                    </button>
                   ) : null}
                   {onUnassign && l.esito === "da_registrare" ? (
                     <button
@@ -240,17 +347,60 @@ function MovementsSection({
   onRestore: (movementId: number) => void;
 }) {
   const [showIgnored, setShowIgnored] = useState(false);
+  const [mostraTutti, setMostraTutti] = useState(false);
+  const [q, setQ] = useState("");
   const movements = run.movements ?? [];
   if (!movements.length) return null;
 
-  const liberi = movements.filter((m) => m.stato === "libero");
+  const tuttiLiberi = movements.filter((m) => m.stato === "libero");
   const ignorati = movements.filter((m) => m.stato === "ignorato");
-  if (!liberi.length && !ignorati.length) return null;
+  if (!tuttiLiberi.length && !ignorati.length) return null;
 
   // Fatture assegnabili: quelle con documento FIC non ancora registrate.
   const candidates = (run.lines ?? []).filter((l) => l.fic_document_id != null && l.esito !== "ok");
-  // Titolo (fattura + cliente) a sinistra, importo dovuto come colonna a destra.
-  const optTitle = (l: ReconcileLine) => `#${l.numero_fattura ?? "?"} · ${l.beneficiario ?? "—"}`;
+
+  // Un estratto conto contiene tutto: POS, carte, abbonamenti, giroconti. Quasi
+  // sempre riguardano documenti già saldati (o mai registrati) su FIC, quindi
+  // elencarli tutti seppellisce i pochi che servono. Mostro per primi quelli che
+  // POTREBBERO pagare una delle righe ancora aperte: stesso importo o stessa
+  // controparte, in un periodo compatibile.
+  const plausibile = (m: ReconcileMovement) =>
+    // Se la causale cita il numero di un documento già saldato, il movimento è
+    // chiuso: proporlo per l'abbinamento sarebbe una contraddizione.
+    !m.nota_certa &&
+    candidates.some((l) => {
+      const rif = l.data_movimento ?? l.scadenza;
+      if (rif && m.data) {
+        const giorni = (Date.parse(m.data) - Date.parse(rif)) / 86_400_000;
+        if (giorni < -10 || giorni > 120) return false;
+      }
+      const imp = l.importo_dovuto ?? l.importo;
+      if (imp != null && m.importo != null && Math.abs(m.importo - imp) < 0.02) return true;
+      return stessaControparte(l.beneficiario, m.pagante);
+    });
+
+  const rilevanti = tuttiLiberi.filter(plausibile);
+  const cerca = q.trim().toLowerCase();
+  const base = mostraTutti ? tuttiLiberi : rilevanti;
+  const liberi = cerca
+    ? base.filter((m) =>
+        `${m.pagante ?? ""} ${m.causale ?? ""} ${m.importo ?? ""} ${chiaviData(m.data)}`
+          .toLowerCase()
+          .includes(cerca),
+      )
+    : base;
+  // Titolo a sinistra, importo dovuto a destra. Le SPESE su FIC non hanno numero:
+  // senza data e descrizione due canoni di locazione dello stesso fornitore e
+  // dello stesso importo sarebbero indistinguibili nel menu.
+  const optTitle = (l: ReconcileLine) => {
+    // Numero (nostro o del fornitore) + SEMPRE la data del documento: con clienti
+    // che fatturano lo stesso importo ogni mese è la data a distinguerli.
+    const numero =
+      l.numero_fattura != null ? `#${l.numero_fattura}` : l.numero_fornitore ? `n.${l.numero_fornitore}` : null;
+    const testa = numero ? `${numero} · ${dataIt(docDate(l))}` : dataIt(docDate(l));
+    const desc = (l.descrizione ?? "").trim();
+    return `${testa} · ${l.beneficiario ?? "—"}${desc ? ` — ${desc.slice(0, 70)}` : ""}`;
+  };
   const optAmount = (l: ReconcileLine) => beuro(l.importo_dovuto ?? l.importo);
 
   const MovRow = ({ m }: { m: ReconcileMovement }) => (
@@ -259,6 +409,16 @@ function MovementsSection({
       <td className="mono">{dataIt(m.data)}</td>
       <td className="fr-desc">
         {m.pagante || "—"}
+        {/* Numeri citati in causale: è il riferimento con cui riconosci la fattura. */}
+        {(m.riferimenti?.length ?? 0) > 0 || m.nfatture.length > 0 ? (
+          <span className="fr-mov-rif" title="Numeri fattura citati nella causale">
+            cita {(m.riferimenti?.length ? m.riferimenti : m.nfatture.map(String)).map((r) => "n." + r).join(" · ")}
+          </span>
+        ) : null}
+        {/* Spiega perché è ancora qui: quasi sempre il documento è già saldato. */}
+        {m.nota ? (
+          <span className={"fr-mov-nota" + (m.nota_certa ? "" : " is-probabile")}>{m.nota}</span>
+        ) : null}
         {m.causale ? <span className="fr-mov-causale">{m.causale}</span> : null}
       </td>
       <td>
@@ -275,13 +435,22 @@ function MovementsSection({
                 value: String(l.id),
                 label: optTitle(l),
                 trailing: optAmount(l),
-                keywords: `${l.numero_fattura ?? ""} ${l.beneficiario ?? ""}`,
+                keywords: [
+                  l.numero_fattura ?? "",
+                  l.numero_fornitore ?? "",
+                  l.beneficiario ?? "",
+                  l.descrizione ?? "",
+                  chiaviData(docDate(l)),
+                  chiaviData(l.scadenza),
+                  l.importo ?? "",
+                ].join(" "),
               }))}
               placeholder={candidates.length ? "Assegna a fattura…" : "Nessuna fattura aperta"}
               searchPlaceholder="Cerca fattura…"
               emptyMessage="Nessuna fattura"
               disabled={busy || !candidates.length}
               menuLayer="portal"
+              menuMinWidth={560}
               showAvatar={false}
             />
             <button type="button" className="fr-mov-ignore" disabled={busy} onClick={() => onIgnore(m.id)}>
@@ -301,9 +470,24 @@ function MovementsSection({
     <div className="fr-section fr-mov">
       <div className="fr-mov-head">
         <Icon name="credit-card" className="h-3.5 w-3.5" />
-        <span className="fr-section-title">Bonifici non abbinati</span>
-        <span className="fr-section-count fr-section-count-incerto">{liberi.length}</span>
-        <span className="fr-section-hint">Assegnali a mano a una fattura o ignorali (giroconti, rimborsi…)</span>
+        <span className="fr-section-title">Movimenti da abbinare</span>
+        <span className="fr-section-count fr-section-count-incerto">{rilevanti.length}</span>
+        <span className="fr-section-hint">
+          {mostraTutti
+            ? `Tutti i ${tuttiLiberi.length} movimenti del file, anche quelli che non c'entrano con le righe aperte`
+            : "Solo quelli compatibili con una riga ancora aperta (importo o controparte, in un periodo plausibile)"}
+        </span>
+        <div className="fr-mov-tools">
+          <input
+            className="fr-mov-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cerca importo, data, controparte, causale…"
+          />
+          <button type="button" className="fr-hi-toggle" onClick={() => setMostraTutti((v) => !v)}>
+            {mostraTutti ? `Solo compatibili (${rilevanti.length})` : `Mostra tutti (${tuttiLiberi.length})`}
+          </button>
+        </div>
       </div>
       {liberi.length ? (
         <div className="fr-table-wrap">
@@ -320,7 +504,13 @@ function MovementsSection({
           </table>
         </div>
       ) : (
-        <div className="fr-empty">Tutti i bonifici sono stati abbinati o ignorati.</div>
+        <div className="fr-empty">
+          {cerca
+            ? "Nessun movimento corrisponde alla ricerca."
+            : mostraTutti
+              ? "Tutti i movimenti sono stati abbinati o ignorati."
+              : `Nessun movimento compatibile con le righe ancora aperte. Gli altri ${tuttiLiberi.length} riguardano documenti già saldati su FIC o non registrati: aprili con «Mostra tutti» se ti servono.`}
+        </div>
       )}
 
       {ignorati.length ? (
@@ -355,6 +545,12 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<ReconcileRun[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Riga in aggiornamento: mostra lo spinner solo su quella, non su tutto il pannello.
+  const [refreshingLine, setRefreshingLine] = useState<number | null>(null);
+  // Storico: vista "archiviati" e voce in uscita (per l'animazione).
+  const [showArchived, setShowArchived] = useState(false);
+  const [exitingRun, setExitingRun] = useState<number | null>(null);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Quando cambia il run in anteprima, preseleziona di default solo le righe
@@ -382,12 +578,40 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
 
   const loadHistory = useCallback(async () => {
     try {
-      const { runs } = await listRunsApi(tipo);
+      const { runs } = await listRunsApi(tipo, showArchived);
       setHistory(runs);
-    } catch {
-      /* storico non bloccante */
+      setHistoryErr(null);
+    } catch (e) {
+      // Lo storico non blocca il lavoro, ma un elenco vuoto per un errore del
+      // server sembra "non ho più niente": va detto, non nascosto.
+      setHistory([]);
+      setHistoryErr((e as Error).message);
     }
-  }, [tipo]);
+  }, [tipo, showArchived]);
+
+  /**
+   * Archivia (o ripristina) un caricamento dello storico. Non cancella nulla: il
+   * run resta con le sue righe, esce solo dall'elenco. La riga sfila via e viene
+   * tolta in locale, senza ricaricare tutto lo storico.
+   */
+  const onArchiveRun = async (h: ReconcileRun, archived: boolean) => {
+    setExitingRun(h.id);
+    try {
+      await archiveRunApi(h.id, archived);
+      window.setTimeout(() => {
+        setHistory((prev) => prev.filter((r) => r.id !== h.id));
+        setExitingRun(null);
+      }, 320);
+      toast.success(
+        archived
+          ? `"${h.file_name ?? `Run #${h.id}`}" archiviato — lo trovi in "Mostra archiviati".`
+          : `"${h.file_name ?? `Run #${h.id}`}" di nuovo tra i caricamenti recenti.`,
+      );
+    } catch (e) {
+      setExitingRun(null);
+      toast.error((e as Error).message);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -460,6 +684,34 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
       return next;
     });
 
+  // Ricontrolla FIC senza ricaricare il file: utile dopo aver registrato o
+  // incassato qualcosa a mano su Fatture in Cloud. Senza `lineIds` guarda tutto
+  // il run (e porta dentro le fatture nuove); con `lineIds` solo quelle righe.
+  const onRefresh = async (lineIds?: number[]) => {
+    if (!run) return;
+    const mirato = !!lineIds?.length;
+    if (mirato && lineIds!.length === 1) setRefreshingLine(lineIds![0]);
+    else setBusy(true);
+    try {
+      const r = await refreshRunApi(run.id, lineIds);
+      setRun(r);
+      const { saldate_su_fic: saldate, nuovi_abbinamenti: nuovi, nuove_fatture: nuove } = r.refresh;
+      const parti = [
+        saldate ? `${saldate} già saldate su FIC` : "",
+        nuovi ? `${nuovi} ${nuovi === 1 ? "abbinamento" : "abbinamenti"}` : "",
+        nuove ? `${nuove} fatture nuove` : "",
+      ].filter(Boolean);
+      const ambito = mirato ? (lineIds!.length === 1 ? "Riga aggiornata" : `${lineIds!.length} righe aggiornate`) : "Aggiornato";
+      toast.success(parti.length ? `${ambito}: ${parti.join(", ")}.` : `${ambito}: nessuna novità su FIC.`);
+      void loadHistory();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRefreshingLine(null);
+      setBusy(false);
+    }
+  };
+
   const onRetry = async () => {
     if (!run) return;
     setBusy(true);
@@ -514,10 +766,13 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const matched = run?.lines?.filter((l) => l.esito === "da_registrare").length ?? 0;
+  const matched = run?.lines?.filter(isRegistrabile).length ?? 0;
   const isPreview = !!run && run.state === "anteprima";
   const canConfirm = isPreview && matched > 0;
   const selectedCount = selected.size;
+  // Della selezione, solo le righe abbinate sono registrabili: le altre (senza
+  // pagamento) si possono comunque selezionare per aggiornarle da FIC.
+  const selectedRegistrabili = run?.lines?.filter((l) => selected.has(l.id) && isRegistrabile(l)).length ?? 0;
   const canRetry = !!run && run.righe_ko > 0;
 
   return (
@@ -628,19 +883,37 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
               </span>
             </div>
             <div className="fr-actions">
+              <button
+                className="fr-btn"
+                onClick={() => void onRefresh()}
+                disabled={busy}
+                title="Ricontrolla su Fatture in Cloud: toglie le fatture saldate a mano, riabbina quelle ancora aperte ai bonifici liberi e aggiunge le fatture nuove"
+              >
+                <Icon name="refresh-cw" className="h-[15px] w-[15px]" /> Aggiorna da FIC
+              </button>
               {canRetry ? (
                 <button className="fr-btn" onClick={() => void onRetry()} disabled={busy}>
                   <Icon name="refresh-cw" className="h-[15px] w-[15px]" /> Ritenta falliti
                 </button>
               ) : null}
-              {isPreview && selectedCount > 0 ? (
+              {selectedCount > 0 ? (
+                <button
+                  className="fr-btn"
+                  onClick={() => void onRefresh([...selected])}
+                  disabled={busy}
+                  title="Ricontrolla su FIC solo le righe selezionate"
+                >
+                  <Icon name="refresh-cw" className="h-[15px] w-[15px]" /> Aggiorna selezionate ({selectedCount})
+                </button>
+              ) : null}
+              {isPreview && selectedRegistrabili > 0 ? (
                 <button
                   className="fr-btn fr-btn-confirm"
                   onClick={() => void onConfirm([...selected])}
                   disabled={busy}
                 >
                   {busy ? <Spinner size="sm" /> : <Icon name="check-circle" className="h-[15px] w-[15px]" />} Conferma
-                  selezionate ({selectedCount})
+                  selezionate ({selectedRegistrabili})
                 </button>
               ) : null}
               {canConfirm ? (
@@ -690,6 +963,8 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
                     onToggle={toggleLine}
                     onToggleAll={toggleAll}
                     onUnassign={isPreview ? onUnassign : undefined}
+                    onRefreshLine={(id) => void onRefresh([id])}
+                    refreshingLine={refreshingLine}
                   />
                 ) : null}
               </div>
@@ -707,25 +982,59 @@ function TipoTool({ tipo }: { tipo: ReconcileTipo }) {
         </div>
       ) : null}
 
-      {history.length ? (
+      {historyErr ? (
         <div className="fr-history">
           <div className="fr-history-label">
             <Icon name="clock" className="h-3.5 w-3.5" /> Caricamenti recenti
           </div>
+          <div className="fr-hist-err">
+            <Icon name="alert-triangle" className="h-[14px] w-[14px]" />
+            Storico non caricato: {historyErr}
+            <button type="button" className="fr-hi-toggle" onClick={() => void loadHistory()}>
+              Riprova
+            </button>
+          </div>
+        </div>
+      ) : history.length || showArchived ? (
+        <div className="fr-history">
+          <div className="fr-history-label">
+            <Icon name={showArchived ? "archive" : "clock"} className="h-3.5 w-3.5" />
+            {showArchived ? "Caricamenti archiviati" : "Caricamenti recenti"}
+            <button type="button" className="fr-hi-toggle" onClick={() => setShowArchived((v) => !v)}>
+              {showArchived ? "Torna ai recenti" : "Mostra archiviati"}
+            </button>
+          </div>
           <div className="fr-history-list">
             {history.map((h) => (
-              <button key={h.id} className="fr-history-item" onClick={() => void openRun(h.id)} disabled={busy}>
-                <span className="fr-hi-file">{h.file_name ?? `Run #${h.id}`}</span>
-                <span className="fr-hi-meta">
-                  {h.created_at ? new Date(h.created_at).toLocaleDateString("it-IT") : ""} · {h.righe_ok}/
-                  {h.righe_totali} ok
-                  {h.righe_ko ? ` · ${h.righe_ko} err` : ""}
-                </span>
-                <span className={"fr-mode " + (h.state === "anteprima" ? "is-preview" : "is-done")}>
-                  {h.state === "anteprima" ? "Anteprima" : "Registrato"}
-                </span>
-              </button>
+              <div key={h.id} className={"fr-history-item" + (exitingRun === h.id ? " is-exiting" : "")}>
+                <button type="button" className="fr-hi-open" onClick={() => void openRun(h.id)} disabled={busy}>
+                  <span className="fr-hi-file">{h.file_name ?? `Run #${h.id}`}</span>
+                  <span className="fr-hi-meta">
+                    {h.created_at ? new Date(h.created_at).toLocaleDateString("it-IT") : ""} · {h.righe_ok}/
+                    {h.righe_totali} ok
+                    {h.righe_ko ? ` · ${h.righe_ko} err` : ""}
+                  </span>
+                  <span className={"fr-mode " + (h.state === "anteprima" ? "is-preview" : "is-done")}>
+                    {h.state === "anteprima" ? "Anteprima" : "Registrato"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="fr-hi-archive"
+                  disabled={busy}
+                  onClick={() => void onArchiveRun(h, !showArchived)}
+                  title={
+                    showArchived
+                      ? "Rimetti questo caricamento tra i recenti"
+                      : "Togli dall'elenco (resta archiviato, non viene cancellato)"
+                  }
+                >
+                  <Icon name={showArchived ? "refresh-cw" : "archive"} className="h-3.5 w-3.5" />
+                  {showArchived ? "Ripristina" : "Archivia"}
+                </button>
+              </div>
             ))}
+            {!history.length ? <div className="fr-empty">Nessun caricamento archiviato.</div> : null}
           </div>
         </div>
       ) : null}

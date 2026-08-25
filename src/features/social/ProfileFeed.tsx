@@ -5,8 +5,10 @@ import { PostLightbox } from "./PostLightbox";
 
 type FeedState = { loading: boolean } & Partial<SocialProfileFeed>;
 
+const CELL_BADGE: Record<string, string> = { carousel: "carosello", reel: "reel", story: "storia" };
+
 function FeedCell({ post, onOpen }: { post: FeedPost; onOpen: (p: FeedPost) => void }) {
-  const isCarousel = post.children && post.children.length > 1;
+  const badge = CELL_BADGE[post.content_type];
   return (
     <button
       type="button"
@@ -21,9 +23,9 @@ function FeedCell({ post, onOpen }: { post: FeedPost; onOpen: (p: FeedPost) => v
           {post.caption || "—"}
         </div>
       )}
-      {(post.content_type !== "post" || isCarousel) && (
+      {badge && (
         <span className="absolute right-1 top-1 rounded bg-black/55 px-1 py-0.5 text-[8.5px] font-bold uppercase tracking-wider text-white">
-          {isCarousel ? "carosello" : post.content_type}
+          {badge}
         </span>
       )}
       <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/50 text-[12px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100">

@@ -26,6 +26,7 @@ const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
 const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
+import { PushOpenPrompt } from "../features/notifications/PushOpenPrompt";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
@@ -94,6 +95,13 @@ const allNavItems: NavItem[] = [
     to: "/monitoraggio-social",
     icon: <Icon name="activity" />,
     routeKey: "social-monitors",
+    group: "operations",
+  },
+  {
+    label: "Siti web",
+    to: "/siti-web",
+    icon: <Icon name="target" />,
+    routeKey: "websites",
     group: "operations",
   },
   // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
@@ -1144,6 +1152,10 @@ export function DashboardLayout() {
         {/* Toast in-app degli arrivi realtime: dopo pochi secondi si ripiegano
             in un aeroplanino che vola dentro la campanella. */}
         <NotificationToastLayer />
+
+        {/* Clic su una notifica push con la dashboard già aperta: chiede dove
+            aprire la pagina (o applica la scelta ricordata). */}
+        <PushOpenPrompt />
 
         <NotificationPreferencesModal
           open={notifPrefsOpen}

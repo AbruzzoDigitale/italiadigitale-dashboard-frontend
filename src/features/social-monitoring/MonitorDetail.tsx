@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { SocialIcon } from "../../components/social/SocialIcon";
 import { LineChart } from "../../components/dashboard/charts/primitives";
+import { PaceIndicator } from "../social/PaceIndicator";
 import { useToast } from "../../context/ToastContext";
 import {
   getMonitorAnalyticsByIdApi,
@@ -37,6 +39,7 @@ function periodLabel(period: string, gran: Gran): string {
 // Badge colorati per distinguere i tipi a colpo d'occhio.
 const TYPE_BADGE: Record<string, { cls: string; label: string }> = {
   post: { cls: "bg-brand-magenta/10 text-brand-magenta", label: "Post" },
+  carousel: { cls: "bg-violet-500/10 text-violet-500", label: "Carosello" },
   reel: { cls: "bg-brand-cyan/10 text-brand-cyan", label: "Reel" },
   story: { cls: "bg-warning/10 text-warning", label: "Storia" },
 };
@@ -69,6 +72,7 @@ interface Props {
 
 export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Props) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [gran, setGran] = useState<Gran>("week");
   const [analytics, setAnalytics] = useState<SocialAnalytics | null>(null);
   const [runs, setRuns] = useState<SocialMonitorRun[]>([]);
@@ -195,6 +199,21 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
             {monitor.client_name ? `Cliente: ${monitor.client_name}` : `${monitor.targets.length} pagine`} · ogni{" "}
             {monitor.interval_hours}h · soglia {monitor.default_inactivity_days}g · promemoria {monitor.reminder_interval_days}g
           </p>
+          {monitor.work_item_id != null && (
+            <button
+              type="button"
+              onClick={() => navigate(`/work-items?open=${monitor.work_item_id}`)}
+              title="Apri la task collegata"
+              className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[12px] text-ink transition-colors hover:border-brand-magenta/40 hover:bg-brand-magenta/5 dark:border-[#2a2a2e] dark:text-[#f4f4f7]"
+            >
+              <Icon name="list" className="h-3.5 w-3.5 flex-none text-brand-magenta" />
+              <span className="text-muted dark:text-[#9999a0]">Task:</span>
+              <span className="min-w-0 truncate font-semibold">
+                {monitor.work_item_title ?? `#${monitor.work_item_id}`}
+              </span>
+              <Icon name="chevron-right" className="h-3.5 w-3.5 flex-none text-muted dark:text-[#9999a0]" />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={onRun} loading={running} leftIcon={<Icon name="refresh-cw" className="w-3.5 h-3.5" />}>
@@ -240,6 +259,11 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
                     <TypeBadge ct="post" /> {fmtDateTime(t.last_post_at)}
                   </span>
                 )}
+                {monitor.check_carousels && (
+                  <span className="inline-flex items-center gap-1 text-[11px] tabular-nums text-muted dark:text-[#9999a0]">
+                    <TypeBadge ct="carousel" /> {fmtDateTime(t.last_carousel_at)}
+                  </span>
+                )}
                 {monitor.check_reels && (
                   <span className="inline-flex items-center gap-1 text-[11px] tabular-nums text-muted dark:text-[#9999a0]">
                     <TypeBadge ct="reel" /> {fmtDateTime(t.last_reel_at)}
@@ -251,11 +275,22 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
                   </span>
                 )}
               </div>
-              {t.is_alerting ? <Badge variant="danger">In allarme</Badge> : <Badge variant="success">OK</Badge>}
+              {t.last_error ? (
+                <span title={t.last_error}>
+                  <Badge variant="danger">Collegamento non verificato</Badge>
+                </span>
+              ) : t.is_alerting ? (
+                <Badge variant="danger">In allarme</Badge>
+              ) : (
+                <Badge variant="success">OK</Badge>
+              )}
             </div>
           ))}
         </div>
       </div>
+
+      {/* Ritmo pubblicazioni vs PED (solo monitor da PED) */}
+      {monitor.check_pace && <PaceIndicator monitorId={monitor.id} refreshKey={monitor.last_run_at} />}
 
       {/* Alert aperti */}
       {alerts.length > 0 && (
@@ -326,6 +361,7 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
             {monitor.targets.map((t) => {
               const pAll = postsByProfile.get(t.social_profile_id) ?? [];
               const pPosts = pAll.filter((p) => p.content_type === "post");
+              const pCarousels = pAll.filter((p) => p.content_type === "carousel");
               const pReels = pAll.filter((p) => p.content_type === "reel");
               const pStories = storiesByProfile.get(t.social_profile_id) ?? [];
               return (
@@ -339,6 +375,7 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
                   </div>
                   <div className="flex flex-col gap-2 pl-6">
                     {monitor.check_posts && renderTypeBlock("post", pPosts)}
+                    {monitor.check_carousels && renderTypeBlock("carousel", pCarousels)}
                     {monitor.check_reels && renderTypeBlock("reel", pReels)}
                     {monitor.check_stories && renderStoryBlock(pStories)}
                   </div>
@@ -357,6 +394,7 @@ export function MonitorDetail({ monitor, running, onRun, onEdit, onDelete }: Pro
         <div className="flex flex-wrap gap-2">
           {[
             { on: monitor.check_posts, ct: "post", n: analytics?.counts_by_type?.post ?? 0 },
+            { on: monitor.check_carousels, ct: "carousel", n: analytics?.counts_by_type?.carousel ?? 0 },
             { on: monitor.check_reels, ct: "reel", n: analytics?.counts_by_type?.reel ?? 0 },
             { on: monitor.check_stories, ct: "story", n: analytics?.counts_by_type?.story ?? 0 },
           ]

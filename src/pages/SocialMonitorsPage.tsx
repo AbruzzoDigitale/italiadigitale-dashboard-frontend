@@ -35,9 +35,11 @@ interface FormState {
   analysis_depth: string;
   fetch_insights: boolean;
   check_posts: boolean;
+  check_carousels: boolean;
   check_reels: boolean;
   check_stories: boolean;
   posts_inactivity_days: string;
+  carousels_inactivity_days: string;
   reels_inactivity_days: string;
   stories_inactivity_days: string;
   notify_in_app: boolean;
@@ -56,9 +58,11 @@ const EMPTY_FORM: FormState = {
   analysis_depth: "10",
   fetch_insights: true,
   check_posts: true,
+  check_carousels: true,
   check_reels: true,
   check_stories: false,
   posts_inactivity_days: "7",
+  carousels_inactivity_days: "7",
   reels_inactivity_days: "7",
   stories_inactivity_days: "1",
   notify_in_app: true,
@@ -229,9 +233,11 @@ export function SocialMonitorsPage() {
       analysis_depth: String(m.analysis_depth),
       fetch_insights: m.fetch_insights,
       check_posts: m.check_posts,
+      check_carousels: m.check_carousels,
       check_reels: m.check_reels,
       check_stories: m.check_stories,
       posts_inactivity_days: String(m.posts_inactivity_days),
+      carousels_inactivity_days: String(m.carousels_inactivity_days),
       reels_inactivity_days: String(m.reels_inactivity_days),
       stories_inactivity_days: String(m.stories_inactivity_days),
       notify_in_app: m.notify_in_app,
@@ -304,9 +310,11 @@ export function SocialMonitorsPage() {
       analysis_depth: Number(form.analysis_depth) || 10,
       fetch_insights: form.fetch_insights,
       check_posts: form.check_posts,
+      check_carousels: form.check_carousels,
       check_reels: form.check_reels,
       check_stories: form.check_stories,
       posts_inactivity_days: Number(form.posts_inactivity_days) || 7,
+      carousels_inactivity_days: Number(form.carousels_inactivity_days) || 7,
       reels_inactivity_days: Number(form.reels_inactivity_days) || 7,
       stories_inactivity_days: Number(form.stories_inactivity_days) || 1,
       notify_in_app: form.notify_in_app,
@@ -600,6 +608,20 @@ export function SocialMonitorsPage() {
                 value={form.posts_inactivity_days}
                 onChange={(e) => setForm((f) => ({ ...f, posts_inactivity_days: e.target.value }))}
                 disabled={!form.check_posts}
+                className="w-24"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex w-36 items-center gap-2 text-[13px] text-ink dark:text-[#f4f4f7]">
+                <Checkbox checked={form.check_carousels} onChange={(c) => setForm((f) => ({ ...f, check_carousels: c }))} />
+                Carosello
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={form.carousels_inactivity_days}
+                onChange={(e) => setForm((f) => ({ ...f, carousels_inactivity_days: e.target.value }))}
+                disabled={!form.check_carousels}
                 className="w-24"
               />
             </div>

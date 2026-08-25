@@ -47,6 +47,7 @@ import { WorkAreasTab } from "../features/company/WorkAreasTab";
 import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
 import { SocialPlatformsTab } from "../features/company/SocialPlatformsTab";
+import { WebsiteTaxonomiesTab } from "../features/company/WebsiteTaxonomiesTab";
 import { DailyRecapTemplateTab } from "../features/company/DailyRecapTemplateTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
 import { NotificheTab } from "../features/company/NotificheTab";
@@ -87,7 +88,7 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "recap";
+type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
@@ -103,6 +104,7 @@ const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   roles: "Ruoli",
   tags: "Tag",
   social: "Social",
+  siti: "Siti web",
   recap: "Recap",
 };
 
@@ -1864,6 +1866,14 @@ export function CompanyBrandPage() {
 
         {activeTab === "social" && (
           <SocialPlatformsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+        )}
+
+        {activeTab === "siti" && (
+          <WebsiteTaxonomiesTab
+            companyId={companyId}
+            canManage={!!user?.is_admin || user?.access_level === "project_manager"}
+            isAdmin={!!user?.is_admin}
+          />
         )}
 
         {activeTab === "recap" && (

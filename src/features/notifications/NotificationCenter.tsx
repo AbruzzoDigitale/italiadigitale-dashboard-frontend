@@ -363,7 +363,12 @@ function EmptyState({ label }: { label?: string }) {
 function routeForItem(item: NotifItem, isManager: boolean): string | null {
   // Avviso monitoraggio social senza task collegata: fallback per ruolo.
   // (Con task collegata la notifica ha entity_type "work_item" → apre la task.)
-  if (item.type === "social_inactivity" && item.entity_type === "social_monitor") {
+  if (
+    (item.type === "social_inactivity" ||
+      item.type === "social_below_target" ||
+      item.type === "social_monitor_error") &&
+    item.entity_type === "social_monitor"
+  ) {
     if (isManager) return item.entity_id != null ? `/monitoraggio-social?monitor=${item.entity_id}` : "/monitoraggio-social";
     // Operatore: pagina social con le pagine incriminate espanse (scope = id profilo).
     return item.scope ? `/profili-social?only=${item.scope}` : "/profili-social";

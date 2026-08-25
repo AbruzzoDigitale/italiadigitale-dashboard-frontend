@@ -28,6 +28,9 @@ type SearchableSelectProps = {
   menuLayer?: "local" | "portal";
   /** Mostra l'avatar/iniziali per opzione (default true). false = opzioni "a colonne". */
   showAvatar?: boolean;
+  /** Larghezza minima del menu (px). Il trigger può restare stretto: serve quando
+   *  le voci sono lunghe (numero + data + descrizione) e altrimenti si troncano. */
+  menuMinWidth?: number;
   /** "circle" (default) per foto persone; "logo" per loghi aziendali (object-contain, angoli morbidi). */
   avatarShape?: "circle" | "logo";
   /** Creazione inline dal testo cercato (riga "Crea ..." in fondo al menu). */
@@ -83,6 +86,7 @@ export function SearchableSelect({
   menuPlacement = "bottom",
   menuLayer = "local",
   showAvatar = true,
+  menuMinWidth,
   avatarShape = "circle",
   onCreateOption,
   createLoading = false,
@@ -201,8 +205,13 @@ export function SearchableSelect({
               // Ancorato al bordo del trigger: sotto il campo (placement bottom,
               // con il piccolo gap dato da mt-1) o sopra (placement top).
               top: effPlacement === "top" ? portalRect.top : portalRect.bottom,
-              left: portalRect.left,
+              // Con `menuMinWidth` il menu può essere più largo del trigger: in quel
+              // caso lo si riporta dentro lo schermo invece di farlo uscire a destra.
+              left: menuMinWidth
+                ? Math.max(8, Math.min(portalRect.left, window.innerWidth - menuMinWidth - 8))
+                : portalRect.left,
               width: portalRect.width,
+              minWidth: menuMinWidth,
               zIndex: SELECT_MENU_Z_INDEX,
             }
           : undefined

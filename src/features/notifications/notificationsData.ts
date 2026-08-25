@@ -58,6 +58,8 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   richiesta: { label: "Richiesta", icon: "mail", tone: "indigo" },
   // monitoraggio social
   social_inactivity: { label: "Social non aggiornato", icon: "activity", tone: "amber" },
+  social_below_target: { label: "Sotto al ritmo PED", icon: "activity", tone: "amber" },
+  social_monitor_error: { label: "Collegamento non verificato", icon: "alert-triangle", tone: "magenta" },
   // comunicazioni
   com_operatore: { label: "Operatore", icon: "users", tone: "mint" },
   com_area: { label: "Area", icon: "grid", tone: "indigo" },

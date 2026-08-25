@@ -38,6 +38,7 @@ import { getWorkloadWeightsApi } from "../../api/workloadWeights";
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { getUsersApi, type User } from "../../api/users";
 import { getClientsApi, type Client } from "../../api/clients";
+import { findClientMatchInTitle } from "../../utils/clientTitleMatch";
 import { getUiPreferencesApi, saveUiPreferenceApi } from "../../api/preferences";
 import { listPedConfigurationsApi, type PedConfiguration } from "../../api/pedConfigurations";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
@@ -727,6 +728,10 @@ export function WorkItemFormModal({
   const [templates, setTemplates] = useState<WorkItem[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [clients, setClients] = useState<Client[]>([]);
+  // Id del cliente suggerito che l'utente ha scartato (per non ri-proporlo).
+  const [clientSuggestDismissed, setClientSuggestDismissed] = useState<number | null>(null);
+  // Id del cliente per cui l'utente ha scartato il suggerimento "collega social".
+  const [socialSuggestDismissed, setSocialSuggestDismissed] = useState<number | null>(null);
   const [pedConfigs, setPedConfigs] = useState<PedConfiguration[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
 
@@ -1091,6 +1096,8 @@ export function WorkItemFormModal({
       setClientEditing(true);
     }
     hydratedFormKeyRef.current = hydrationKey;
+    setClientSuggestDismissed(null);
+    setSocialSuggestDismissed(null);
     setFormError(null);
     setSlotForm(EMPTY_SLOT);
     setAddingSlot(false);
@@ -2605,6 +2612,20 @@ export function WorkItemFormModal({
   // portiamo la sezione PED accanto al titolo per impostarla al volo senza cambiare tab.
   const titleSuggestsPed = /\bped\b/i.test(form.title);
 
+  // Se non c'è cliente ma il titolo combacia con una ragione sociale / nome
+  // commerciale, proponiamo di collegare quel cliente (con motion graphic).
+  const suggestedClient = !form.client_id ? findClientMatchInTitle(form.title, clients) : null;
+  const showClientSuggest =
+    !!suggestedClient && clientSuggestDismissed !== suggestedClient.client.id;
+
+  // Se il cliente collegato ha profili social non ancora agganciati alla task,
+  // proponiamo di collegarli (stessa motion graphic, in ciano).
+  const unlinkedClientSocials = form.client_id
+    ? clientSocialProfiles.filter((p) => !form.social_profile_ids.includes(p.id))
+    : [];
+  const showSocialSuggest =
+    unlinkedClientSocials.length > 0 && socialSuggestDismissed !== Number(form.client_id);
+
   // Attivando il PED riportiamo "PED" nel titolo (se non c'è già), così è subito
   // evidente che la task è un Piano Editoriale Digitale.
   const handleTogglePed = (value: boolean) => {
@@ -2700,6 +2721,123 @@ export function WorkItemFormModal({
             menuLayer="portal"
             className="min-w-0 max-w-full"
           />
+        )}
+        {/* Suggerimento cliente rilevato dal titolo (in entrambe le modalità). */}
+        {showClientSuggest && suggestedClient && (
+          <div
+            key={suggestedClient.client.id}
+            className="cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border border-brand-magenta/40 bg-brand-magenta/5 px-2.5 py-2"
+          >
+            <span className="cl-suggest-sheen" />
+            <div className="relative flex items-center gap-2">
+              <span className="cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-magenta/15 text-brand-magenta">
+                <Icon name="link" className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] leading-snug text-ink dark:text-paper">
+                  Rilevato dal titolo:{" "}
+                  <span className="font-semibold">
+                    {suggestedClient.client.commercial_name ?? suggestedClient.client.name}
+                  </span>
+                </p>
+                <p className="text-[11px] leading-tight text-muted dark:text-muted-dark">
+                  Vuoi collegare questo cliente?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  updateForm("client_id", String(suggestedClient.client.id));
+                  setClientEditing(false);
+                  setClientSuggestDismissed(null);
+                }}
+                className="inline-flex h-7 flex-none items-center gap-1 rounded-md bg-brand-magenta px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95"
+              >
+                <Icon name="plus" className="h-3.5 w-3.5" /> Collega
+              </button>
+              <button
+                type="button"
+                onClick={() => setClientSuggestDismissed(suggestedClient.client.id)}
+                aria-label="Ignora suggerimento"
+                title="Ignora"
+                className="grid h-7 w-6 flex-none place-items-center rounded-md text-muted transition-colors hover:bg-brand-magenta/10 hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+        {/* Suggerimento: collega i profili social del cliente collegato. */}
+        {showSocialSuggest && (
+          <div
+            key={`soc-${form.client_id}`}
+            className="cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border border-brand-cyan/40 bg-brand-cyan/5 px-2.5 py-2"
+          >
+            <span className="cl-suggest-sheen" />
+            <div className="relative flex items-center gap-2">
+              <span className="cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-cyan/15 text-brand-cyan">
+                <Icon name="users" className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] leading-snug text-ink dark:text-paper">
+                  Il cliente ha{" "}
+                  <span className="font-semibold">
+                    {unlinkedClientSocials.length}{" "}
+                    {unlinkedClientSocials.length === 1
+                      ? "profilo social"
+                      : "profili social"}
+                  </span>{" "}
+                  non collegat{unlinkedClientSocials.length === 1 ? "o" : "i"}.
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {unlinkedClientSocials.slice(0, 6).map((p) => (
+                    <span
+                      key={p.id}
+                      title={`${p.platform_label} · ${socialProfileLabel(p)}`}
+                      className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+                    >
+                      <SocialIcon
+                        platform={p.platform}
+                        label={p.platform_label}
+                        color={p.platform_color}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span className="max-w-[90px] truncate">{socialProfileLabel(p)}</span>
+                    </span>
+                  ))}
+                  {unlinkedClientSocials.length > 6 && (
+                    <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                      +{unlinkedClientSocials.length - 6}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const ids = unlinkedClientSocials.map((p) => p.id);
+                  setForm((current) => ({
+                    ...current,
+                    social_profile_ids: Array.from(
+                      new Set([...current.social_profile_ids, ...ids])
+                    ),
+                  }));
+                }}
+                className="inline-flex h-7 flex-none items-center gap-1 self-start rounded-md bg-brand-cyan px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95"
+              >
+                <Icon name="plus" className="h-3.5 w-3.5" /> Collega
+              </button>
+              <button
+                type="button"
+                onClick={() => setSocialSuggestDismissed(Number(form.client_id))}
+                aria-label="Ignora suggerimento"
+                title="Ignora"
+                className="grid h-7 w-6 flex-none place-items-center self-start rounded-md text-muted transition-colors hover:bg-brand-cyan/10 hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -3363,6 +3501,7 @@ export function WorkItemFormModal({
               companyId={sourceItem.company_id ?? companyId}
               clientId={sourceItem.client_id ?? null}
               isManager={isMonitorManager}
+              hasPedConfig={!!(sourceItem.ped_configuration_id ?? sourceItem.ped_configuration)}
             />
           ) : null;
           sections.revisione = () => sourceItem ? (

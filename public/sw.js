@@ -62,7 +62,13 @@ self.addEventListener("push", (event) => {
   )
 })
 
-// Tap sulla notifica: porta in primo piano la dashboard (o la apre) sulla pagina giusta.
+// Tap sulla notifica: porta in primo piano la dashboard sulla pagina giusta.
+//
+// Con una scheda gia' aperta NON si naviga d'ufficio: navigare avrebbe buttato
+// via quello che l'utente aveva sotto mano. Si porta in primo piano e si passa
+// l'indirizzo alla pagina, che decide secondo la preferenza dell'utente (stessa
+// scheda, nuova scheda, oppure chiedi). Se nessuna scheda e' aperta non c'e'
+// scelta da fare: si apre una finestra nuova.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
   const url = (event.notification.data && event.notification.data.url) || "/"
@@ -71,6 +77,12 @@ self.addEventListener("notificationclick", (event) => {
       for (const client of clients) {
         if ("focus" in client) {
           client.focus()
+          if ("postMessage" in client) {
+            client.postMessage({ type: "push-open", url })
+            return undefined
+          }
+          // Scheda che non sa ricevere messaggi (versione vecchia dell'app):
+          // meglio portarla sulla pagina che lasciare il clic senza effetto.
           if ("navigate" in client) client.navigate(url).catch(() => {})
           return undefined
         }

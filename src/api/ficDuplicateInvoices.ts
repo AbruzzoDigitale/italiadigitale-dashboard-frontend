@@ -42,6 +42,9 @@ export interface DuplicateInvoicesParams {
   sourceMonth?: number | null;
   /** Scadenza forzata "YYYY-MM-DD": se assente, giorno 20 del mese di destinazione. */
   dueDate?: string | null;
+  /** Data di emissione forzata "YYYY-MM-DD": se assente, stesso giorno dell'originale
+   *  nel mese di destinazione ma mai oltre oggi (FIC rifiuta le date future). */
+  documentDate?: string | null;
   /** Numeri di fattura da NON copiare. */
   excludeNumbers?: string[];
   /** 0 = tutte; N>0 = crea solo le prime N non escluse (per test). */
@@ -70,6 +73,7 @@ export async function duplicatePreviousMonthInvoicesApi(
       source_year: params.sourceYear ?? null,
       source_month: params.sourceMonth ?? null,
       due_date: params.dueDate ?? null,
+      document_date: params.documentDate ?? null,
       exclude_numbers: params.excludeNumbers ?? [],
       only_first_n: params.onlyFirstN ?? 0,
       dry_run: params.dryRun,

@@ -660,3 +660,74 @@ button:active > .nav-ico {
   .sp-pop-in { animation: none; }
   .sp-verified-pop, .sp-check-draw, .sp-verified-ring { animation: none; }
 }
+
+/* ── Registro siti: apertura di "Dettagli e metriche" ────────────────────────
+   La riga di dettaglio non può animare l'altezza (è dentro una cella di
+   tabella): usiamo il trucco della griglia, da 0fr a 1fr, che apre e chiude in
+   modo fluido senza conoscere in anticipo quanto è alto il contenuto. */
+@keyframes wb-detail-in {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}
+@keyframes wb-detail-out {
+  from { grid-template-rows: 1fr; opacity: 1; }
+  to   { grid-template-rows: 0fr; opacity: 0; }
+}
+.wb-detail { display: grid; grid-template-rows: 1fr; }
+/* Il figlio va azzerato e ritagliato, altrimenti sborda mentre la riga si chiude. */
+.wb-detail > * { min-height: 0; overflow: hidden; }
+.wb-detail-in { animation: wb-detail-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.wb-detail-out { animation: wb-detail-out 0.24s cubic-bezier(0.4, 0, 1, 1) both; }
+
+/* Le schede dentro il pannello entrano a cascata, non tutte insieme. */
+@keyframes wb-card-in {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.wb-card-in { animation: wb-card-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-detail-in, .wb-detail-out, .wb-card-in { animation: none; }
+  .wb-detail { grid-template-rows: 1fr; }
+}
+
+/* ── Suggerimento "collega cliente" (rilevato dal titolo) ─────────────────────
+   La card entra con uno slide elastico; una scia luminosa la attraversa una
+   volta per attirare l'occhio; l'icona a catena fa un piccolo scatto magnetico. */
+@keyframes cl-suggest-in {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  60% { transform: translateY(0) scale(1.012); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cl-suggest-in { animation: cl-suggest-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes cl-suggest-sheen {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 0.9; }
+  100% { transform: translateX(220%); opacity: 0; }
+}
+.cl-suggest-sheen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: cl-suggest-sheen 1.15s cubic-bezier(0.4, 0, 0.2, 1) 0.25s 1 both;
+}
+.dark .cl-suggest-sheen {
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+@keyframes cl-suggest-link {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  30% { transform: rotate(-12deg) scale(1.14); }
+  60% { transform: rotate(8deg) scale(1.06); }
+}
+.cl-suggest-link { animation: cl-suggest-link 0.9s ease-in-out 0.4s 1 both; transform-origin: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-suggest-in, .cl-suggest-sheen, .cl-suggest-link { animation: none; }
+  .cl-suggest-sheen { display: none; }
+}

@@ -33,6 +33,7 @@ import { ConfiguratorModularPage } from "./pages/ConfiguratorModularPage";
 import { SocialPackagesPage } from "./pages/SocialPackagesPage";
 import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
+import { WebsitesPage } from "./pages/WebsitesPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
@@ -127,6 +128,7 @@ function AppRoutes() {
         <Route path="configuratore" element={<RouteAccess routeKey="configurator"><ConfiguratorModularPage /></RouteAccess>} />
         <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
+        <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
         <Route path="social-packages" element={<RouteAccess routeKey="social"><SocialPackagesPage /></RouteAccess>} />
         <Route path="social-packages-presentation" element={<RouteAccess routeKey="social"><SocialPackagesPresentationPage /></RouteAccess>} />
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />

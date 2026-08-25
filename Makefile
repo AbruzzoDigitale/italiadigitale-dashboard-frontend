@@ -47,6 +47,13 @@ google-login:
 google-proxy:
 	$(MAKE) -C $(BACKEND_DIR) proxy
 
+# Avvia l'app mobile (PWA) in locale: Vite in ascolto anche in LAN (--host) così è
+# raggiungibile dal telefono via http://<IP-del-Mac>:5174. Porta 5174 per non collidere
+# con `make dev` del frontend (5173). Di default punta al backend di PRODUZIONE: per usare
+# il backend locale crea $(MOBILE_DIR)/.env con VITE_API_URL=http://127.0.0.1:8001
+dev-mobile:
+	cd $(MOBILE_DIR) && $(NPM) run dev -- --host --port 5174
+
 # Deploy della PWA mobile su Firebase Hosting (sito italiadigitale-mobile → app.italiadigitale.agency).
 # Lo script fa build + firebase deploy dentro la cartella dell'app.
 deploy-mobile:
@@ -59,4 +66,4 @@ deploy-all: deploy-backend deploy-hosting deploy-mobile
 clean:
 	rm -rf dist node_modules
 
-.PHONY: install dev build preview deploy deploy-hosting deploy-cloudrun deploy-backend dev-backend google-login google-proxy deploy-mobile deploy-all clean
+.PHONY: install dev build preview deploy deploy-hosting deploy-cloudrun deploy-backend dev-backend google-login google-proxy dev-mobile deploy-mobile deploy-all clean

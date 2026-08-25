@@ -12,10 +12,12 @@ import {
   getMonitorForWorkItemApi,
   listMonitorsApi,
   runMonitorNowApi,
+  suggestMonitorFromWorkItemApi,
   updateMonitorApi,
   type SocialMonitor,
 } from "../../api/socialMonitors";
 import { ProfileFeed } from "./ProfileFeed";
+import { PaceIndicator } from "./PaceIndicator";
 
 function fmtDateTime(v: string | null): string {
   if (!v) return "—";
@@ -26,6 +28,7 @@ function fmtDateTime(v: string | null): string {
 
 const CHIP: Record<string, string> = {
   post: "bg-brand-magenta/10 text-brand-magenta",
+  carousel: "bg-violet-500/10 text-violet-500",
   reel: "bg-brand-cyan/10 text-brand-cyan",
   story: "bg-warning/10 text-warning",
 };
@@ -35,13 +38,15 @@ interface Props {
   companyId: number | null;
   clientId: number | null;
   isManager: boolean;
+  hasPedConfig: boolean;
 }
 
-export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }: Props) {
+export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager, hasPedConfig }: Props) {
   const toast = useToast();
   const navigate = useNavigate();
   const [monitor, setMonitor] = useState<SocialMonitor | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [paceRefresh, setPaceRefresh] = useState(0);
 
   // Picker per collegare un monitor esistente.
   const [linking, setLinking] = useState(false);
@@ -103,11 +108,24 @@ export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }
     }
   };
 
+  const createFromPed = async () => {
+    setBusy(true);
+    try {
+      setMonitor(await suggestMonitorFromWorkItemApi(workItemId));
+      toast.success("Monitoraggio creato dalla configurazione PED");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore nella creazione");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runNow = async () => {
     if (!monitor) return;
     setBusy(true);
     try {
       setMonitor(await runMonitorNowApi(monitor.id));
+      setPaceRefresh((v) => v + 1);
       toast.success("Analisi eseguita");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nell'analisi");
@@ -158,6 +176,27 @@ export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }
         <p className="text-[13px] text-muted dark:text-muted-dark">
           Nessun monitoraggio social collegato a questa task.
         </p>
+        {hasPedConfig && !linking && (
+          <div className="w-full max-w-sm rounded-lg border border-brand-magenta/30 bg-brand-magenta/5 p-3 text-left">
+            <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink dark:text-[#f4f4f7]">
+              <Icon name="activity" className="h-3.5 w-3.5 text-brand-magenta" /> Suggerimento
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted dark:text-[#9999a0]">
+              Questa task ha una configurazione PED e dei social collegati. Crea un
+              monitoraggio pre-impostato sulle sue pagine, con soglie di inattività
+              ricavate dalle pubblicazioni previste dal PED.
+            </p>
+            <Button
+              variant="primary"
+              onClick={createFromPed}
+              loading={busy}
+              className="mt-2"
+              leftIcon={<Icon name="activity" className="h-3.5 w-3.5" />}
+            >
+              Crea monitoraggio suggerito
+            </Button>
+          </div>
+        )}
         {!linking ? (
           <Button variant="primary" onClick={openLink} leftIcon={<Icon name="plus" className="h-3.5 w-3.5" />}>
             Collega monitoraggio
@@ -229,10 +268,11 @@ export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }
             <button
               type="button"
               onClick={unlink}
-              title="Scollega dalla task"
-              className="inline-grid h-9 w-9 place-items-center rounded-md border border-line text-muted hover:text-danger dark:border-[#2a2a2e]"
+              disabled={busy}
+              title="Scollega il monitoraggio da questa task (il monitor non viene eliminato)"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-[11px] font-semibold uppercase tracking-wider text-ink transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50 dark:border-[#2a2a2e] dark:text-[#f4f4f7]"
             >
-              <Icon name="trash" className="h-3.5 w-3.5" />
+              <Icon name="unlink" className="h-3.5 w-3.5" /> Scollega
             </button>
           </div>
         )}
@@ -260,6 +300,11 @@ export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }
                   Post {fmtDateTime(t.last_post_at)}
                 </span>
               )}
+              {monitor.check_carousels && (
+                <span className={`rounded px-1.5 py-0.5 text-[10px] tabular-nums ${CHIP.carousel}`}>
+                  Carosello {fmtDateTime(t.last_carousel_at)}
+                </span>
+              )}
               {monitor.check_reels && (
                 <span className={`rounded px-1.5 py-0.5 text-[10px] tabular-nums ${CHIP.reel}`}>
                   Reel {fmtDateTime(t.last_reel_at)}
@@ -271,10 +316,21 @@ export function TaskMonitoringTab({ workItemId, companyId, clientId, isManager }
                 </span>
               )}
               {t.is_alerting && <Badge variant="danger">In allarme</Badge>}
+              {t.last_error && (
+                <span
+                  title={t.last_error}
+                  className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger"
+                >
+                  <Icon name="alert-triangle" className="h-3 w-3" /> Collegamento non verificato
+                </span>
+              )}
             </div>
           ))}
         </div>
       </div>
+
+      {/* Ritmo pubblicazioni vs PED (solo monitor da PED) */}
+      {monitor.check_pace && <PaceIndicator monitorId={monitor.id} refreshKey={paceRefresh} />}
 
       {/* Feed diviso per social/account */}
       <div>

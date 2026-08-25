@@ -15,6 +15,8 @@ import {
 } from "./notificationPreferences";
 import { emitNotificationToast } from "./notificationToastBus";
 import { ensurePushSubscription } from "./pushSubscription";
+import { PUSH_OPEN_LABEL, cachePushOpenMode, type PushOpenMode } from "./pushOpenPreference";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { sendPushTestApi } from "../../api/push";
 
 interface NotificationPreferencesModalProps {
@@ -145,7 +147,14 @@ export function NotificationPreferencesModal({ open, onClose }: NotificationPref
     setLoading(true);
     getMyNotificationPreferencesApi()
       .then((data) => {
-        if (!cancelled) setPrefs({ ...DEFAULT_NOTIFICATION_PREFERENCES, ...data, categories: { ...DEFAULT_NOTIFICATION_PREFERENCES.categories, ...data.categories } });
+        if (cancelled) return;
+        const merged = {
+          ...DEFAULT_NOTIFICATION_PREFERENCES,
+          ...data,
+          categories: { ...DEFAULT_NOTIFICATION_PREFERENCES.categories, ...data.categories },
+        };
+        setPrefs(merged);
+        cachePushOpenMode(merged.push_open_mode);
       })
       .catch(() => {
         // Backend non ancora disponibile o nessuna preferenza: parti dai default.
@@ -219,6 +228,31 @@ export function NotificationPreferencesModal({ open, onClose }: NotificationPref
               title="Push"
               description="Notifiche push sul browser/dispositivo."
               control={<Switch checked={prefs.push_enabled} onChange={(v) => setField("push_enabled", v)} />}
+            />
+            {/* Dove aprire la pagina quando clicchi una notifica push con la
+                dashboard già aperta: la scelta è per dispositivo. */}
+            <Row
+              icon="link"
+              title="Clic sulla notifica"
+              description="Con la dashboard già aperta, dove portare la pagina della notifica."
+              control={
+                <SearchableSelect
+                  value={prefs.push_open_mode}
+                  onChange={(v) => {
+                    const m = v as PushOpenMode;
+                    setField("push_open_mode", m);
+                    // Copia locale subito: il service worker la legge senza rete.
+                    cachePushOpenMode(m);
+                  }}
+                  options={(["ask", "same", "new"] as PushOpenMode[]).map((m) => ({
+                    value: m,
+                    label: PUSH_OPEN_LABEL[m],
+                  }))}
+                  showAvatar={false}
+                  menuLayer="portal"
+                  triggerClassName="min-w-[210px]"
+                />
+              }
             />
             <Row
               icon="annotation"

@@ -387,3 +387,26 @@
 .nt-selact.tone-mint { background: #17b26a; }
 .nt-selact.tone-amber { background: #d98b2b; }
 .nt-selact.tone-slate { background: #64748b; }
+
+/* ── Popup "dove apro la notifica" (clic su push con dashboard già aperta) ── */
+.pop-scelta {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 15px; border: 1px solid #e6e3da; border-radius: 12px;
+  background: #fff; color: #1a1a1a; text-align: left; cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.pop-scelta:hover { border-color: #1a1a1a; background: #faf9f6; }
+.pop-scelta svg { flex: none; color: #6b6b6b; }
+.pop-scelta:hover svg { color: #1a1a1a; }
+.pop-scelta b { display: block; font-size: 13.5px; font-weight: 700; }
+.pop-scelta small { display: block; margin-top: 2px; font-size: 12px; color: #6b6b6b; }
+.dark .pop-scelta { border-color: #2c2c31; background: #1c1c20; color: #f4f4f7; }
+.dark .pop-scelta:hover { border-color: #4a4a52; background: #232328; }
+.dark .pop-scelta small, .dark .pop-scelta svg { color: #9999a0; }
+.dark .pop-scelta:hover svg { color: #f4f4f7; }
+
+.pop-ricorda {
+  display: flex; align-items: center; gap: 9px; margin-top: 2px;
+  font-size: 12.5px; color: #6b6b6b; cursor: pointer;
+}
+.dark .pop-ricorda { color: #9999a0; }

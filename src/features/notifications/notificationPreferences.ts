@@ -1,5 +1,6 @@
 import type { IconName } from "../../components/ui/Icon";
 import type { NotifTone } from "./notificationsData";
+import type { PushOpenMode } from "./pushOpenPreference";
 
 // Forma condivisa con il backend (GET/PUT /api/v1/notifications/preferences).
 // Per-utente: cosa/come essere avvisati. La SCELTA del suono resta lato azienda
@@ -24,6 +25,8 @@ export interface NotificationPreferences {
   sound_enabled: boolean;
   /** Toast in-app all'arrivo di una notifica mentre stai usando il gestionale. */
   toast_enabled: boolean;
+  /** Clic su una notifica push con la dashboard già aperta: dove aprire la pagina. */
+  push_open_mode: PushOpenMode;
   /** Non disturbare in una fascia oraria. */
   quiet_hours_enabled: boolean;
   quiet_hours_start: string; // "HH:MM"
@@ -59,6 +62,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   push_enabled: true,
   sound_enabled: true,
   toast_enabled: true,
+  push_open_mode: "ask",
   quiet_hours_enabled: false,
   quiet_hours_start: "20:00",
   quiet_hours_end: "08:00",

@@ -133,7 +133,7 @@ export function PostLightbox({ post, platform, title, onClose }: Props) {
               <span className="min-w-0 truncate text-[13px] font-bold text-ink dark:text-[#f4f4f7]">{title}</span>
               {post.content_type !== "post" && (
                 <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted dark:text-[#9999a0]">
-                  {post.content_type}
+                  {post.content_type === "carousel" ? "carosello" : post.content_type === "story" ? "storia" : post.content_type}
                 </span>
               )}
             </div>
