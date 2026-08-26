@@ -491,6 +491,7 @@ export function DailyTasksPage() {
                     status={`${Math.round(task.progress_percent ?? 0)}%`}
                     areaColor={task.work_areas?.[0]?.color ?? null}
                     isPed={Boolean(task.is_PED ?? task.is_ped)}
+                    isMaintenance={task.task_type === "website_maintenance"}
                     priority={Boolean(task.is_priority)}
                     completed={Boolean(task.is_completed)}
                     leftBehind={Boolean(task.is_left_behind)}
@@ -528,6 +529,7 @@ export function DailyTasksPage() {
         status={`${Math.round(task.progress_percent ?? 0)}%`}
         areaColor={task.work_areas?.[0]?.color ?? null}
         isPed={Boolean(task.is_PED ?? task.is_ped)}
+        isMaintenance={task.task_type === "website_maintenance"}
         priority={Boolean(task.is_priority)}
         completed={Boolean(task.is_completed)}
         leftBehind={Boolean(task.is_left_behind)}
@@ -914,6 +916,7 @@ export function DailyTasksPage() {
                       status={`${Math.round(task.progress_percent ?? 0)}%`}
                       areaColor={task.work_areas?.[0]?.color ?? null}
                       isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      isMaintenance={task.task_type === "website_maintenance"}
                       priority={Boolean(task.is_priority)}
                       completed={Boolean(task.is_completed)}
                       leftBehind={Boolean(task.is_left_behind)}

@@ -17,6 +17,12 @@ export interface RichTextEditorHandle {
   focus: () => void;
 }
 
+interface TemplateVariableOption {
+  token: string;
+  label: string;
+  group?: string;
+}
+
 interface RichTextEditorProps {
   label?: string;
   value: string;
@@ -32,7 +38,44 @@ interface RichTextEditorProps {
     options: AttachmentPickerOption[];
     emptyHint?: string;
   };
+  /** Toolbar "stile Gmail": aggiunge font, dimensione, colore testo e allineamento. */
+  richToolbar?: boolean;
+  /** Consente stili inline (colore/font/allineamento) nell'HTML salvato. Default = richToolbar. */
+  allowStyles?: boolean;
+  /** Se presente, mostra un menu "Variabili" per inserire segnaposto {{token}} al caret. */
+  variablePicker?: {
+    options: TemplateVariableOption[];
+  };
 }
+
+// Font e dimensioni "email-safe" per la toolbar arricchita.
+const FONT_FAMILIES: { label: string; value: string }[] = [
+  { label: "Predefinito", value: "" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Georgia", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Times", value: "'Times New Roman', Times, serif" },
+  { label: "Verdana", value: "Verdana, Geneva, sans-serif" },
+  { label: "Courier", value: "'Courier New', Courier, monospace" },
+];
+
+const FONT_SIZES: { label: string; value: string }[] = [
+  { label: "Piccolo", value: "2" },
+  { label: "Normale", value: "3" },
+  { label: "Grande", value: "5" },
+  { label: "Enorme", value: "6" },
+];
+
+// Proprietà di stile inline ammesse in modalità email (allowStyles).
+const EMAIL_STYLE_ALLOW = new Set([
+  "color",
+  "background-color",
+  "text-align",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-decoration",
+]);
 
 interface RichTextCommand {
   id: string;
@@ -71,7 +114,7 @@ function normalizeInputHtml(value: string): string {
   return escapeHtml(normalized).replace(/\r?\n/g, "<br>");
 }
 
-function sanitizeStyleAttribute(styleValue: string): string {
+function sanitizeStyleAttribute(styleValue: string, allowStyles: boolean): string {
   const declarations = styleValue
     .split(";")
     .map((rawDeclaration) => rawDeclaration.trim())
@@ -80,13 +123,16 @@ function sanitizeStyleAttribute(styleValue: string): string {
       const [property] = declaration.split(":");
       if (!property) return false;
       const key = property.trim().toLowerCase();
+      // Modalità email: whitelist esplicita (colori/font/allineamento ammessi).
+      if (allowStyles) return EMAIL_STYLE_ALLOW.has(key);
+      // Default storico: si tengono gli stili tranne colore/sfondo.
       return key !== "color" && key !== "background" && key !== "background-color";
     });
 
   return declarations.join("; ");
 }
 
-function sanitizeRichTextHtml(rawHtml: string): string {
+function sanitizeRichTextHtml(rawHtml: string, allowStyles = false): string {
   const candidate = rawHtml.trim();
   if (!candidate) return "";
   const parser = new DOMParser();
@@ -103,7 +149,7 @@ function sanitizeRichTextHtml(rawHtml: string): string {
         return;
       }
       if (name === "style") {
-        const style = sanitizeStyleAttribute(attribute.value);
+        const style = sanitizeStyleAttribute(attribute.value, allowStyles);
         if (style) {
           element.setAttribute("style", style);
         } else {
@@ -137,6 +183,65 @@ export function hasRichTextContent(value: string): boolean {
   return !!documentRoot.body.querySelector("img,video,audio,table,ul,ol,blockquote,hr");
 }
 
+// ── Variabili: chip visivi ⇄ token canonici {{...}} ──────────────────────────
+// Nell'editor le variabili si mostrano come "pill" con l'etichetta amichevole
+// (es. "Nome cliente"); nell'HTML salvato restano `{{token}}` così il backend
+// le risolve come sempre. Il caret le tratta come un'unità atomica.
+const VAR_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+
+/** Converte i `{{token}}` presenti nei nodi di testo in chip <span.tpl-var>. */
+function tokensToChips(html: string, labelByToken: Map<string, string>): string {
+  if (!html || !html.includes("{{")) return html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+  for (const node of textNodes) {
+    const text = node.textContent ?? "";
+    if (!text.includes("{{")) continue;
+    // Non toccare il testo già dentro un chip.
+    if (node.parentElement?.closest?.(".tpl-var")) continue;
+    VAR_TOKEN_RE.lastIndex = 0;
+    if (!VAR_TOKEN_RE.test(text)) continue;
+
+    const frag = doc.createDocumentFragment();
+    let last = 0;
+    VAR_TOKEN_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = VAR_TOKEN_RE.exec(text)) !== null) {
+      const token = m[1];
+      if (m.index > last) frag.appendChild(doc.createTextNode(text.slice(last, m.index)));
+      if (labelByToken.has(token)) {
+        const span = doc.createElement("span");
+        span.className = "tpl-var";
+        span.setAttribute("data-token", token);
+        span.setAttribute("contenteditable", "false");
+        span.textContent = labelByToken.get(token) ?? token;
+        frag.appendChild(span);
+      } else {
+        frag.appendChild(doc.createTextNode(m[0]));
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.appendChild(doc.createTextNode(text.slice(last)));
+    node.parentNode?.replaceChild(frag, node);
+  }
+  return doc.body.innerHTML;
+}
+
+/** Riconverte i chip <span.tpl-var> nei token canonici `{{token}}`. */
+function chipsToTokens(html: string): string {
+  if (!html || !html.includes("tpl-var")) return html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("span.tpl-var").forEach((el) => {
+    const token = el.getAttribute("data-token") || "";
+    const text = token ? `{{${token}}}` : el.textContent ?? "";
+    el.replaceWith(doc.createTextNode(text));
+  });
+  return doc.body.innerHTML;
+}
+
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
   label,
   value,
@@ -147,7 +252,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   className,
   transparent = false,
   attachmentPicker,
+  richToolbar = false,
+  allowStyles,
+  variablePicker,
 }: RichTextEditorProps, ref) {
+  // In modalità email si conservano gli stili inline (colori/font/allineamento).
+  const keepStyles = allowStyles ?? richToolbar;
+  // Variabili: mappa token→etichetta per i chip (identità stabile via options memoizzate).
+  const varOptions = variablePicker?.options;
+  const tokenLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const opt of varOptions ?? []) m.set(opt.token, opt.label);
+    return m;
+  }, [varOptions]);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
@@ -157,6 +274,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   const [linkTooltipOpen, setLinkTooltipOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [varMenuOpen, setVarMenuOpen] = useState(false);
   // Modifica di un link ESISTENTE: popover posizionato sotto il link cliccato.
   const editAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const editLinkInputRef = useRef<HTMLInputElement | null>(null);
@@ -172,12 +290,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     // While user is typing, avoid forcing innerHTML updates that would reset caret.
     if (document.activeElement === editor) return;
 
-    const currentSanitized = sanitizeRichTextHtml(editor.innerHTML);
-    const nextSanitized = sanitizeRichTextHtml(normalizedValue);
-    if (currentSanitized === nextSanitized) return;
+    // Confronto in forma canonica ({{token}}): l'editor mostra i chip, il valore usa i token.
+    const sanitizedEditor = sanitizeRichTextHtml(editor.innerHTML, keepStyles);
+    const currentCanonical = varOptions ? chipsToTokens(sanitizedEditor) : sanitizedEditor;
+    const nextCanonical = sanitizeRichTextHtml(normalizedValue, keepStyles);
+    if (currentCanonical === nextCanonical) return;
 
-    editor.innerHTML = normalizedValue;
-  }, [normalizedValue]);
+    editor.innerHTML = varOptions ? tokensToChips(normalizedValue, tokenLabelMap) : normalizedValue;
+  }, [normalizedValue, keepStyles, varOptions, tokenLabelMap]);
 
   useEffect(() => {
     if (!linkTooltipOpen) return;
@@ -201,9 +321,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [attachMenuOpen]);
 
+  // Chiudi il menu variabili cliccando fuori dall'editor.
+  useEffect(() => {
+    if (!varMenuOpen) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) setVarMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [varMenuOpen]);
+
   const emitChange = () => {
-    const next = sanitizeRichTextHtml(editorRef.current?.innerHTML ?? "");
-    onChange(next);
+    const sanitized = sanitizeRichTextHtml(editorRef.current?.innerHTML ?? "", keepStyles);
+    // Salva sempre in forma canonica: i chip tornano `{{token}}`.
+    onChange(varOptions ? chipsToTokens(sanitized) : sanitized);
   };
 
   const runCommand = (command: string, commandValue?: string) => {
@@ -212,6 +343,33 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     if (!editor) return;
 
     editor.focus();
+    // In modalità email vogliamo stili inline (es. <span style="color">), non tag <font>.
+    if (richToolbar) {
+      try {
+        document.execCommand("styleWithCSS", false, "true");
+      } catch {
+        /* alcuni browser non supportano il toggle: si prosegue comunque */
+      }
+    }
+    document.execCommand(command, false, commandValue);
+    emitChange();
+  };
+
+  // Come runCommand ma ripristina prima la selezione salvata: serve ai controlli
+  // (select font/dimensione, input colore) che rubano il focus all'editor.
+  const applyWithSavedSelection = (command: string, commandValue?: string) => {
+    if (disabled) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    restoreSelectionRange();
+    if (richToolbar) {
+      try {
+        document.execCommand("styleWithCSS", false, "true");
+      } catch {
+        /* no-op */
+      }
+    }
     document.execCommand(command, false, commandValue);
     emitChange();
   };
@@ -267,6 +425,27 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     if (disabled) return;
     saveSelectionRange();
     setAttachMenuOpen((prev) => !prev);
+  };
+
+  const openVarMenu = () => {
+    if (disabled) return;
+    saveSelectionRange();
+    setVarMenuOpen((prev) => !prev);
+  };
+
+  // Inserisce la variabile come chip visivo (l'utente non digita mai le {{}}).
+  const insertVariable = (token: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    restoreSelectionRange();
+    const label = tokenLabelMap.get(token) ?? token;
+    const chip =
+      `<span class="tpl-var" data-token="${escapeHtml(token)}" contenteditable="false">` +
+      `${escapeHtml(label)}</span>&nbsp;`;
+    document.execCommand("insertHTML", false, chip);
+    emitChange();
+    setVarMenuOpen(false);
   };
 
   const insertAttachmentBadge = (option: AttachmentPickerOption) => {
@@ -412,6 +591,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     ? "rounded border border-black/25 px-2 py-0.5 text-xs font-bold text-[#241d0a] transition-colors hover:bg-black/15 disabled:cursor-not-allowed disabled:opacity-50"
     : "rounded border border-line px-2 py-0.5 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-muted-dark dark:hover:text-paper";
 
+  const selectCls =
+    "rounded border border-line bg-paper px-1 py-0.5 text-xs text-ink outline-none disabled:opacity-50 dark:border-line-dark dark:bg-ink-soft dark:text-paper";
+
+  // Variabili raggruppate per il menu (Azienda / Operatore / Cliente…).
+  const variableGroups = (() => {
+    const map = new Map<string, TemplateVariableOption[]>();
+    for (const opt of variablePicker?.options ?? []) {
+      const g = opt.group || "Variabili";
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push(opt);
+    }
+    return Array.from(map.entries());
+  })();
+
   return (
     <div className={["flex flex-col gap-1.5", className ?? ""].join(" ").trim()}>
       {label ? <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">{label}</label> : null}
@@ -424,7 +617,70 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             : "relative rounded-md border border-line bg-paper text-ink transition-colors duration-150 focus-within:border-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus-within:border-paper"
         }
       >
-        <div className={`flex flex-wrap gap-1 border-b px-2 py-1.5 ${transparent ? "border-black/20" : "border-line dark:border-line-dark"}`}>
+        <div className={`flex flex-wrap items-center gap-1 border-b px-2 py-1.5 ${transparent ? "border-black/20" : "border-line dark:border-line-dark"}`}>
+          {richToolbar ? (
+            <>
+              <select
+                aria-label="Carattere"
+                disabled={disabled}
+                defaultValue=""
+                onChange={(event) => {
+                  applyWithSavedSelection("fontName", event.target.value || "sans-serif");
+                  event.currentTarget.selectedIndex = 0;
+                }}
+                className={selectCls}
+                title="Carattere"
+              >
+                {FONT_FAMILIES.map((f) => (
+                  <option key={f.label} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Dimensione testo"
+                disabled={disabled}
+                defaultValue="3"
+                onChange={(event) => applyWithSavedSelection("fontSize", event.target.value)}
+                className={selectCls}
+                title="Dimensione"
+              >
+                {FONT_SIZES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+              <label
+                className={`${toolbarBtnCls} inline-flex cursor-pointer items-center gap-1`}
+                title="Colore testo"
+              >
+                <span className="font-bold">A</span>
+                <input
+                  type="color"
+                  disabled={disabled}
+                  onChange={(event) => applyWithSavedSelection("foreColor", event.target.value)}
+                  className="h-4 w-4 cursor-pointer border-0 bg-transparent p-0"
+                  aria-label="Scegli colore testo"
+                />
+              </label>
+              {[
+                { id: "left", cmd: "justifyLeft", label: "⯇" },
+                { id: "center", cmd: "justifyCenter", label: "≡" },
+                { id: "right", cmd: "justifyRight", label: "⯈" },
+              ].map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  disabled={disabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runCommand(a.cmd)}
+                  className={toolbarBtnCls}
+                  aria-label={`Allinea a ${a.id}`}
+                >
+                  {a.label}
+                </button>
+              ))}
+              <span className="mx-0.5 h-4 w-px self-center bg-line dark:bg-line-dark" aria-hidden />
+            </>
+          ) : null}
+
           {INLINE_COMMANDS.map((item) => (
             <button
               key={item.id}
@@ -530,6 +786,48 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
               ) : null}
             </div>
           ) : null}
+
+          {variablePicker && variablePicker.options.length > 0 ? (
+            <div className="relative ml-auto">
+              <button
+                type="button"
+                disabled={disabled}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openVarMenu}
+                className={toolbarBtnCls}
+                aria-label="Inserisci variabile"
+                title="Inserisci una variabile"
+              >
+                + Variabile
+              </button>
+
+              {varMenuOpen ? (
+                <div className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-72 w-60 overflow-y-auto rounded-md border border-line bg-paper p-1 shadow-lg dark:border-line-dark dark:bg-[#1b1b1f]">
+                  {variableGroups.map(([group, opts]) => (
+                    <div key={group} className="mb-1 last:mb-0">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark">
+                        {group}
+                      </div>
+                      {opts.map((opt) => (
+                        <button
+                          key={opt.token}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => insertVariable(opt.token)}
+                          className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs text-ink hover:bg-cream dark:text-paper dark:hover:bg-[#131316]"
+                        >
+                          <span className="truncate">{opt.label}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-muted dark:text-muted-dark">
+                            {`{{${opt.token}}}`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -553,6 +851,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             "[&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
             "[&_p]:my-1 [&_span]:leading-relaxed [&_*]:max-w-full",
             "[&_img]:max-w-full [&_img]:h-auto",
+            "[&_.tpl-var]:inline-block [&_.tpl-var]:align-baseline [&_.tpl-var]:rounded [&_.tpl-var]:bg-brand-magenta/10 [&_.tpl-var]:px-1.5 [&_.tpl-var]:py-[1px] [&_.tpl-var]:text-[12px] [&_.tpl-var]:font-semibold [&_.tpl-var]:text-brand-magenta [&_.tpl-var]:cursor-default [&_.tpl-var]:select-none",
           ].join(" ")}
         />
 

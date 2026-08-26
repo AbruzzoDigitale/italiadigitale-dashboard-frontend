@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { WebsitesTab } from "../features/websites/WebsitesTab";
 import { WebsiteThemesTab } from "../features/websites/WebsiteThemesTab";
+import { MaintenanceCalendarTab } from "../features/websites/MaintenanceCalendarTab";
+import { WebsiteMonitorsTab } from "../features/websites/WebsiteMonitorsTab";
 import { Icon } from "../components/ui/Icon";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 
-type WebsitesView = "siti" | "temi";
+type WebsitesView = "siti" | "temi" | "calendario" | "monitoraggio";
 
 /**
  * Registro dei siti web dei clienti, visibile a tutti (admin, PM e operatori),
- * con la sezione dei temi accanto. Le tassonomie (tipo, categoria, stato) si
- * configurano dal pannello Azienda → Siti web.
+ * con i temi e il calendario delle manutenzioni accanto. Tassonomie e regole di
+ * manutenzione si configurano dal pannello Azienda → Siti web.
  */
 export function WebsitesPage() {
   const { user, activeCompanyId } = useAuth();
@@ -21,7 +23,10 @@ export function WebsitesPage() {
 
   const [view, setView] = useState<WebsitesView>(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    return tab === "temi" ? "temi" : "siti";
+    if (tab === "temi") return "temi";
+    if (tab === "calendario") return "calendario";
+    if (tab === "monitoraggio") return "monitoraggio";
+    return "siti";
   });
 
   const changeView = (next: WebsitesView) => {
@@ -47,6 +52,8 @@ export function WebsitesPage() {
           options={[
             { value: "siti", label: <><Icon name="list" className="w-3.5 h-3.5" />Siti</> },
             { value: "temi", label: <><Icon name="grid" className="w-3.5 h-3.5" />Temi</> },
+            { value: "calendario", label: <><Icon name="calendar" className="w-3.5 h-3.5" />Calendario</> },
+            { value: "monitoraggio", label: <><Icon name="activity" className="w-3.5 h-3.5" />Monitoraggio</> },
           ]}
         />
       </div>
@@ -60,8 +67,16 @@ export function WebsitesPage() {
               canShareFields={canShareFields}
               fillHeight
             />
-          ) : (
+          ) : view === "temi" ? (
             <WebsiteThemesTab companyId={currentCompanyId} fillHeight />
+          ) : view === "calendario" ? (
+            <MaintenanceCalendarTab companyId={currentCompanyId} fillHeight />
+          ) : (
+            <WebsiteMonitorsTab
+              companyId={currentCompanyId}
+              canManage={!!user?.is_admin || user?.access_level === "project_manager"}
+              fillHeight
+            />
           )}
         </div>
       )}

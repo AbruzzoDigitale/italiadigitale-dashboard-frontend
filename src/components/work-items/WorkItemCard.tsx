@@ -49,11 +49,13 @@ export function formatWorkItemDate(d: string | null | undefined): string {
 }
 
 export function taskTypeLabel(taskType?: WorkItem["task_type"]): string {
+  if (taskType === "website_maintenance") return "Manutenzione";
   return taskType === "quick" ? "Quick" : "Standard";
 }
 
 export function taskTypeBadgeClass(taskType?: WorkItem["task_type"]): string {
-  if (taskType === "quick") return "bg-[#E91E8A]/12 text-[#E91E8A] border border-[#E91E8A]/35";
+  if (taskType === "quick") return "bg-[#E91E8A]/10 text-[#E91E8A] border border-[#E91E8A]/35";
+  if (taskType === "website_maintenance") return "bg-[#0d9488]/10 text-[#0f766e] border border-[#0d9488]/35 dark:text-[#5eead4]";
   return "bg-info/10 text-info border border-info/25";
 }
 
@@ -163,7 +165,7 @@ export function WorkItemCard({
         }
       }}
       title="Apri dettaglio lavorazione"
-      className={`lv-card${isSelected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${inPublishing ? " publishing" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
+      className={`lv-card${item.task_type === "website_maintenance" ? " maint" : ""}${isSelected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${inPublishing ? " publishing" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
       style={{ "--area": areaColor, "--accent": accent } as React.CSSProperties}
     >
       {/* Top: checkbox · id · flags + azioni hover */}
@@ -215,6 +217,11 @@ export function WorkItemCard({
             <span className="lv-badge soft">Ricorrente</span>
           )}
           {item.is_PED && <span className="lv-badge soft">PED</span>}
+          {item.task_type === "website_maintenance" && (
+            <span className="lv-badge maint" title="Manutenzione programmata di un sito web">
+              <Icon name="globe" className="h-2.5 w-2.5" /> Manutenzione
+            </span>
+          )}
           {isAiGenerated && (
             <span className="lv-badge ai" title="Task generata con AI">
               <Icon name="robot" className="h-2.5 w-2.5" /> AI

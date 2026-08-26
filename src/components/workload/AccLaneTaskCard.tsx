@@ -19,6 +19,8 @@ export interface AccLaneTaskCardProps {
   /** Colore area di lavoro per la striscia/pill (`--wl-area`). */
   areaColor?: string | null;
   isPed?: boolean;
+  /** Manutenzione sito programmata: badge verde acqua accanto al titolo. */
+  isMaintenance?: boolean;
   priority?: boolean;
   completed?: boolean;
   leftBehind?: boolean;
@@ -45,6 +47,7 @@ export function AccLaneTaskCard({
   status,
   areaColor,
   isPed = false,
+  isMaintenance = false,
   priority = false,
   completed = false,
   leftBehind = false,
@@ -75,6 +78,14 @@ export function AccLaneTaskCard({
           {isPed && (
             <span className="ml-1.5 inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-info">
               PED
+            </span>
+          )}
+          {isMaintenance && (
+            <span
+              className="ml-1.5 inline-flex rounded-pill border border-[#0d9488]/35 bg-[#0d9488]/10 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-[#0f766e] dark:text-[#5eead4]"
+              title="Manutenzione programmata di un sito web"
+            >
+              Manutenzione
             </span>
           )}
           {priority && (

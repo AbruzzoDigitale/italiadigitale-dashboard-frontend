@@ -36,7 +36,8 @@ export function isReviewSendBack(oldStatus: string, newStatus: string): boolean 
   const to = STATUS_STAGE[newStatus] ?? 0;
   return (oldStatus === "review" || oldStatus === "completed" || oldStatus === "done") && to < from;
 }
-export type WorkItemTaskType = "standard" | "quick";
+/** "website_maintenance" = manutenzione programmata di un sito. */
+export type WorkItemTaskType = "standard" | "quick" | "website_maintenance";
 export type LeftBehindReason = "operator_responsibility" | "client_protection" | "justified_delay" | "other";
 export type WorkItemRecurrenceType = "daily_interval" | "monthly_day";
 export type WorkItemScheduleDelayCode = "carried_over" | "carried_forward" | "non_deferrable_overdue" | null;
@@ -232,6 +233,8 @@ export interface WorkItem {
   has_monitor_alert?: boolean;
   /** Profili social collegati (id dal registro profili social dell'azienda). */
   social_profile_ids?: number[];
+  /** Siti web collegati (id dal registro siti dell'azienda). */
+  website_ids?: number[];
   is_template?: boolean;
   template_source_id?: number | null;
   is_ai_generated?: boolean;
@@ -399,6 +402,9 @@ export interface CreateWorkItemPayload {
   tag_ids?: number[];
   /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
   social_profile_ids?: number[];
+  /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
+  website_ids?: number[];
+  task_type?: WorkItemTaskType;
   is_PED?: boolean;
   ped_configuration_id?: number | null;
   ped_configuration?: {
@@ -456,6 +462,9 @@ export interface InstantiateTemplatePayload {
   tag_ids?: number[];
   /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
   social_profile_ids?: number[];
+  /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
+  website_ids?: number[];
+  task_type?: WorkItemTaskType;
   is_PED?: boolean;
   ped_configuration_id?: number | null;
   ped_configuration?: {

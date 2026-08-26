@@ -149,12 +149,16 @@ function isWorkItemError(err: unknown, code: number): boolean {
 }
 
 function taskTypeLabel(taskType?: WorkItem["task_type"]): string {
+  if (taskType === "website_maintenance") return "Manutenzione";
   return taskType === "quick" ? "Quick" : "Standard";
 }
 
 function taskTypeBadgeClass(taskType?: WorkItem["task_type"]): string {
   if (taskType === "quick") {
-    return "bg-[#E91E8A]/12 text-[#E91E8A] border border-[#E91E8A]/35";
+    return "bg-[#E91E8A]/10 text-[#E91E8A] border border-[#E91E8A]/35";
+  }
+  if (taskType === "website_maintenance") {
+    return "bg-[#0d9488]/10 text-[#0f766e] border border-[#0d9488]/35 dark:text-[#5eead4]";
   }
   return "bg-info/10 text-info border border-info/25";
 }

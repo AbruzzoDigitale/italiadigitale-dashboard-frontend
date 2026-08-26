@@ -227,6 +227,21 @@
 .lv-card.dragging {
   opacity: 0.35;
 }
+/* Manutenzione sito: tinta verde acqua leggera + banda laterale. Sta PRIMA degli
+   stati di revisione così, se la task è anche al cliente o in pubblicazione,
+   vince quello stato — la manutenzione resta comunque leggibile dal badge. */
+.lv-card.maint {
+  border-color: color-mix(in srgb, #0d9488 40%, var(--line-2));
+  background: color-mix(in srgb, #0d9488 7%, var(--surface));
+}
+.lv-card.maint::before {
+  width: 4px;
+  background: #0d9488;
+}
+.dark .lv-card.maint {
+  background: color-mix(in srgb, #0d9488 13%, var(--surface));
+}
+
 /* In revisione + inviata al cliente: card nettamente cyan (come stato a sé). */
 .lv-card.sent-client {
   border-color: #2ec3f3;
@@ -448,6 +463,16 @@
 }
 .dark .lv-badge.ok {
   color: var(--mint);
+}
+
+/* manutenzione sito (verde acqua, come la banda della card) */
+.lv-badge.maint {
+  background: color-mix(in srgb, #0d9488 15%, transparent);
+  color: #0f766e;
+  border: 1px solid color-mix(in srgb, #0d9488 34%, transparent);
+}
+.dark .lv-badge.maint {
+  color: #5eead4;
 }
 
 /* azioni hover (modifica / elimina / rigenera / usa modello) */

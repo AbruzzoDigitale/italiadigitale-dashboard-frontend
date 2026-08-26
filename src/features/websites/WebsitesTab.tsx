@@ -34,6 +34,7 @@ import { SegmentedSwitch } from "../../components/ui/SegmentedSwitch";
 import { useToast } from "../../context/ToastContext";
 import { ScanDetail, ScoresRow } from "./WebsiteMetrics";
 import { WebsiteCustomFieldsModal } from "./WebsiteCustomFieldsModal";
+import { WebsiteSecretsPanel } from "./WebsiteSecretsPanel";
 
 type WebsiteFormState = {
   url: string;
@@ -815,6 +816,10 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             <ScanDetail scan={site.latest_desktop} title="Desktop" />
           </div>
         </div>
+        {/* Cassaforte a tutta larghezza: le voci sono righe, non stanno in colonna. */}
+        <div className={compact ? "" : "lg:col-span-2"}>
+          <WebsiteSecretsPanel websiteId={site.id} />
+        </div>
       </div>
     </div>
   );
@@ -1329,75 +1334,76 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
           </div>
         )}
 
-        {!isLoading && filtered.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-[12px] text-muted dark:text-[#9999a0]">
-              <span>
-                {filtered.length} {filtered.length === 1 ? "sito" : "siti"}
-              </span>
-              <span className="opacity-40">·</span>
-              <span>per pagina</span>
-              {[...PAGE_SIZE_OPTIONS, 0].map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  onClick={() => changePageSize(size)}
-                  className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
-                    pageSize === size
-                      ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
-                      : "border-line text-ink hover:bg-cream dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
-                  }`}
-                >
-                  {size === 0 ? "Tutti" : size}
-                </button>
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  aria-label="Pagina precedente"
-                  disabled={safePage === 1}
-                  onClick={() => setPage(safePage - 1)}
-                  className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
-                >
-                  <Icon name="chevron-right" className="h-3.5 w-3.5 rotate-180" />
-                </button>
-                {pageNumbers(safePage, totalPages).map((p, index) =>
-                  p === "…" ? (
-                    <span key={`gap-${index}`} className="px-1 text-[12px] text-muted dark:text-[#9999a0]">
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setPage(p)}
-                      className={`inline-grid h-8 min-w-8 place-items-center rounded-md border px-1.5 text-[12px] font-semibold transition-colors ${
-                        p === safePage
-                          ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
-                          : "border-line text-ink hover:bg-cream dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  )
-                )}
-                <button
-                  type="button"
-                  aria-label="Pagina successiva"
-                  disabled={safePage === totalPages}
-                  onClick={() => setPage(safePage + 1)}
-                  className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
-                >
-                  <Icon name="chevron-right" className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
+
+      {!isLoading && filtered.length > 0 && (
+        <div className="mt-4 flex flex-none flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[12px] text-muted dark:text-[#9999a0]">
+            <span>
+              {filtered.length} {filtered.length === 1 ? "sito" : "siti"}
+            </span>
+            <span className="opacity-40">·</span>
+            <span>per pagina</span>
+            {[...PAGE_SIZE_OPTIONS, 0].map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => changePageSize(size)}
+                className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                  pageSize === size
+                    ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
+                    : "border-line text-ink hover:bg-cream dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+                }`}
+              >
+                {size === 0 ? "Tutti" : size}
+              </button>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Pagina precedente"
+                disabled={safePage === 1}
+                onClick={() => setPage(safePage - 1)}
+                className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+              >
+                <Icon name="chevron-right" className="h-3.5 w-3.5 rotate-180" />
+              </button>
+              {pageNumbers(safePage, totalPages).map((p, index) =>
+                p === "…" ? (
+                  <span key={`gap-${index}`} className="px-1 text-[12px] text-muted dark:text-[#9999a0]">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPage(p)}
+                    className={`inline-grid h-8 min-w-8 place-items-center rounded-md border px-1.5 text-[12px] font-semibold transition-colors ${
+                      p === safePage
+                        ? "border-ink bg-ink text-paper dark:border-[#f4f4f7] dark:bg-[#f4f4f7] dark:text-ink"
+                        : "border-line text-ink hover:bg-cream dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+              <button
+                type="button"
+                aria-label="Pagina successiva"
+                disabled={safePage === totalPages}
+                onClick={() => setPage(safePage + 1)}
+                className="inline-grid h-8 w-8 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-cream disabled:opacity-40 disabled:hover:bg-transparent dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#1c1c20]"
+              >
+                <Icon name="chevron-right" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <Modal
         open={modalOpen}

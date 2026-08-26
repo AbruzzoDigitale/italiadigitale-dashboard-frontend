@@ -104,6 +104,13 @@ const allNavItems: NavItem[] = [
     routeKey: "websites",
     group: "operations",
   },
+  {
+    label: "Report",
+    to: "/report",
+    icon: <Icon name="document-text" />,
+    routeKey: "reports",
+    group: "operations",
+  },
   // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
   // rapidi aprono direttamente in una nuova scheda. Riabilitare quando pronto.
   // {

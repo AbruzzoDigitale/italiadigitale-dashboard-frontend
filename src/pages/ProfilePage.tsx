@@ -7,6 +7,7 @@ import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
 import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
 import { QuickLinksSection } from "../components/quicklinks/QuickLinksSection";
 import { MobileDashboardEditor } from "../components/dashboard/MobileDashboardEditor";
+import { MailTemplatesManager } from "../features/email/MailTemplatesManager";
 import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
@@ -67,7 +68,7 @@ export function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [avatarSrc, setAvatarSrc] = useState(user?.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
-  const [section, setSection] = useState<"profile" | "mobile">("profile");
+  const [section, setSection] = useState<"profile" | "mobile" | "mail">("profile");
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const set = (k: keyof UpdateUserPayload, v: string) =>
@@ -261,6 +262,13 @@ export function ProfilePage() {
               title="Dashboard mobile"
               subtitle="Widget e note del telefono"
             />
+            <ProfileNavButton
+              active={section === "mail"}
+              onClick={() => setSection("mail")}
+              icon="mail"
+              title="Modelli email"
+              subtitle="I tuoi template personali"
+            />
           </nav>
         </div>
 
@@ -287,6 +295,32 @@ export function ProfilePage() {
             ) : (
               <p className="text-[13px] text-muted dark:text-[#9999a0]">
                 Seleziona un'azienda attiva per personalizzare la dashboard mobile.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : section === "mail" ? (
+        <div className="flex flex-col gap-5">
+          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+            <h2
+              className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+              style={{ fontSize: "17px" }}
+            >
+              Modelli email
+            </h2>
+            <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+              I tuoi modelli email personali, riutilizzabili quando scrivi ai clienti. La firma email
+              viene sempre aggiunta in coda e non è rimovibile
+              {myCompanies.find((c) => c.id === activeCompanyId)?.name
+                ? ` (azienda: ${myCompanies.find((c) => c.id === activeCompanyId)?.name})`
+                : ""}
+              .
+            </p>
+            {activeCompanyId != null ? (
+              <MailTemplatesManager companyId={activeCompanyId} scope="personal" canEdit />
+            ) : (
+              <p className="text-[13px] text-muted dark:text-[#9999a0]">
+                Seleziona un'azienda attiva per gestire i tuoi modelli email.
               </p>
             )}
           </div>

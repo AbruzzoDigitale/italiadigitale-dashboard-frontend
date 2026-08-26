@@ -24,6 +24,7 @@ import {
   type UrgencyLevel,
   type LeftBehindReason,
   type WorkItemRecurrenceType,
+  type WorkItemTaskType,
   type TimeSlot,
   type CreateWorkItemPayload,
   type WorkTag,
@@ -61,7 +62,10 @@ import { Textarea } from "../ui/Textarea";
 import { Linkify } from "../ui/Linkify";
 import { RichTextEditor, type RichTextEditorHandle } from "../ui/RichTextEditor";
 import { TaskAttachmentsBar } from "./TaskAttachmentsBar";
+import { TaskFormsTab } from "../../features/forms/TaskFormsTab";
+import { listWebsitesApi, websiteLabel, type Website } from "../../api/websites";
 import { toEditorHtml } from "../../utils/descriptionHtml";
+import { MAINTENANCE_TASK_TYPE, isMaintenanceTitle, withMaintenancePrefix } from "../../utils/maintenance";
 import { TaskSettingsModal } from "./TaskSettingsModal";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
@@ -270,6 +274,7 @@ interface WorkItemFormState {
   work_area_ids: number[];
   tag_ids: number[];
   social_profile_ids: number[];
+  website_ids: number[];
   client_id: string;
   is_recurring: boolean;
   recurrence_type: "" | WorkItemRecurrenceType;
@@ -278,6 +283,8 @@ interface WorkItemFormState {
   recurrence_until: string;
   generate_recurrences: boolean;
   generation_end_date: string;
+  /** Tipo della task: "website_maintenance" per le manutenzioni sito. */
+  task_type: WorkItemTaskType;
   is_ped: boolean;
   ped_mode: "existing" | "new";
   ped_configuration_id: string;
@@ -344,6 +351,7 @@ const EMPTY_FORM: WorkItemFormState = {
   work_area_ids: [],
   tag_ids: [],
   social_profile_ids: [],
+  website_ids: [],
   client_id: "",
   is_recurring: false,
   recurrence_type: "",
@@ -352,6 +360,7 @@ const EMPTY_FORM: WorkItemFormState = {
   recurrence_until: "",
   generate_recurrences: false,
   generation_end_date: "",
+  task_type: "standard",
   is_ped: false,
   ped_mode: "existing",
   ped_configuration_id: "",
@@ -550,7 +559,7 @@ export interface WorkItemFormModalProps {
 }
 
 // ── Schede del modal modifica (layout affiancato personalizzabile) ─────────────
-type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline" | "monitoraggio";
+type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline" | "monitoraggio" | "moduli";
 const WI_TAB_LABEL: Record<WiTabId, string> = {
   dettagli: "Dettagli",
   assegnazioni: "Assegnazioni & Tag",
@@ -558,8 +567,9 @@ const WI_TAB_LABEL: Record<WiTabId, string> = {
   revisione: "Revisione",
   timeline: "Timeline eventi",
   monitoraggio: "Monitoraggio",
+  moduli: "Moduli",
 };
-const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline", "monitoraggio"];
+const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline", "monitoraggio", "moduli"];
 const DEFAULT_WI_LAYOUT: { left: WiTabId[]; right: WiTabId[] } = {
   left: ["dettagli", "assegnazioni", "checklist"],
   right: ["revisione", "timeline"],
@@ -589,6 +599,45 @@ function normalizeWiLayout(raw: unknown): { left: WiTabId[]; right: WiTabId[] } 
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/**
+ * Tinte dei suggerimenti di collegamento, una per tipo. Classi scritte per
+ * intero perché Tailwind le cerca nel sorgente: comporle a runtime non funziona.
+ */
+const SUGGEST_TONES = {
+  cliente: {
+    box: "border-brand-magenta/40 bg-brand-magenta/5",
+    pastiglia: "bg-brand-magenta/15 text-brand-magenta",
+    pulsante: "bg-brand-magenta",
+    hover: "hover:bg-brand-magenta/10",
+    pallino: "bg-brand-magenta",
+  },
+  social: {
+    box: "border-brand-cyan/40 bg-brand-cyan/5",
+    pastiglia: "bg-brand-cyan/15 text-brand-cyan",
+    pulsante: "bg-brand-cyan",
+    hover: "hover:bg-brand-cyan/10",
+    pallino: "bg-brand-cyan",
+  },
+  sito: {
+    box: "border-[#0d9488]/45 bg-[#0d9488]/[0.07] dark:bg-[#0d9488]/[0.14]",
+    pastiglia: "bg-[#0d9488]/20 text-[#0f766e] dark:text-[#5eead4]",
+    pulsante: "bg-[#0f766e]",
+    hover: "hover:bg-[#0d9488]/10",
+    pallino: "bg-[#0d9488]",
+  },
+} as const;
+
+interface SuggestSlide {
+  key: string;
+  tone: keyof typeof SUGGEST_TONES;
+  icon: ReactNode;
+  /** Etichetta per il pallino e per gli screen reader. */
+  label: string;
+  body: ReactNode;
+  onLink: () => void;
+  onDismiss: () => void;
+}
+
 export function WorkItemFormModal({
   open,
   onClose,
@@ -606,6 +655,8 @@ export function WorkItemFormModal({
 }: WorkItemFormModalProps) {
   const toast = useToast();
   const hydratedFormKeyRef = useRef<string | null>(null);
+  // Tipo con cui la task è stata aperta: ci torniamo togliendo la manutenzione.
+  const baseTaskTypeRef = useRef<WorkItemTaskType>("standard");
   // Allegati (file su cloud storage). In modifica si caricano subito; in creazione
   // restano "in attesa" e vengono caricati dopo il salvataggio della task.
   const [attachments, setAttachments] = useState<WorkItemAttachment[]>([]);
@@ -732,6 +783,9 @@ export function WorkItemFormModal({
   const [clientSuggestDismissed, setClientSuggestDismissed] = useState<number | null>(null);
   // Id del cliente per cui l'utente ha scartato il suggerimento "collega social".
   const [socialSuggestDismissed, setSocialSuggestDismissed] = useState<number | null>(null);
+  const [websiteSuggestDismissed, setWebsiteSuggestDismissed] = useState<number | null>(null);
+  // Slide mostrata nel carosello dei suggerimenti di collegamento.
+  const [suggestIndex, setSuggestIndex] = useState(0);
   const [pedConfigs, setPedConfigs] = useState<PedConfiguration[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
 
@@ -854,6 +908,42 @@ export function WorkItemFormModal({
       cancelled = true;
     };
   }, [open, form.client_id]);
+
+  // ── Siti web del cliente selezionato: stesso meccanismo dei profili social.
+  const [clientWebsites, setClientWebsites] = useState<Website[]>([]);
+  useEffect(() => {
+    if (!open) {
+      setClientWebsites([]);
+      return;
+    }
+    let cancelled = false;
+    // Senza cliente carichiamo tutti i siti dell'azienda invece di niente: quasi
+    // nessun sito ha un cliente collegato, e con il selettore nascosto il sito
+    // agganciato alla task (le manutenzioni generate, per dire) sparirebbe.
+    listWebsitesApi(form.client_id ? { clientId: Number(form.client_id) } : { companyId })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientWebsites(rows);
+        const validIds = new Set(rows.map((w) => w.id));
+        setForm((current) =>
+          current.website_ids.every((id) => validIds.has(id))
+            ? current
+            : { ...current, website_ids: current.website_ids.filter((id) => validIds.has(id)) }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientWebsites([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.client_id, companyId]);
+
+  const websiteOptions = clientWebsites.map((w) => ({
+    id: w.id,
+    label: websiteLabel(w),
+    color: w.website_type_color,
+  }));
 
   const socialProfileOptions = clientSocialProfiles.map((p) => ({
     id: p.id,
@@ -1003,6 +1093,7 @@ export function WorkItemFormModal({
     if (sourceItem || templateSeedItem) {
       const baseItem = sourceItem ?? templateSeedItem;
       if (!baseItem) return;
+      baseTaskTypeRef.current = baseItem.task_type ?? "standard";
       setForm({
         is_template: isInstantiateMode ? false : (baseItem.is_template ?? false),
         title: baseItem.title,
@@ -1029,6 +1120,7 @@ export function WorkItemFormModal({
         work_area_ids: baseItem.work_area_ids ?? [],
         tag_ids: baseItem.tag_ids ?? [],
         social_profile_ids: baseItem.social_profile_ids ?? [],
+        website_ids: baseItem.website_ids ?? [],
         client_id: baseItem.client_id != null ? String(baseItem.client_id) : "",
         is_recurring: baseItem.is_recurring,
         recurrence_type: baseItem.recurrence_type ?? "",
@@ -1037,6 +1129,7 @@ export function WorkItemFormModal({
         recurrence_until: baseItem.recurrence_until ?? "",
         generate_recurrences: false,
         generation_end_date: "",
+        task_type: baseItem.task_type ?? "standard",
         is_ped: baseItem.is_PED ?? false,
         ped_mode: baseItem.ped_configuration_id != null ? "existing" : "new",
         ped_configuration_id: baseItem.ped_configuration_id != null ? String(baseItem.ped_configuration_id) : "",
@@ -1293,6 +1386,8 @@ export function WorkItemFormModal({
         work_area_ids: form.work_area_ids,
         tag_ids: form.tag_ids,
         social_profile_ids: form.social_profile_ids,
+        website_ids: form.website_ids,
+        task_type: form.task_type,
         ...(canEditRecurrence
           ? {
               is_recurring: form.is_recurring,
@@ -2626,6 +2721,31 @@ export function WorkItemFormModal({
   const showSocialSuggest =
     unlinkedClientSocials.length > 0 && socialSuggestDismissed !== Number(form.client_id);
 
+  // Stessa cosa per i siti web del cliente: se ne ha di non collegati, lo diciamo.
+  const unlinkedClientWebsites = form.client_id
+    ? clientWebsites.filter((w) => !form.website_ids.includes(w.id))
+    : [];
+  const showWebsiteSuggest =
+    unlinkedClientWebsites.length > 0 && websiteSuggestDismissed !== Number(form.client_id);
+
+  const isMaintenance = form.task_type === MAINTENANCE_TASK_TYPE;
+  const titleSuggestsMaintenance = isMaintenanceTitle(form.title);
+
+  // Come per il PED: attivandola portiamo "Manutenzione sito" nel titolo, se il
+  // titolo non lo dice già. Togliendola torniamo al tipo di partenza — così una
+  // task rapida non diventa standard passando di qui.
+  const handleToggleMaintenance = (value: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      task_type: value
+        ? MAINTENANCE_TASK_TYPE
+        : baseTaskTypeRef.current === MAINTENANCE_TASK_TYPE
+          ? "standard"
+          : baseTaskTypeRef.current,
+      title: value ? withMaintenancePrefix(prev.title) : prev.title,
+    }));
+  };
+
   // Attivando il PED riportiamo "PED" nel titolo (se non c'è già), così è subito
   // evidente che la task è un Piano Editoriale Digitale.
   const handleTogglePed = (value: boolean) => {
@@ -2722,123 +2842,196 @@ export function WorkItemFormModal({
             className="min-w-0 max-w-full"
           />
         )}
-        {/* Suggerimento cliente rilevato dal titolo (in entrambe le modalità). */}
-        {showClientSuggest && suggestedClient && (
-          <div
-            key={suggestedClient.client.id}
-            className="cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border border-brand-magenta/40 bg-brand-magenta/5 px-2.5 py-2"
-          >
-            <span className="cl-suggest-sheen" />
-            <div className="relative flex items-center gap-2">
-              <span className="cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-magenta/15 text-brand-magenta">
-                <Icon name="link" className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] leading-snug text-ink dark:text-paper">
-                  Rilevato dal titolo:{" "}
-                  <span className="font-semibold">
-                    {suggestedClient.client.commercial_name ?? suggestedClient.client.name}
-                  </span>
-                </p>
-                <p className="text-[11px] leading-tight text-muted dark:text-muted-dark">
-                  Vuoi collegare questo cliente?
-                </p>
+        {/* Suggerimenti di collegamento (cliente rilevato, profili social, siti
+            web) in un carosello: uno alla volta per non allungare il form, con i
+            pallini per scorrere. Collegando o ignorando quello a schermo la sua
+            slide sparisce e prende il posto la successiva. */}
+        {(() => {
+          const slides: SuggestSlide[] = [];
+
+          if (showClientSuggest && suggestedClient) {
+            const c = suggestedClient.client;
+            slides.push({
+              key: `cli-${c.id}`,
+              tone: "cliente",
+              label: "Cliente rilevato",
+              icon: <Icon name="link" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="truncate text-[12px] leading-snug text-ink dark:text-paper">
+                    Rilevato dal titolo:{" "}
+                    <span className="font-semibold">{c.commercial_name ?? c.name}</span>
+                  </p>
+                  <p className="text-[11px] leading-tight text-muted dark:text-muted-dark">
+                    Vuoi collegare questo cliente?
+                  </p>
+                </>
+              ),
+              onLink: () => {
+                updateForm("client_id", String(c.id));
+                setClientEditing(false);
+                setClientSuggestDismissed(null);
+              },
+              onDismiss: () => setClientSuggestDismissed(c.id),
+            });
+          }
+
+          if (showSocialSuggest) {
+            slides.push({
+              key: `soc-${form.client_id}`,
+              tone: "social",
+              label: "Profili social da collegare",
+              icon: <Icon name="users" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="text-[12px] leading-snug text-ink dark:text-paper">
+                    Il cliente ha{" "}
+                    <span className="font-semibold">
+                      {unlinkedClientSocials.length}{" "}
+                      {unlinkedClientSocials.length === 1 ? "profilo social" : "profili social"}
+                    </span>{" "}
+                    non collegat{unlinkedClientSocials.length === 1 ? "o" : "i"}.
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {unlinkedClientSocials.slice(0, 6).map((prof) => (
+                      <span
+                        key={prof.id}
+                        title={`${prof.platform_label} · ${socialProfileLabel(prof)}`}
+                        className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+                      >
+                        <SocialIcon
+                          platform={prof.platform}
+                          label={prof.platform_label}
+                          color={prof.platform_color}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className="max-w-[90px] truncate">{socialProfileLabel(prof)}</span>
+                      </span>
+                    ))}
+                    {unlinkedClientSocials.length > 6 && (
+                      <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                        +{unlinkedClientSocials.length - 6}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ),
+              onLink: () => {
+                const ids = unlinkedClientSocials.map((prof) => prof.id);
+                setForm((current) => ({
+                  ...current,
+                  social_profile_ids: Array.from(new Set([...current.social_profile_ids, ...ids])),
+                }));
+              },
+              onDismiss: () => setSocialSuggestDismissed(Number(form.client_id)),
+            });
+          }
+
+          if (showWebsiteSuggest) {
+            slides.push({
+              key: `web-${form.client_id}`,
+              tone: "sito",
+              label: "Siti web da collegare",
+              icon: <Icon name="globe" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="text-[12px] leading-snug text-ink dark:text-paper">
+                    Il cliente ha{" "}
+                    <span className="font-semibold">
+                      {unlinkedClientWebsites.length}{" "}
+                      {unlinkedClientWebsites.length === 1 ? "sito web" : "siti web"}
+                    </span>{" "}
+                    non collegat{unlinkedClientWebsites.length === 1 ? "o" : "i"}.
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {unlinkedClientWebsites.slice(0, 6).map((w) => (
+                      <span
+                        key={w.id}
+                        title={w.url}
+                        className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+                      >
+                        <Icon name="globe" className="h-3 w-3 flex-none opacity-60" />
+                        <span className="max-w-[110px] truncate">{websiteLabel(w)}</span>
+                      </span>
+                    ))}
+                    {unlinkedClientWebsites.length > 6 && (
+                      <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                        +{unlinkedClientWebsites.length - 6}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ),
+              onLink: () => {
+                const ids = unlinkedClientWebsites.map((w) => w.id);
+                setForm((current) => ({
+                  ...current,
+                  website_ids: Array.from(new Set([...current.website_ids, ...ids])),
+                }));
+              },
+              onDismiss: () => setWebsiteSuggestDismissed(Number(form.client_id)),
+            });
+          }
+
+          if (slides.length === 0) return null;
+          // Indice ricavato al volo invece che tenuto in sincronia da un effetto:
+          // quando una slide sparisce, quella dopo scala qui e prende il posto.
+          const indice = Math.min(suggestIndex, slides.length - 1);
+          const slide = slides[indice];
+          const tone = SUGGEST_TONES[slide.tone];
+
+          return (
+            <div
+              key={slide.key}
+              className={`cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border px-2.5 py-2 ${tone.box}`}
+            >
+              <span className="cl-suggest-sheen" />
+              <div className="relative flex items-center gap-2">
+                <span
+                  className={`cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full ${tone.pastiglia}`}
+                >
+                  {slide.icon}
+                </span>
+                <div className="min-w-0 flex-1">{slide.body}</div>
+                <button
+                  type="button"
+                  onClick={slide.onLink}
+                  className={`inline-flex h-7 flex-none items-center gap-1 self-start rounded-md px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95 ${tone.pulsante}`}
+                >
+                  <Icon name="plus" className="h-3.5 w-3.5" /> Collega
+                </button>
+                <button
+                  type="button"
+                  onClick={slide.onDismiss}
+                  aria-label="Ignora suggerimento"
+                  title="Ignora"
+                  className={`grid h-7 w-6 flex-none place-items-center self-start rounded-md text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-paper ${tone.hover}`}
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  updateForm("client_id", String(suggestedClient.client.id));
-                  setClientEditing(false);
-                  setClientSuggestDismissed(null);
-                }}
-                className="inline-flex h-7 flex-none items-center gap-1 rounded-md bg-brand-magenta px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95"
-              >
-                <Icon name="plus" className="h-3.5 w-3.5" /> Collega
-              </button>
-              <button
-                type="button"
-                onClick={() => setClientSuggestDismissed(suggestedClient.client.id)}
-                aria-label="Ignora suggerimento"
-                title="Ignora"
-                className="grid h-7 w-6 flex-none place-items-center rounded-md text-muted transition-colors hover:bg-brand-magenta/10 hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-        {/* Suggerimento: collega i profili social del cliente collegato. */}
-        {showSocialSuggest && (
-          <div
-            key={`soc-${form.client_id}`}
-            className="cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border border-brand-cyan/40 bg-brand-cyan/5 px-2.5 py-2"
-          >
-            <span className="cl-suggest-sheen" />
-            <div className="relative flex items-center gap-2">
-              <span className="cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-cyan/15 text-brand-cyan">
-                <Icon name="users" className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] leading-snug text-ink dark:text-paper">
-                  Il cliente ha{" "}
-                  <span className="font-semibold">
-                    {unlinkedClientSocials.length}{" "}
-                    {unlinkedClientSocials.length === 1
-                      ? "profilo social"
-                      : "profili social"}
-                  </span>{" "}
-                  non collegat{unlinkedClientSocials.length === 1 ? "o" : "i"}.
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                  {unlinkedClientSocials.slice(0, 6).map((p) => (
-                    <span
-                      key={p.id}
-                      title={`${p.platform_label} · ${socialProfileLabel(p)}`}
-                      className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
-                    >
-                      <SocialIcon
-                        platform={p.platform}
-                        label={p.platform_label}
-                        color={p.platform_color}
-                        className="h-3.5 w-3.5"
-                      />
-                      <span className="max-w-[90px] truncate">{socialProfileLabel(p)}</span>
-                    </span>
+              {slides.length > 1 && (
+                <div className="relative mt-1.5 flex items-center justify-center gap-1.5">
+                  {slides.map((sl, i) => (
+                    <button
+                      key={sl.key}
+                      type="button"
+                      onClick={() => setSuggestIndex(i)}
+                      aria-label={sl.label}
+                      aria-current={i === indice}
+                      title={sl.label}
+                      className={`h-1.5 rounded-pill transition-all ${
+                        i === indice
+                          ? `w-4 ${tone.pallino}`
+                          : "w-1.5 bg-muted/35 hover:bg-muted/60 dark:bg-muted-dark/40"
+                      }`}
+                    />
                   ))}
-                  {unlinkedClientSocials.length > 6 && (
-                    <span className="text-[10.5px] text-muted dark:text-muted-dark">
-                      +{unlinkedClientSocials.length - 6}
-                    </span>
-                  )}
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const ids = unlinkedClientSocials.map((p) => p.id);
-                  setForm((current) => ({
-                    ...current,
-                    social_profile_ids: Array.from(
-                      new Set([...current.social_profile_ids, ...ids])
-                    ),
-                  }));
-                }}
-                className="inline-flex h-7 flex-none items-center gap-1 self-start rounded-md bg-brand-cyan px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95"
-              >
-                <Icon name="plus" className="h-3.5 w-3.5" /> Collega
-              </button>
-              <button
-                type="button"
-                onClick={() => setSocialSuggestDismissed(Number(form.client_id))}
-                aria-label="Ignora suggerimento"
-                title="Ignora"
-                className="grid h-7 w-6 flex-none place-items-center self-start rounded-md text-muted transition-colors hover:bg-brand-cyan/10 hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-              >
-                ✕
-              </button>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
@@ -2949,6 +3142,34 @@ export function WorkItemFormModal({
         {renderPedSection()}
       </div>
     ) : null;
+
+  const renderMaintenanceTitleBadge = () =>
+    isMaintenance ? (
+      <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
+        <Icon name="globe" className="h-3 w-3" />
+        Manutenzione sito
+      </span>
+    ) : null;
+
+  const renderMaintenanceShortcut = () =>
+    titleSuggestsMaintenance && !isMaintenance ? (
+      <div className="flex flex-col gap-1.5">
+        <p className="flex items-center gap-1.5 text-xs text-muted dark:text-muted-dark">
+          <Icon name="globe" className="h-3.5 w-3.5 shrink-0" />
+          Il titolo parla di manutenzione o aggiornamento: segnala la task come manutenzione sito.
+        </p>
+        {renderMaintenanceCheckbox()}
+      </div>
+    ) : null;
+
+  /* Spunta sempre disponibile: una task diventa (o smette di essere) una
+     manutenzione sito anche a mano, non solo tramite il generatore. */
+  const renderMaintenanceCheckbox = () => (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+      <Checkbox checked={isMaintenance} onChange={handleToggleMaintenance} />
+      È una task di manutenzione sito
+    </label>
+  );
 
   const renderPedSection = () => (
     <SectionCard icon="grid" title="PED">
@@ -3124,7 +3345,9 @@ export function WorkItemFormModal({
         <div className="flex flex-col gap-3">
           {renderTitleField()}
           {renderPedTitleBadge()}
+          {renderMaintenanceTitleBadge()}
           {renderPedShortcut()}
+          {renderMaintenanceShortcut()}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {renderClientField()}
             <MultiSelect
@@ -3276,6 +3499,16 @@ export function WorkItemFormModal({
               />
             )
           ) : null}
+          {websiteOptions.length > 0 && (
+            <MultiSelect
+              label="Siti web"
+              value={form.website_ids}
+              onChange={(v) => updateForm("website_ids", v)}
+              options={websiteOptions}
+              placeholder="Seleziona siti web..."
+            />
+          )}
+          {renderMaintenanceCheckbox()}
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderChecklistSection()}
           <div className="h-px bg-line dark:bg-line-dark" />
@@ -3422,6 +3655,15 @@ export function WorkItemFormModal({
                     Da modello
                   </span>
                 )}
+                {isMaintenance && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-pill border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success"
+                    title="Manutenzione programmata di un sito web"
+                  >
+                    <Icon name="globe" className="h-3 w-3" />
+                    Manutenzione sito
+                  </span>
+                )}
                 {isGeneratedRecurringItem && (
                   <span className="inline-flex rounded-pill border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
                     Occorrenza da ricorrenza
@@ -3493,8 +3735,15 @@ export function WorkItemFormModal({
           {/* Schede modifica — contenuti in mappa, layout singolo/affiancato sotto */}
           {(() => {
           const sections: Record<WiTabId, () => ReactNode> = {
-            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null, monitoraggio: () => null,
+            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null, monitoraggio: () => null, moduli: () => null,
           };
+          sections.moduli = () => sourceItem ? (
+            <TaskFormsTab
+              workItemId={sourceItem.id}
+              companyId={sourceItem.company_id ?? companyId}
+              canManage={isMonitorManager}
+            />
+          ) : null;
           sections.monitoraggio = () => sourceItem ? (
             <TaskMonitoringTab
               workItemId={sourceItem.id}
@@ -3630,7 +3879,9 @@ export function WorkItemFormModal({
             )}
             {renderTitleField()}
             {renderPedTitleBadge()}
+            {renderMaintenanceTitleBadge()}
             {renderPedShortcut()}
+            {renderMaintenanceShortcut()}
             {renderDescriptionField(2)}
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
@@ -3934,6 +4185,34 @@ export function WorkItemFormModal({
             ) : (
               <p className="text-[12.5px] text-muted dark:text-muted-dark">
                 Seleziona prima un cliente per collegare i suoi profili social.
+              </p>
+            )}
+          </SectionCard>
+
+          {/* — Siti web — Non dietro al cliente come i social: quasi nessun sito
+              in archivio ha un cliente collegato, e le manutenzioni generate
+              agganciano il sito a task che spesso il cliente non ce l'hanno. */}
+          <SectionCard icon="globe" title="Siti web">
+            {websiteOptions.length > 0 ? (
+              <MultiSelect
+                label="Siti collegati"
+                value={form.website_ids}
+                onChange={(v) => updateForm("website_ids", v)}
+                options={websiteOptions}
+                placeholder="Seleziona siti web..."
+              />
+            ) : (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                {form.client_id
+                  ? "Il cliente non ha siti in archivio: aggiungili dalla pagina \u201cSiti web\u201d nel men\u00f9."
+                  : "Nessun sito in archivio: aggiungili dalla pagina \u201cSiti web\u201d nel men\u00f9."}
+              </p>
+            )}
+            {renderMaintenanceCheckbox()}
+            {isMaintenance && (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                Le manutenzioni compaiono nel calendario in Siti web e portano con s\u00e9 il modulo
+                di report configurato.
               </p>
             )}
           </SectionCard>

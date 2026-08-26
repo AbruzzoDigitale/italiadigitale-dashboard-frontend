@@ -13,6 +13,8 @@ import { FullPageSpinner } from "./components/ui/Spinner";
 import { LoginPage } from "./pages/LoginPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import ClientSignPage from "./pages/ClientSignPage";
+import { SharedFormPage } from "./pages/SharedFormPage";
+import { FormFillPage } from "./pages/FormFillPage";
 import { CompanyPickerPage } from "./pages/CompanyPickerPage";
 import { DashboardLayout } from "./layouts/DashboardLayout";
 import { MobileAppBanner } from "./components/MobileAppBanner";
@@ -34,6 +36,7 @@ import { SocialPackagesPage } from "./pages/SocialPackagesPage";
 import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
@@ -79,6 +82,26 @@ function AppRoutes() {
     <Routes>
       {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
       <Route path="/firma/:token" element={<ClientSignPage />} />
+      {/* Compilazione da link condiviso: NON è pubblico — serve l'accesso, e il
+          permesso arriva dalle aree/operatori assegnati al modulo. */}
+      <Route
+        path="/modulo/:token"
+        element={
+          <ProtectedRoute>
+            <SharedFormPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* Compilazione di un report: scheda dedicata, senza barra laterale, per
+          restare concentrati su un modulo solo. */}
+      <Route
+        path="/modulo/compila/:submissionId"
+        element={
+          <ProtectedRoute>
+            <FormFillPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/login"
         element={
@@ -129,6 +152,7 @@ function AppRoutes() {
         <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
         <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
+        <Route path="report" element={<RouteAccess routeKey="reports"><ReportsPage /></RouteAccess>} />
         <Route path="social-packages" element={<RouteAccess routeKey="social"><SocialPackagesPage /></RouteAccess>} />
         <Route path="social-packages-presentation" element={<RouteAccess routeKey="social"><SocialPackagesPresentationPage /></RouteAccess>} />
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />

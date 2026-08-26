@@ -16,6 +16,7 @@ export type AppRouteKey =
   | "social-profiles"
   | "social-monitors"
   | "websites"
+  | "reports"
   | "catalog"
   | "llm"
   | "profile"
@@ -77,6 +78,10 @@ export function canAccessRoute(
     case "social-monitors":
       // Monitoraggio pubblicazioni (configurazioni di revisione): SOLO admin e PM.
       return permissions.is_admin || permissions.is_project_manager;
+    case "reports":
+      // Pagina Report: la vedono tutti, ma il backend mostra solo i report dei
+      // moduli assegnati alle proprie aree (l'admin tutti).
+      return true;
     case "websites":
       // Registro siti web dei clienti: consultabile e gestibile da tutti, come i
       // profili social. Le tassonomie restano in mano ad admin/PM (lato API).

@@ -30,6 +30,7 @@ export interface WorkItemBoardCardItem {
   tag_ids?: number[];
   is_priority?: boolean;
   is_PED?: boolean;
+  task_type?: string;
   is_recurring?: boolean;
   is_template?: boolean;
   reviewer_name?: string | null;
@@ -137,6 +138,11 @@ export function WorkItemBoardCard({
           {item.is_template && <span className="lv-badge soft">Modello</span>}
           {item.is_recurring && <span className="lv-badge soft">Ricorrente</span>}
           {item.is_PED && <span className="lv-badge soft">PED</span>}
+          {item.task_type === "website_maintenance" && (
+            <span className="lv-badge maint" title="Manutenzione programmata di un sito web">
+              <Icon name="globe" className="h-2.5 w-2.5" /> Manutenzione
+            </span>
+          )}
           {showContractStatus &&
             (linkedToContract ? (
               <span className="lv-badge ok" title="Collegata a un contratto">

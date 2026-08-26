@@ -48,7 +48,9 @@ import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
 import { SocialPlatformsTab } from "../features/company/SocialPlatformsTab";
 import { WebsiteTaxonomiesTab } from "../features/company/WebsiteTaxonomiesTab";
+import { MaintenanceSettingsTab } from "../features/company/MaintenanceSettingsTab";
 import { DailyRecapTemplateTab } from "../features/company/DailyRecapTemplateTab";
+import { MailTemplatesTab } from "../features/company/MailTemplatesTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
 import { NotificheTab } from "../features/company/NotificheTab";
 
@@ -88,13 +90,14 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "email" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
+type BrandTab = "login" | "brand" | "firma" | "email" | "mail" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
   brand: "Brand",
   firma: "Firma",
   email: "Email",
+  mail: "Modelli email",
   media: "Media",
   settings: "Settings",
   operations: "Regole",
@@ -1446,6 +1449,8 @@ export function CompanyBrandPage() {
 
         {activeTab === "firma" && <SignatureTemplateAdmin companyId={companyId} />}
 
+        {activeTab === "mail" && <MailTemplatesTab companyId={companyId} isAdmin={!!user?.is_admin} />}
+
         {activeTab === "email" && (
           <EmailAccountsSection
             companies={[]}
@@ -1869,11 +1874,14 @@ export function CompanyBrandPage() {
         )}
 
         {activeTab === "siti" && (
-          <WebsiteTaxonomiesTab
-            companyId={companyId}
-            canManage={!!user?.is_admin || user?.access_level === "project_manager"}
-            isAdmin={!!user?.is_admin}
-          />
+          <>
+            <MaintenanceSettingsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+            <WebsiteTaxonomiesTab
+              companyId={companyId}
+              canManage={!!user?.is_admin || user?.access_level === "project_manager"}
+              isAdmin={!!user?.is_admin}
+            />
+          </>
         )}
 
         {activeTab === "recap" && (
