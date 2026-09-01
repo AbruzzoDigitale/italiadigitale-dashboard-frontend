@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
+import { apriNotifica } from "./openNotificationTarget";
+import { communicationLink } from "./communicationLink";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { Icon, type IconName } from "../../components/ui/Icon";
@@ -378,7 +380,21 @@ function routeForItem(item: NotifItem, isManager: boolean): string | null {
   // Richiesta: apre direttamente l'editor di QUELLA richiesta, non la lista.
   if (item.tab === "richieste") return item.entity_id != null ? `/requests/edit?quote_id=${item.entity_id}` : "/requests";
   if (item.tab === "contratti") return "/contracts-pipeline";
-  if (item.tab === "comunicazioni") return "/comunicazioni";
+  // Prenotazione sala: la pagina porta al giorno giusto e apre la scheda.
+  if (item.tab === "sale") {
+    return item.entity_id != null
+      ? `/prenotazione-sale?booking=${item.entity_id}`
+      : "/prenotazione-sale";
+  }
+  // Rimborso trasferte: la pagina apre la scheda della trasferta.
+  if (item.tab === "rimborsi" || item.entity_type === "expense_trip") {
+    return item.entity_id != null ? `/rimborsi?trasferta=${item.entity_id}` : "/rimborsi";
+  }
+  // Comunicazione: si apre nel modal, da qualunque pagina e per qualunque ruolo
+  // (la rotta /comunicazioni è riservata ad admin e PM).
+  if (item.tab === "comunicazioni") {
+    return item.entity_id != null ? communicationLink(item.entity_id) : "/comunicazioni";
+  }
   return null;
 }
 
@@ -467,13 +483,14 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
   };
 
   // Click su una notifica: la segna letta e "entra" nella richiesta/task/ecc.
+  // Dove aprirla (questa scheda / nuova scheda / chiedi) è la stessa preferenza
+  // del clic sulla notifica push: vedi openNotificationTarget.
   const handleActivate = (item: NotifItem) => {
     if (!item.archived) markRead(item.id);
     const to = routeForItem(item, isMonitorManager);
-    if (to) {
-      onClose();
-      navigate(to);
-    }
+    if (!to) return;
+    onClose();
+    apriNotifica(to, (url) => navigate(url));
   };
 
   const rowActions: RowActions = {
@@ -639,6 +656,12 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
           {tab === "comunicazioni" && <FlatList items={comItems} actions={rowActions} />}
           {tab === "monitoraggi" && (
             <FlatList items={itemsByTab("monitoraggi")} actions={rowActions} emptyLabel="Nessun avviso di monitoraggio" />
+          )}
+          {tab === "sale" && (
+            <FlatList items={itemsByTab("sale")} actions={rowActions} emptyLabel="Nessuna prenotazione sala" />
+          )}
+          {tab === "rimborsi" && (
+            <FlatList items={itemsByTab("rimborsi")} actions={rowActions} emptyLabel="Nessuna trasferta da approvare" />
           )}
           {isArchivio && <FlatList items={archived} actions={rowActions} emptyLabel="Nessuna notifica archiviata" />}
         </div>

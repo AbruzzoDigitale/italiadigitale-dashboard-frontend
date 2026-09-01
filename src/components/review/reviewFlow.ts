@@ -27,6 +27,7 @@ export type ReviewActionKey =
   | "sendToReview"
   | "approveInternally"
   | "sendToClient"
+  | "unsendToClient"
   | "approveClient"
   | "publish"
   | "complete"

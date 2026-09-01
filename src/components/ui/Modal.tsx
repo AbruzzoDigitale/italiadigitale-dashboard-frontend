@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import "./modal-theme.css";
-type ModalSize = "sm" | "md" | "lg" | "xl" | "2xl";
+// `full`: nessun limite di larghezza. Serve agli editor a tela (posizionamento
+// campi sul PDF), dove il dialog deve prendersi tutto lo schermo.
+type ModalSize = "sm" | "md" | "lg" | "xl" | "2xl" | "full";
 type ModalPosition = "center" | "left" | "right";
 
 type DraftFieldValue =
@@ -45,6 +47,18 @@ const sizeMap: Record<ModalSize, string> = {
   lg: "max-w-lg",
   xl: "max-w-2xl",
   "2xl": "max-w-4xl",
+  full: "max-w-none",
+};
+
+// Stessi limiti, ma da `sm` in su. Servono scritti per esteso: Tailwind genera
+// le classi leggendo il sorgente, una stringa composta a runtime non la vede.
+const sizeMapFromSm: Record<ModalSize, string> = {
+  sm: "sm:max-w-sm",
+  md: "sm:max-w-md",
+  lg: "sm:max-w-lg",
+  xl: "sm:max-w-2xl",
+  "2xl": "sm:max-w-4xl",
+  full: "sm:max-w-none",
 };
 
 export function Modal({
@@ -256,8 +270,13 @@ export function Modal({
         ? "justify-end"
         : "justify-center";
   const mobileContainerClass = mobileFullscreen ? "items-stretch p-0 sm:items-center sm:p-4" : "items-center p-4";
+  // `max-w-none` sta più in basso di `max-w-*` nel foglio generato, quindi a
+  // parità di specificità vinceva sempre: con mobileFullscreen la prop `size`
+  // veniva ignorata e il dialog restava a tutta larghezza anche su desktop.
+  // Il cap va quindi ripristinato con la variante `sm:`, che sta nella media
+  // query e batte entrambe da 640px in su.
   const mobileDialogClass = mobileFullscreen
-    ? "max-w-none h-[100dvh] max-h-[100dvh] rounded-none sm:h-auto sm:max-h-[90vh] sm:rounded-lg"
+    ? `max-w-none ${sizeMapFromSm[size]} h-[100dvh] max-h-[100dvh] rounded-none sm:h-auto sm:max-h-[90vh] sm:rounded-lg`
     : "max-h-[90vh] rounded-lg";
 
   const dialogContent = (

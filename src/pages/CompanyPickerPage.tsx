@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 
@@ -14,7 +14,10 @@ type CompanyCard = {
 
 export function CompanyPickerPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
+  //: destinazione da riprendere (arriva dal login quando si apre un link condiviso).
+  const from = (location.state as { from?: string } | null)?.from;
   const { myCompanies, activeCompanyId, user, switchActiveCompany, logout } = useAuth();
   const [loadingCompanyId, setLoadingCompanyId] = useState<number | null>(null);
 
@@ -47,6 +50,15 @@ export function CompanyPickerPage() {
     setLoadingCompanyId(companyId);
     try {
       await switchActiveCompany(companyId);
+      if (from) {
+        // Il link condiviso vince sulla home, ma l'azienda scelta va comunque
+        // in query: le pagine leggono `company_id` da lì.
+        const [path, search = ""] = from.split("?");
+        const params = new URLSearchParams(search);
+        if (!params.has("company_id")) params.set("company_id", String(companyId));
+        navigate({ pathname: path, search: `?${params}` }, { replace: true });
+        return;
+      }
       navigate({ pathname: "/", search: `?company_id=${companyId}` }, { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore selezione azienda");

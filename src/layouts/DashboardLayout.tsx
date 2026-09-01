@@ -27,6 +27,7 @@ const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
 import { PushOpenPrompt } from "../features/notifications/PushOpenPrompt";
+import { CommunicationModal } from "../features/notifications/CommunicationModal";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
@@ -102,6 +103,20 @@ const allNavItems: NavItem[] = [
     to: "/siti-web",
     icon: <Icon name="target" />,
     routeKey: "websites",
+    group: "operations",
+  },
+  {
+    label: "Prenotazione sale",
+    to: "/prenotazione-sale",
+    icon: <Icon name="calendar" />,
+    routeKey: "prenotazione-sale",
+    group: "operations",
+  },
+  {
+    label: "Rimborsi trasferte",
+    to: "/rimborsi",
+    icon: <Icon name="map-pin" />,
+    routeKey: "rimborsi",
     group: "operations",
   },
   {
@@ -1163,6 +1178,10 @@ export function DashboardLayout() {
         {/* Clic su una notifica push con la dashboard già aperta: chiede dove
             aprire la pagina (o applica la scelta ricordata). */}
         <PushOpenPrompt />
+
+        {/* Comunicazione aperta per esteso da `?comunicazione=<id>`: sta qui e non
+            nella pagina /comunicazioni, che agli operatori non è accessibile. */}
+        <CommunicationModal />
 
         <NotificationPreferencesModal
           open={notifPrefsOpen}

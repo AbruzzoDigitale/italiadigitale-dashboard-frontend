@@ -34,7 +34,7 @@ function parseNotifPayload(ev?: MessageEvent): { title: string; body: string } {
   return { title, body };
 }
 
-const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni", "monitoraggi"];
+const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni", "monitoraggi", "sale", "rimborsi"];
 
 /**
  * Stato del centro notifiche: carica le notifiche dell'utente dal backend e
@@ -249,7 +249,7 @@ export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
   }, [reload, showNotification]);
 
   const counts = useMemo(() => {
-    const c: Record<NotifTabKey, number> = { task: 0, richieste: 0, contratti: 0, comunicazioni: 0, monitoraggi: 0 };
+    const c: Record<NotifTabKey, number> = { task: 0, richieste: 0, contratti: 0, comunicazioni: 0, monitoraggi: 0, sale: 0, rimborsi: 0 };
     for (const it of items) if (it.unread && TABS.includes(it.tab)) c[it.tab] += 1;
     return c;
   }, [items]);

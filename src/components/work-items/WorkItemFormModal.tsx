@@ -286,6 +286,7 @@ interface WorkItemFormState {
   /** Tipo della task: "website_maintenance" per le manutenzioni sito. */
   task_type: WorkItemTaskType;
   is_ped: boolean;
+  link_ped: string;
   ped_mode: "existing" | "new";
   ped_configuration_id: string;
   ped_monthly_publications_total: string;
@@ -362,6 +363,7 @@ const EMPTY_FORM: WorkItemFormState = {
   generation_end_date: "",
   task_type: "standard",
   is_ped: false,
+  link_ped: "",
   ped_mode: "existing",
   ped_configuration_id: "",
   ped_monthly_publications_total: "",
@@ -540,6 +542,8 @@ export interface WorkItemFormModalProps {
   isAdmin: boolean;
   /** PM/Admin: può nominare/cambiare il revisore. */
   canManageReviewer?: boolean;
+  /** Può inviare/annullare l'invio al cliente (admin/PM o operatore abilitato). */
+  canSendToClient?: boolean;
   /** Pre-fill work_date when creating */
   defaultWorkDate?: string;
   /** Pre-fill start_time when creating */
@@ -646,6 +650,7 @@ export function WorkItemFormModal({
   companyId,
   isAdmin,
   canManageReviewer = false,
+  canSendToClient = false,
   defaultWorkDate,
   defaultStartTime,
   defaultEstimatedHours,
@@ -1131,6 +1136,7 @@ export function WorkItemFormModal({
         generation_end_date: "",
         task_type: baseItem.task_type ?? "standard",
         is_ped: baseItem.is_PED ?? false,
+        link_ped: baseItem.link_ped ?? "",
         ped_mode: baseItem.ped_configuration_id != null ? "existing" : "new",
         ped_configuration_id: baseItem.ped_configuration_id != null ? String(baseItem.ped_configuration_id) : "",
         ped_monthly_publications_total: baseItem.ped_configuration?.monthly_publications_total != null ? String(baseItem.ped_configuration.monthly_publications_total) : "",
@@ -1411,6 +1417,8 @@ export function WorkItemFormModal({
       };
 
       payload.is_PED = form.is_ped;
+      // Link PED: valorizzato solo se è una task PED; svuotato (null) altrimenti.
+      payload.link_ped = form.is_ped ? (form.link_ped.trim() || null) : null;
       if (form.is_ped) {
         if (form.ped_mode === "existing") {
           // Config esistente facoltativa: se non selezionata, resta un PED senza config.
@@ -3185,6 +3193,14 @@ export function WorkItemFormModal({
 
       {form.is_ped && (
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
+          <Input
+            label="Link PED"
+            type="url"
+            value={form.link_ped}
+            onChange={(e) => updateForm("link_ped", e.target.value)}
+            placeholder="https://… (piano editoriale: Sheet, Drive, Trello…)"
+          />
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -3758,6 +3774,7 @@ export function WorkItemFormModal({
               ref={reviewRef}
               workItemId={sourceItem.id}
               canManage={canManageReviewer}
+              canSendToClient={canManageReviewer || canSendToClient}
               companyId={sourceItem.company_id ?? companyId}
               onChanged={() => void refetchDetail()}
               renderActionsInline={false}

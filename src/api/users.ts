@@ -26,6 +26,9 @@ export interface UserPermissions {
   can_view_catalog: boolean;
   can_view_catalog_prices: boolean;
   can_manage_catalog: boolean;
+  /** Può inviare/annullare l'invio al cliente di una task in revisione. Admin/PM sempre;
+   *  per gli operatori è un permesso per-utente impostabile da admin. */
+  can_send_to_client: boolean;
 }
 
 export interface CreateUserPayload {

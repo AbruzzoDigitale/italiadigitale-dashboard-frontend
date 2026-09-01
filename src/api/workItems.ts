@@ -293,6 +293,8 @@ export interface WorkItem {
   attachments?: WorkItemAttachment[];
   history?: WorkItemHistoryEvent[];
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;
@@ -406,6 +408,8 @@ export interface CreateWorkItemPayload {
   website_ids?: number[];
   task_type?: WorkItemTaskType;
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;
@@ -466,6 +470,8 @@ export interface InstantiateTemplatePayload {
   website_ids?: number[];
   task_type?: WorkItemTaskType;
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { SignatureTemplateAdmin } from "../components/email/SignatureTemplateAdmin";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
 import { WorkloadWeightsSection } from "../components/workload/WorkloadWeightsSection";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
@@ -90,13 +91,14 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "email" | "mail" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
+type BrandTab = "login" | "brand" | "firma" | "email" | "google" | "mail" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
   brand: "Brand",
   firma: "Firma",
   email: "Email",
+  google: "Google",
   mail: "Modelli email",
   media: "Media",
   settings: "Settings",
@@ -1152,11 +1154,29 @@ export function CompanyBrandPage() {
       </button>
 
       {/* ── Header ── */}
-      <div className="mb-8">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <h1 className="section-title flex items-center gap-2.5">
           <Icon name="pencil" className="w-6 h-6" />
           {companyName}
         </h1>
+        {/* Link alla scheda aperta: si manda a un altro admin perché faccia la
+            sua parte (es. il consenso Google) senza spiegargli dove cliccare.
+            Chi lo apre senza sessione atterra qui dopo il login. */}
+        <button
+          type="button"
+          onClick={() => {
+            const url = `${window.location.origin}/companies/${companyId}/brand?tab=${activeTab}`;
+            navigator.clipboard
+              ?.writeText(url)
+              .then(() => toast.success(`Link copiato: scheda ${BRAND_TAB_LABELS[activeTab]}`))
+              .catch(() => toast.error("Copia non riuscita: copia l'indirizzo dalla barra del browser"));
+          }}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2 text-[12px] font-semibold text-muted dark:text-[#9999a0] hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          title="Copia il link di questa scheda per condividerlo con un altro admin"
+        >
+          <Icon name="copy" className="w-3.5 h-3.5" />
+          Copia link scheda
+        </button>
       </div>
 
       <div className="mb-6 rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-2">
@@ -1460,6 +1480,32 @@ export function CompanyBrandPage() {
             title="Email aziendale"
             description="Mittenti condivisi dell'organizzazione (es. info@): usati come mittente aziendale, indipendenti dagli account personali degli operatori. Le credenziali sono cifrate."
           />
+        )}
+
+        {activeTab === "google" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <GoogleConnectSection scope="company" companyId={companyId} />
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <h2
+                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+                style={{ fontSize: "17px" }}
+              >
+                A cosa serve
+              </h2>
+              <p className="font-body text-[13px] text-muted dark:text-[#9999a0]">
+                Questo account è l'identità dell'azienda su Google, distinta sia dai mittenti email (che hanno solo i
+                permessi di Gmail) sia dal Google collegato nel profilo delle persone. Con questo il gestionale
+                scrive il <b>foglio dei rimborsi trasferte</b> condiviso col commercialista e crea l'
+                <b>archivio mensile su Drive</b>, anche quando nessuno è collegato alla dashboard: le
+                sincronizzazioni partono da un job schedulato.
+              </p>
+              <p className="mt-3 font-body text-[13px] text-muted dark:text-[#9999a0]">
+                Conviene usare un indirizzo aziendale (es. amministrazione@): se qui finisce l'account personale di
+                una persona, il giorno che quella persona se ne va si ferma tutto. Scollegandolo, le sincronizzazioni
+                si fermano ma nulla viene cancellato da Drive.
+              </p>
+            </div>
+          </div>
         )}
 
         {activeTab === "media" && (

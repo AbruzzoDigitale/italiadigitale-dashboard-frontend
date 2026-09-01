@@ -118,6 +118,10 @@ export type ReviewTabHandle = {
 type ReviewTabProps = {
   workItemId: number;
   canManage: boolean;
+  /** Permesso (anche per operatori abilitati) di inviare/annullare l'invio al cliente.
+   *  Per admin/PM è sempre true; abilita i pulsanti invio/rimozione invio anche a chi
+   *  non ha l'intera toolbar di revisione (canManage). */
+  canSendToClient?: boolean;
   /** Azienda della task: serve al modal di rimando per il peso configurato. */
   companyId?: number;
   onChanged?: () => void;
@@ -131,6 +135,7 @@ type ReviewTabProps = {
 export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function ReviewTab({
   workItemId,
   canManage,
+  canSendToClient = false,
   companyId,
   onChanged,
   onSentBack,
@@ -230,6 +235,8 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
     runTransition(() => approveInternallyApi(workItemId), "Approvata internamente.");
   const doSendToClient = () =>
     runTransition(() => sendToClientApi(workItemId, true), "Inviata al cliente.");
+  const doUnsendToClient = () =>
+    runTransition(() => sendToClientApi(workItemId, false), "Invio al cliente rimosso.");
   const doApproveClient = () =>
     runTransition(() => approveClientApi(workItemId), "Approvata dal cliente.");
   const doReopen = () =>
@@ -255,6 +262,7 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
       case "sendToReview": return void doSendToReview();
       case "approveInternally": return void doApproveInternally();
       case "sendToClient": return void doSendToClient();
+      case "unsendToClient": return void doUnsendToClient();
       case "approveClient": return void doApproveClient();
       case "publish": return setPublishOpen(true);
       case "complete": return void doComplete();
@@ -289,6 +297,30 @@ export const ReviewTab = forwardRef<ReviewTabHandle, ReviewTabProps>(function Re
           <span className="rv-chip stage"><Svg name="send" w={12} /> Inviata al cliente</span>
         ) : null}
       </div>
+
+      {/* Azioni "consegna al cliente" disponibili anche a operatori abilitati (canSendToClient),
+          non solo alla toolbar di revisione completa. Il "Rimuovi invio" annulla senza rimando. */}
+      {(() => {
+        // "Invia al cliente" per gli operatori abilitati: i manager lo hanno già nella toolbar/footer.
+        const showSend = phase === "approvata_interna" && canSendToClient && !canManage;
+        // "Rimuovi invio al cliente" (annulla senza rimando indietro): per chiunque possa inviare.
+        const showUnsend = phase === "cliente" && !!review.delivered_to_client_at && (canManage || canSendToClient);
+        if (!showSend && !showUnsend) return null;
+        return (
+          <div className="rv-submitbar">
+            {showUnsend ? (
+              <button className="rv-btn ghost rv-submit" onClick={() => runActionKey("unsendToClient")} disabled={busy}>
+                <Svg name="refresh" /> Rimuovi invio al cliente
+              </button>
+            ) : null}
+            {showSend ? (
+              <button className="rv-btn primary rv-submit" onClick={() => runActionKey("sendToClient")} disabled={busy}>
+                <Svg name="send" /> Invia al cliente
+              </button>
+            ) : null}
+          </div>
+        );
+      })()}
 
       {/* A · COMMENTI */}
       <section className="rv-card">

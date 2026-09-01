@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Modal } from "../../components/ui/Modal";
 import { Icon } from "../../components/ui/Icon";
 import { Checkbox } from "../../components/ui/Checkbox";
-import { getPushOpenMode, setPushOpenMode, type PushOpenMode } from "./pushOpenPreference";
+import { setPushOpenMode, type PushOpenMode } from "./pushOpenPreference";
+import { apriNotifica, apriNuovaScheda, subscribeOpenChoice } from "./openNotificationTarget";
 import { getMyNotificationPreferencesApi, updateMyNotificationPreferencesApi } from "../../api/notifications";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14,12 +15,6 @@ import { getMyNotificationPreferencesApi, updateMyNotificationPreferencesApi } f
 // questo popup, così chi sta lavorando su altro non si ritrova la pagina
 // cambiata sotto le mani.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Apre in una scheda nuova. Ritorna false se il browser l'ha bloccata. */
-function apriNuovaScheda(url: string): boolean {
-  const w = window.open(url, "_blank", "noopener");
-  return w !== null;
-}
 
 export function PushOpenPrompt() {
   const navigate = useNavigate();
@@ -40,25 +35,21 @@ export function PushOpenPrompt() {
     [navigate],
   );
 
+  // Richieste di scelta: dal centro notifiche (clic in-app) e dal service worker
+  // (clic sulla notifica push). La decisione è la stessa, quindi anche il popup.
+  useEffect(() => {
+    return subscribeOpenChoice((target) => {
+      setRicorda(false);
+      setUrl(target);
+    });
+  }, []);
+
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; url?: string } | null;
       if (!data || data.type !== "push-open" || !data.url) return;
-      const mode: PushOpenMode = getPushOpenMode();
-      if (mode === "same") {
-        vaiQui(data.url);
-        return;
-      }
-      if (mode === "new") {
-        // Qui non c'è un clic dell'utente: se il browser blocca il popup, si
-        // ripiega sul chiedere invece di non fare niente.
-        if (apriNuovaScheda(data.url)) return;
-        setUrl(data.url);
-        return;
-      }
-      setRicorda(false);
-      setUrl(data.url);
+      apriNotifica(data.url, vaiQui);
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);

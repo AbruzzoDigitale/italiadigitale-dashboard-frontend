@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { Icon } from "../../components/ui/Icon";
 import { Spinner } from "../../components/ui/Spinner";
 import { RichTextEditor, hasRichTextContent } from "../../components/ui/RichTextEditor";
+import { VariableMenu } from "./VariableMenu";
 import {
   createEmailTemplateApi,
   deleteEmailTemplateApi,
@@ -63,6 +64,14 @@ export function MailTemplatesManager({ companyId, scope, canEdit }: Props) {
   const [fullHtml, setFullHtml] = useState<string>("");
   const [showPreview, setShowPreview] = useState(false);
   const previewTimer = useRef<number | null>(null);
+
+  // Oggetto: campo di testo semplice → inserimento variabile al caret tramite menu.
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const subjectCaretRef = useRef<number>(0);
+  const trackSubjectCaret = () => {
+    const el = subjectRef.current;
+    if (el && el.selectionStart != null) subjectCaretRef.current = el.selectionStart;
+  };
 
   // ── Caricamento elenco + variabili ────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -142,6 +151,27 @@ export function MailTemplatesManager({ companyId, scope, canEdit }: Props) {
       setDirty(true);
       runPreview(next.subject, next.body_html);
       return next;
+    });
+  };
+
+  // Inserisce {{token}} nell'oggetto alla posizione del caret (senza digitare le {{}}).
+  const insertSubjectVariable = (token: string) => {
+    const insertText = `{{${token}}}`;
+    setDraft((d) => {
+      const pos = Math.min(subjectCaretRef.current, d.subject.length);
+      const nextSubject = d.subject.slice(0, pos) + insertText + d.subject.slice(pos);
+      setDirty(true);
+      runPreview(nextSubject, d.body_html);
+      const caret = pos + insertText.length;
+      requestAnimationFrame(() => {
+        const el = subjectRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+          subjectCaretRef.current = caret;
+        }
+      });
+      return { ...d, subject: nextSubject };
     });
   };
 
@@ -294,15 +324,32 @@ export function MailTemplatesManager({ companyId, scope, canEdit }: Props) {
             )}
           </div>
 
-          {/* Oggetto */}
-          <Input
-            label="Oggetto"
-            value={draft.subject}
-            onChange={(e) => patchDraft({ subject: e.target.value })}
-            placeholder="Oggetto dell'email"
-            disabled={!canEdit}
-            hint="Puoi usare variabili {{...}} anche nell'oggetto."
-          />
+          {/* Oggetto (con inserimento variabili) */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="mail-template-subject"
+                className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark"
+              >
+                Oggetto
+              </label>
+              {canEdit && (
+                <VariableMenu variables={variables} onInsert={insertSubjectVariable} disabled={!canEdit} />
+              )}
+            </div>
+            <Input
+              id="mail-template-subject"
+              ref={subjectRef}
+              value={draft.subject}
+              onChange={(e) => patchDraft({ subject: e.target.value })}
+              onSelect={trackSubjectCaret}
+              onKeyUp={trackSubjectCaret}
+              onClick={trackSubjectCaret}
+              onFocus={trackSubjectCaret}
+              placeholder="Oggetto dell'email"
+              disabled={!canEdit}
+            />
+          </div>
 
           {/* Corpo — editor stile Gmail con variabili */}
           <RichTextEditor

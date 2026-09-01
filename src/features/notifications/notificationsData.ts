@@ -11,7 +11,14 @@ export interface NotifTypeMeta {
   tone: NotifTone;
 }
 
-export type NotifTabKey = "task" | "richieste" | "contratti" | "comunicazioni" | "monitoraggi";
+export type NotifTabKey =
+  | "task"
+  | "richieste"
+  | "contratti"
+  | "comunicazioni"
+  | "monitoraggi"
+  | "sale"
+  | "rimborsi";
 
 /** Forma allineata a NotificationResponse del backend. */
 export interface NotifItem {
@@ -60,6 +67,14 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   social_inactivity: { label: "Social non aggiornato", icon: "activity", tone: "amber" },
   social_below_target: { label: "Sotto al ritmo PED", icon: "activity", tone: "amber" },
   social_monitor_error: { label: "Collegamento non verificato", icon: "alert-triangle", tone: "magenta" },
+  // prenotazione sale
+  sala_prenotata: { label: "Sala prenotata", icon: "calendar", tone: "mint" },
+  sala_modificata: { label: "Prenotazione modificata", icon: "refresh-cw", tone: "indigo" },
+  sala_annullata: { label: "Prenotazione annullata", icon: "x", tone: "magenta" },
+  // rimborsi trasferte
+  trasferta_da_approvare: { label: "Da approvare", icon: "map-pin", tone: "amber" },
+  trasferta_approvata: { label: "Trasferta approvata", icon: "check", tone: "mint" },
+  trasferta_respinta: { label: "Trasferta respinta", icon: "x", tone: "magenta" },
   // comunicazioni
   com_operatore: { label: "Operatore", icon: "users", tone: "mint" },
   com_area: { label: "Area", icon: "grid", tone: "indigo" },
@@ -123,6 +138,8 @@ export const NOTIF_TABS: { key: NotifTabKey; label: string; icon: IconName }[] =
   { key: "contratti", label: "Contratti", icon: "document-text" },
   { key: "comunicazioni", label: "Comunicazioni", icon: "annotation" },
   { key: "monitoraggi", label: "Monitoraggi", icon: "activity" },
+  { key: "sale", label: "Sale", icon: "calendar" },
+  { key: "rimborsi", label: "Trasferte", icon: "map-pin" },
 ];
 
 export const NOTIF_COM_FILTERS: { key: string; label: string; tone?: NotifTone }[] = [

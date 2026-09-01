@@ -471,6 +471,8 @@ export function WorkItemsPage() {
   const isAdmin = !!permissions?.is_admin;
   // Archiviazione (soft-delete) e selezione multipla: admin e Project Manager (non operatori).
   const canManageWorkItems = isAdmin || !!permissions?.is_project_manager;
+  // Invio/annullo invio al cliente: admin/PM sempre, oppure operatore abilitato per-utente.
+  const canSendToClient = canManageWorkItems || !!permissions?.can_send_to_client;
   const canUseAiTasks = isAdmin || !!permissions?.can_use_llm;
   const canUseManualTasks = isAdmin || !!permissions?.can_generate_manual_tasks;
   const canOpenTaskGenerator = canUseAiTasks || canUseManualTasks;
@@ -2279,6 +2281,7 @@ export function WorkItemsPage() {
           companyId={formCompanyId}
           isAdmin={isAdmin}
           canManageReviewer={canManageWorkItems}
+          canSendToClient={canSendToClient}
           onSaved={(savedItem) => {
             const prev = editingItem; // snapshot pre-modifica (null in creazione)
             setModalOpen(false);
@@ -2454,6 +2457,7 @@ export function WorkItemsPage() {
           <ReviewTab
             workItemId={reviewItem.id}
             canManage={canManageWorkItems}
+            canSendToClient={canSendToClient}
             companyId={companyId ?? undefined}
             onChanged={() => void refetch(true)}
             onSentBack={() => { setReviewItem(null); void refetch(true); }}

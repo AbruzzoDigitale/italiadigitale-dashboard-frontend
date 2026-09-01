@@ -16,6 +16,8 @@ export type AppRouteKey =
   | "social-profiles"
   | "social-monitors"
   | "websites"
+  | "prenotazione-sale"
+  | "rimborsi"
   | "reports"
   | "catalog"
   | "llm"
@@ -81,6 +83,15 @@ export function canAccessRoute(
     case "reports":
       // Pagina Report: la vedono tutti, ma il backend mostra solo i report dei
       // moduli assegnati alle proprie aree (l'admin tutti).
+      return true;
+    case "prenotazione-sale":
+      // Calendario condiviso delle sale: lo vede e lo usa chiunque in azienda.
+      // Le sale (anagrafica) restano configurabili solo dagli admin, lato API.
+      return true;
+    case "rimborsi":
+      // Rimborsi trasferte: ognuno registra le proprie. La coda di approvazione
+      // e le impostazioni (foglio, Drive, tariffe) restano agli admin, sia in
+      // pagina sia lato API.
       return true;
     case "websites":
       // Registro siti web dei clienti: consultabile e gestibile da tutti, come i

@@ -36,6 +36,8 @@ import { SocialPackagesPage } from "./pages/SocialPackagesPage";
 import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
+import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
+import RimborsiPage from "./pages/RimborsiPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
@@ -50,10 +52,19 @@ import { ModelEditorPage } from "./pages/ModelEditorPage";
 import { BrowserPage } from "./pages/BrowserPage";
 import { canAccessRoute, getFallbackRoute } from "./utils/access";
 
+/** Percorso richiesto (con query), da riprendere dopo il login. */
+function useRequestedPath(): string {
+  const location = useLocation();
+  return `${location.pathname}${location.search}`;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const from = useRequestedPath();
   if (isLoading) return <FullPageSpinner />;
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  // `from`: un link condiviso (es. impostazioni azienda) deve riaprirsi dov'era
+  // dopo il login, non scaricare chi lo riceve sulla home.
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" state={{ from }} replace />;
 }
 
 function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
@@ -66,7 +77,9 @@ function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAc
   const { permissions, isLoading, isAuthenticated } = useAuth();
   const location = useLocation();
   if (isLoading) return <FullPageSpinner />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}` }} replace />;
+  }
   if (canAccessRoute(permissions, routeKey)) return <>{children}</>;
   // La dashboard non è una pagina "vietata": chi non può vederla (es. operatore)
   // viene portato alla propria vista di partenza invece di un "accesso negato".
@@ -152,6 +165,8 @@ function AppRoutes() {
         <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
         <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
+        <Route path="prenotazione-sale" element={<RouteAccess routeKey="prenotazione-sale"><MeetingRoomsPage /></RouteAccess>} />
+        <Route path="rimborsi" element={<RouteAccess routeKey="rimborsi"><RimborsiPage /></RouteAccess>} />
         <Route path="report" element={<RouteAccess routeKey="reports"><ReportsPage /></RouteAccess>} />
         <Route path="social-packages" element={<RouteAccess routeKey="social"><SocialPackagesPage /></RouteAccess>} />
         <Route path="social-packages-presentation" element={<RouteAccess routeKey="social"><SocialPackagesPresentationPage /></RouteAccess>} />

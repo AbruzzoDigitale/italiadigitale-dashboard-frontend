@@ -90,6 +90,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     work_area_ids: (user?.work_area_ids ?? []).map(String),
     assigned_client_ids: (user?.assigned_client_ids ?? []).map(String),
     can_use_llm: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("llm"),
+    can_send_to_client: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("send_to_client"),
   });
   const [companySearch, setCompanySearch] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -113,6 +114,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         work_area_ids: (user.work_area_ids ?? []).map(String),
         assigned_client_ids: (user.assigned_client_ids ?? []).map(String),
         can_use_llm: user.is_admin ? true : (user.operator_permissions ?? []).includes("llm"),
+        can_send_to_client: user.is_admin ? true : (user.operator_permissions ?? []).includes("send_to_client"),
       });
       return;
     }
@@ -131,6 +133,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
       work_area_ids: [],
       assigned_client_ids: [],
       can_use_llm: false,
+      can_send_to_client: false,
     });
     setErrors({});
     setCompanySearch("");
@@ -297,13 +300,18 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     setSaving(true);
     try {
       if (isEdit && user) {
-        const currentOperatorPermissions = (user.operator_permissions ?? []).filter((permission) => permission !== "llm");
-        // Le viste operatore (incl. LLM) si gestiscono solo per l'operatore; admin e PM hanno viste fisse lato backend.
+        const currentOperatorPermissions = (user.operator_permissions ?? []).filter(
+          (permission) => permission !== "llm" && permission !== "send_to_client"
+        );
+        // Le viste/permessi operatore (incl. LLM e invio al cliente) si gestiscono solo per
+        // l'operatore; admin e PM hanno viste/permessi fissi lato backend.
         const nextOperatorPermissions = form.access_level !== "operator"
           ? null
-          : form.can_use_llm
-            ? Array.from(new Set([...currentOperatorPermissions, "llm"]))
-            : currentOperatorPermissions;
+          : Array.from(new Set([
+              ...currentOperatorPermissions,
+              ...(form.can_use_llm ? ["llm"] : []),
+              ...(form.can_send_to_client ? ["send_to_client"] : []),
+            ]));
         const payload: UpdateUserPayload = {
           full_name: form.full_name,
           username: form.username,
@@ -320,10 +328,14 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         await updateUserApi(user.id, payload);
         toast.success("Utente aggiornato");
       } else {
+        const createPerms = [
+          ...(form.can_use_llm ? ["llm"] : []),
+          ...(form.can_send_to_client ? ["send_to_client"] : []),
+        ];
         const nextOperatorPermissions = form.access_level !== "operator"
           ? null
-          : form.can_use_llm
-            ? ["llm"]
+          : createPerms.length
+            ? createPerms
             : null;
         const payload: CreateUserPayload = {
           full_name: form.full_name,
@@ -560,6 +572,20 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               />
               <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
                 Accesso LLM
+              </span>
+            </label>
+          )}
+
+          {/* Invio al cliente: permesso per-utente (admin/PM ce l'hanno sempre). Configurabile
+              solo per l'operatore, per darlo a uno specifico operatore. */}
+          {form.access_level === "operator" && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Checkbox
+                checked={form.can_send_to_client}
+                onChange={(v) => set("can_send_to_client", v)}
+              />
+              <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
+                Può inviare al cliente
               </span>
             </label>
           )}

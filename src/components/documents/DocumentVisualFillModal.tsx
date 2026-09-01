@@ -321,7 +321,7 @@ export function DocumentVisualFillModal({
       }
       description={doc?.title}
       icon={<Icon name="pencil" className="w-5 h-5" />}
-      size="2xl"
+      size="full"
       dialogClassName="!max-w-[96vw] h-[92vh]"
       mobileFullscreen
       footer={

@@ -598,6 +598,18 @@ export function ControlloPedPage() {
                           ) : hasTask ? (
                             <span className="ped-cell-t ped-cell-unset">PED</span>
                           ) : null}
+                          {cell?.link_ped ? (
+                            <a
+                              href={cell.link_ped}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ped-cell-link"
+                              title="Apri il Link PED"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Icon name="link" className="h-3 w-3" />
+                            </a>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -675,14 +687,14 @@ interface PedMonthProps {
 
 function PedMonth({ monthKeyValue, monthLabel, rows, statuses, statusById, onBack }: PedMonthProps) {
   const groups = useMemo(() => {
-    const map = new Map<number, { client: string; title: string | null }[]>();
+    const map = new Map<number, { client: string; title: string | null; link_ped: string | null }[]>();
     statuses.forEach((s) => map.set(s.id, []));
     let planned = 0;
     let noPlan = 0;
     rows.forEach((r) => {
       const cell = r.cells[monthKeyValue];
       if (cell?.ped_status_id != null && map.has(cell.ped_status_id)) {
-        map.get(cell.ped_status_id)!.push({ client: r.client_name, title: cell.title });
+        map.get(cell.ped_status_id)!.push({ client: r.client_name, title: cell.title, link_ped: cell.link_ped });
         planned++;
       } else {
         noPlan++;
@@ -729,6 +741,17 @@ function PedMonth({ monthKeyValue, monthLabel, rows, statuses, statusById, onBac
                       <span className="ped-mcard-n">{it.client}</span>
                       {it.title && it.title !== it.client && <span className="ped-mcard-note">{it.title}</span>}
                     </div>
+                    {it.link_ped ? (
+                      <a
+                        href={it.link_ped}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ped-mcard-link"
+                        title="Apri il Link PED"
+                      >
+                        <Icon name="link" className="h-3.5 w-3.5" />
+                      </a>
+                    ) : null}
                   </div>
                 ))}
               </div>

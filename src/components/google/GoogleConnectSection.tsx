@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { getGoogleStatusApi, googleAuthorizeApi, disconnectGoogleApi, type GoogleStatus } from "../../api/googleServices";
+import {
+  getGoogleStatusApi,
+  googleAuthorizeApi,
+  disconnectGoogleApi,
+  type GoogleScope,
+  type GoogleStatus,
+} from "../../api/googleServices";
 import { useToast } from "../../context/ToastContext";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
@@ -106,11 +112,23 @@ function ServiceIcon({ type, generic, connected, animate, delayMs }: {
 }
 
 /**
- * Collegamento dell'account Google dell'utente (OAuth) per Drive, Calendar e Docs.
- * Il client OAuth (client_id/secret) è nel DB (company_settings, google_oauth.*), lo
- * stesso di Gmail; qui gli scope sono ampi (lettura/scrittura).
+ * Collegamento di un account Google (OAuth) per Drive, Calendar, Docs e Fogli.
+ * Il client OAuth (client_id/secret) è nel DB (company_settings, google_oauth.*),
+ * lo stesso di Gmail; qui gli scope sono ampi (lettura/scrittura).
+ *
+ * `scope="mine"` (default, nel profilo) collega l'account della persona.
+ * `scope="company"` (impostazioni brand dell'azienda, solo admin) collega
+ * l'account dell'AZIENDA: è quello con cui girano le automazioni — foglio dei
+ * rimborsi e archivio Drive — anche quando nessuno è collegato alla dashboard.
  */
-export function GoogleConnectSection() {
+export function GoogleConnectSection({
+  scope = "mine",
+  companyId = null,
+}: {
+  scope?: GoogleScope;
+  companyId?: number | null;
+} = {}) {
+  const isCompany = scope === "company";
   const toast = useToast();
   const [status, setStatus] = useState<GoogleStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,13 +157,16 @@ export function GoogleConnectSection() {
   }, []);
 
   const reload = () => {
-    getGoogleStatusApi()
+    getGoogleStatusApi(scope, companyId)
       .then(setStatus)
       .catch(() => setStatus(null))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { reload(); }, []);
+  // Dipende da scope/companyId: la stessa sezione mostra l'account personale nel
+  // profilo e quello aziendale nelle impostazioni dell'azienda.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [scope, companyId]);
 
   // Ritorno dal flusso OAuth (?google_linked / ?google_error).
   useEffect(() => {
@@ -164,7 +185,7 @@ export function GoogleConnectSection() {
   const onConnect = async () => {
     setBusy(true);
     try {
-      const { authorize_url } = await googleAuthorizeApi(window.location.href);
+      const { authorize_url } = await googleAuthorizeApi(window.location.href, scope);
       window.location.href = authorize_url;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Google non disponibile");
@@ -175,8 +196,8 @@ export function GoogleConnectSection() {
   const onDisconnect = async () => {
     setBusy(true);
     try {
-      await disconnectGoogleApi();
-      toast.success("Account Google disconnesso");
+      await disconnectGoogleApi(scope, companyId);
+      toast.success(isCompany ? "Account Google aziendale disconnesso" : "Account Google disconnesso");
       reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Errore");
@@ -192,11 +213,13 @@ export function GoogleConnectSection() {
       <div className="mb-1 flex items-center gap-2">
         <GoogleG className="h-5 w-5" />
         <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7]" style={{ fontSize: "17px" }}>
-          Google
+          {isCompany ? "Google dell'azienda" : "Google"}
         </h2>
       </div>
       <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-4">
-        Collega il tuo account Google per usare Drive, Calendar, Documenti, Fogli e Gmail direttamente dal gestionale.
+        {isCompany
+          ? "L'account con cui il gestionale scrive per conto dell'azienda: foglio dei rimborsi trasferte e archivio su Drive. Le sincronizzazioni girano da sole, anche quando nessuno è collegato alla dashboard, quindi qui va un account aziendale e non quello personale di chi accede."
+          : "Collega il tuo account Google per usare Drive, Calendar, Documenti, Fogli e Gmail direttamente dal gestionale."}
       </p>
 
       <div ref={rowRef} className="mb-5 flex flex-wrap gap-2">
@@ -238,7 +261,7 @@ export function GoogleConnectSection() {
         </div>
       ) : (
         <Button size="sm" variant="secondary" onClick={onConnect} loading={busy}>
-          <GoogleG className="h-4 w-4" /> Connetti con Google
+          <GoogleG className="h-4 w-4" /> {isCompany ? "Collega l'account aziendale" : "Connetti con Google"}
         </Button>
       )}
     </div>

@@ -158,7 +158,7 @@ export function FieldLayoutModal({ open, onClose, document: doc, onChanged }: Fi
       title="Configura e precompila il modello"
       description={doc?.title}
       icon={<Icon name="list" className="w-5 h-5" />}
-      size="2xl"
+      size="full"
       dialogClassName="!max-w-[96vw] h-[92vh]"
       mobileFullscreen
       footer={

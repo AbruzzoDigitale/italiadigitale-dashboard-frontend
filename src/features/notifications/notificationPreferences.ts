@@ -15,7 +15,9 @@ export type NotifCategoryKey =
   | "task_changes"
   | "requests"
   | "contracts"
-  | "communications";
+  | "communications"
+  | "room_bookings"
+  | "expense_trips";
 
 export interface NotificationPreferences {
   /** Canali aggiuntivi (in-app è sempre attivo). */
@@ -55,6 +57,8 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
   { key: "requests", label: "Richieste preventivo", description: "Nuove richieste in arrivo dai clienti.", icon: "mail", tone: "indigo" },
   { key: "contracts", label: "Contratti", description: "Da avviare, in scadenza o scaduti.", icon: "document-text", tone: "neutral" },
   { key: "communications", label: "Comunicazioni", description: "Avvisi globali, di area o personali.", icon: "annotation", tone: "magenta" },
+  { key: "room_bookings", label: "Prenotazione sale", description: "Riunioni in cui sei organizzatore o partecipante.", icon: "calendar", tone: "indigo" },
+  { key: "expense_trips", label: "Rimborsi trasferte", description: "Trasferte da approvare e esito delle tue richieste.", icon: "map-pin", tone: "amber" },
 ];
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
@@ -76,5 +80,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     requests: true,
     contracts: true,
     communications: true,
+    room_bookings: true,
+    expense_trips: true,
   },
 };

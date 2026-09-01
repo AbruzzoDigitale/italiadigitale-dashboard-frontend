@@ -247,6 +247,14 @@ function taskHoursLabel(task: TaskHoursFields): string {
   return `${formatHours(effective)} eff · ${formatHours(task.estimated_hours)} st`;
 }
 
+// Ciano "consegnata al cliente": stesso colore delle card in Lavorazioni (sent-client).
+// Una task consegnata al cliente non pesa sull'operatore (0 ore effettive): va mostrata
+// come "parcheggiata al cliente", non col colore area come una lavorazione attiva.
+const SENT_TO_CLIENT_COLOR = "#2ec3f3";
+function isSentToClient(task: { status: string; delivered_to_client_at?: string | null }): boolean {
+  return task.status === "review" && !!task.delivered_to_client_at;
+}
+
 function statusLabel(status: WorkloadComputedStatus) {
   switch (status) {
     case "overload":
@@ -1606,12 +1614,19 @@ export function WorkloadPage() {
       unassigned = false
     ) => {
       const status = taskStatusMeta(task.status);
+      const sentToClient = isSentToClient(task);
       return (
         <button
           key={task.work_item_id}
           type="button"
           draggable
-          style={{ ["--wl-area" as string]: unassigned ? "#f5b800" : taskAreaColor(task) }}
+          style={{
+            ["--wl-area" as string]: sentToClient
+              ? SENT_TO_CLIENT_COLOR
+              : unassigned
+                ? "#f5b800"
+                : taskAreaColor(task),
+          }}
           onDragStart={(event) => onTaskDragStart(event, task.work_item_id, sourceAssigneeId)}
           onDragEnd={onTaskDragEnd}
           onClick={() => void openEditWorkItemModal(task.work_item_id)}
@@ -1639,9 +1654,14 @@ export function WorkloadPage() {
             )}
             <span
               className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none"
-              style={{ color: status.color, backgroundColor: `${status.color}22` }}
+              style={
+                sentToClient
+                  ? { color: SENT_TO_CLIENT_COLOR, backgroundColor: `${SENT_TO_CLIENT_COLOR}22` }
+                  : { color: status.color, backgroundColor: `${status.color}22` }
+              }
+              title={sentToClient ? "Consegnata al cliente, in attesa (non pesa sull'operatore)" : undefined}
             >
-              {status.label}
+              {sentToClient ? "Al cliente" : status.label}
             </span>
           </div>
         </button>
@@ -1891,6 +1911,9 @@ export function WorkloadPage() {
       opts?: { unassigned?: boolean }
     ) => {
       const time = formatTaskStartTime(task.start_time);
+      const sentToClient = isSentToClient(task);
+      // Consegnata al cliente → ciano come in Lavorazioni; altrimenti colore area.
+      const chipColor = opts?.unassigned ? null : sentToClient ? SENT_TO_CLIENT_COLOR : areaColor;
       return (
         <button
           key={task.work_item_id}
@@ -1900,8 +1923,8 @@ export function WorkloadPage() {
           onDragEnd={onTaskDragEnd}
           onClick={() => void openEditWorkItemModal(task.work_item_id)}
           className={`wlfull-chip${opts?.unassigned ? " is-unassigned" : ""}${draggingTaskId === task.work_item_id ? " is-dragging" : ""}`}
-          style={!opts?.unassigned && areaColor ? ({ "--area": areaColor } as CSSProperties) : undefined}
-          title={task.title}
+          style={chipColor ? ({ "--area": chipColor } as CSSProperties) : undefined}
+          title={sentToClient ? `${task.title} — al cliente` : task.title}
         >
           <span className="wlfull-chip-main">
             <span className="wlfull-chip-t">{task.title}</span>
@@ -3074,6 +3097,8 @@ export function WorkloadPage() {
         editingItem={editingItem}
         companyId={selectedCompanyId!}
         isAdmin={!!permissions?.is_admin}
+        canManageReviewer={!!permissions?.is_admin || !!permissions?.is_project_manager}
+        canSendToClient={!!permissions?.can_send_to_client}
         defaultWorkDate={quickAdd?.day ?? selectedDay ?? getTodayDate()}
         defaultStartTime={quickAdd?.startTime}
         defaultEstimatedHours={quickAdd?.estimatedHours}

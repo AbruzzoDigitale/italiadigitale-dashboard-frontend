@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { COMM_PARAM } from "../features/notifications/communicationLink";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
@@ -8,10 +10,13 @@ import { Textarea } from "../components/ui/Textarea";
 import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { MultiSelect } from "../components/ui/MultiSelect";
 import { listWorkAreasApi, type WorkArea } from "../api/workAreas";
 import { getUsersApi, type User } from "../api/users";
 import {
+  getReceivedCommunicationsApi,
+  type CommunicationDetail,
   createCommunicationApi,
   deleteCommunicationApi,
   getCommunicationsApi,
@@ -32,6 +37,35 @@ function scopeChipLabel(c: CommunicationItem): string {
 }
 
 export function CommunicationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Due punti di vista sulla stessa pagina: quelle che ho mandato e quelle che
+  // ho ricevuto (un PM riceve le comunicazioni dell'admin, non solo le sue).
+  const [vista, setVista] = useState<"inviate" | "ricevute">("inviate");
+  // Le ricevute si ricaricano quando si apre la scheda e quando si torna dal
+  // modal (che può averne segnata una come letta): la "chiave" tiene insieme le
+  // due cose, così lo stato di caricamento si deduce invece di essere impostato
+  // dentro l'effetto.
+  const chiaveRicevute = `${vista}|${searchParams.get(COMM_PARAM) ?? ""}`;
+  const [caricate, setCaricate] = useState<{ chiave: string; dati: CommunicationDetail[] } | null>(null);
+  const ricevute = caricate?.chiave === chiaveRicevute ? caricate.dati : [];
+  const loadingRicevute = vista === "ricevute" && caricate?.chiave !== chiaveRicevute;
+  const daLeggere = ricevute.filter((c) => !c.is_read).length;
+
+  useEffect(() => {
+    if (vista !== "ricevute") return;
+    let vivo = true;
+    getReceivedCommunicationsApi()
+      .then((r) => vivo && setCaricate({ chiave: chiaveRicevute, dati: r }))
+      .catch(() => vivo && setCaricate({ chiave: chiaveRicevute, dati: [] }));
+    return () => {
+      vivo = false;
+    };
+  }, [vista, chiaveRicevute]);
+  const apriComunicazione = (id: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set(COMM_PARAM, String(id));
+    setSearchParams(next);
+  };
   const { user, permissions } = useAuth();
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
@@ -197,9 +231,64 @@ export function CommunicationsPage() {
         </div>
       </div>
 
-      {/* Inviate */}
-      <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark">Inviate</div>
-      {loading ? (
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <SegmentedSwitch
+          value={vista}
+          onChange={setVista}
+          ariaLabel="Comunicazioni inviate o ricevute"
+          options={[
+            { value: "inviate", label: "Inviate" },
+            {
+              value: "ricevute",
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  Ricevute
+                  {daLeggere > 0 ? <span className="cm-pill">{daLeggere}</span> : null}
+                </span>
+              ),
+            },
+          ]}
+        />
+      </div>
+
+      {vista === "ricevute" ? (
+        loadingRicevute ? (
+          <div className="flex items-center justify-center py-12"><Spinner size="md" /></div>
+        ) : ricevute.length === 0 ? (
+          <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
+            Nessuna comunicazione ricevuta.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {ricevute.map((c) => (
+              <div
+                key={c.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => apriComunicazione(c.id)}
+                onKeyDown={(e) => e.key === "Enter" && apriComunicazione(c.id)}
+                className={`cursor-pointer rounded-lg border p-4 transition-colors ${
+                  c.is_read
+                    ? "border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316]"
+                    : "border-ink dark:border-paper bg-cream dark:bg-[#1c1c20]"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  {!c.is_read && <span className="cm-dot" aria-label="Non letta" />}
+                  <span className="text-sm font-semibold text-ink dark:text-paper">{c.title}</span>
+                  <span className="inline-flex items-center rounded-pill border border-line dark:border-line-dark px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                    {scopeChipLabel(c)}
+                  </span>
+                </div>
+                {c.body && <p className="mt-1 text-[13px] text-muted dark:text-muted-dark line-clamp-2">{c.body}</p>}
+                <div className="mt-1.5 text-[11px] text-muted dark:text-muted-dark">
+                  Da {c.author_name ?? "—"} · {c.time}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : loading ? (
         <div className="flex items-center justify-center py-12"><Spinner size="md" /></div>
       ) : list.length === 0 ? (
         <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
@@ -210,7 +299,15 @@ export function CommunicationsPage() {
           {list.map((c) => (
             <div key={c.id} className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                {/* Clic sulla comunicazione: la apre per esteso nel modal a chat,
+                    lo stesso che si apre dalla notifica o da un link condiviso. */}
+                <div
+                  className="min-w-0 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => apriComunicazione(c.id)}
+                  onKeyDown={(e) => e.key === "Enter" && apriComunicazione(c.id)}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-ink dark:text-paper">{c.title}</span>
                     <span className="inline-flex items-center rounded-pill border border-line dark:border-line-dark px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">

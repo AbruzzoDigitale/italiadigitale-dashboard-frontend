@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Icon } from "../components/ui/Icon";
 import {
@@ -20,6 +20,12 @@ type ViewMode = "login" | "forgot" | "forgot-sent";
 export function LoginPage() {
   const { login, loginWithToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Destinazione richiesta prima del login (link condiviso): la si porta fino al
+  // selettore azienda, che poi ci atterra invece di andare sulla home.
+  const from = (location.state as { from?: string } | null)?.from;
+  const afterLogin = () =>
+    navigate("/choose-company", { replace: true, state: from ? { from } : undefined });
 
   const [mode, setMode] = useState<ViewMode>("login");
   const [username, setUsername] = useState("");
@@ -60,7 +66,7 @@ export function LoginPage() {
           try {
             const r = await googleLoginApi(resp.credential, rememberRef.current);
             await loginWithToken(r.access_token);
-            navigate("/choose-company", { replace: true });
+            afterLogin();
           } catch (err) {
             setFieldError(err instanceof Error ? err.message : "Accesso con Google non riuscito");
           } finally {
@@ -101,7 +107,7 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await login({ username: username.trim(), password, remember });
-      navigate("/choose-company", { replace: true });
+      afterLogin();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Credenziali non valide";
       setFieldError(msg);
@@ -118,7 +124,7 @@ export function LoginPage() {
       const assertion = await getPasskeyAssertion(options);
       const r = await passkeyLoginApi(challenge_token, assertion, remember);
       await loginWithToken(r.access_token);
-      navigate("/choose-company", { replace: true });
+      afterLogin();
     } catch (err) {
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setFieldError("Accesso con passkey annullato.");

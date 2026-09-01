@@ -71,6 +71,16 @@ export interface CommunicationItem {
   read_count: number;
 }
 
+/** Comunicazione vista da un destinatario: porta con sé lo stato della TUA
+ *  notifica, così il modal offre le stesse azioni del centro notifiche. */
+export interface CommunicationDetail extends CommunicationItem {
+  notification_id: number | null;
+  is_read: boolean;
+  is_archived: boolean;
+  /** Autore o admin: vede le statistiche di lettura. */
+  can_manage: boolean;
+}
+
 export interface CreateCommunicationPayload {
   company_id: number;
   scope: CommunicationScope;
@@ -78,6 +88,28 @@ export interface CreateCommunicationPayload {
   body?: string | null;
   work_area_id?: number | null;
   target_user_ids?: number[] | null;
+}
+
+/** Una singola comunicazione (accessibile anche agli operatori che la ricevono). */
+export async function getCommunicationApi(id: number): Promise<CommunicationDetail> {
+  const res = await authFetch(`${API_BASE}/api/v1/notifications/communications/${id}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Comunicazione non trovata")}`);
+  }
+  return res.json();
+}
+
+/** Le comunicazioni RICEVUTE da me (qualunque ruolo), con lo stato di lettura. */
+export async function getReceivedCommunicationsApi(archived = false): Promise<CommunicationDetail[]> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/notifications/communications/received${archived ? "?archived=true" : ""}`,
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le comunicazioni ricevute")}`);
+  }
+  return res.json();
 }
 
 export async function getCommunicationsApi(companyId: number): Promise<CommunicationItem[]> {

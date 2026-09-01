@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getUsersApi, type User } from "../../api/users";
 import { listWebsitesApi, websiteLabel, type Website } from "../../api/websites";
 import {
   DEFAULT_MONITOR,
@@ -61,15 +62,22 @@ export function WebsiteMonitorsTab({ companyId, canManage = false, fillHeight = 
   const [editing, setEditing] = useState<WebsiteMonitor | null>(null);
   const [form, setForm] = useState<MonitorSettings>(DEFAULT_MONITOR);
   const [siteIds, setSiteIds] = useState<number[]>([]);
+  const [recipientIds, setRecipientIds] = useState<number[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<WebsiteMonitor | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, w] = await Promise.all([listMonitorsApi(companyId), listWebsitesApi({ companyId })]);
+      const [m, w, u] = await Promise.all([
+        listMonitorsApi(companyId),
+        listWebsitesApi({ companyId }),
+        getUsersApi(companyId).catch(() => [] as User[]),
+      ]);
       setMonitors(m);
       setWebsites(w);
+      setUsers(u);
       setSelectedId((prec) => prec ?? m[0]?.id ?? null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Errore nel caricamento");
@@ -95,6 +103,7 @@ export function WebsiteMonitorsTab({ companyId, canManage = false, fillHeight = 
   const apriNuovo = () => {
     setForm(DEFAULT_MONITOR);
     setSiteIds([]);
+    setRecipientIds([]);
     setEditing(null);
     setFormOpen(true);
   };
@@ -104,6 +113,7 @@ export function WebsiteMonitorsTab({ companyId, canManage = false, fillHeight = 
     void id; void company_id; void client_name; void last_run_at; void next_run_at; void recipient_ids; void created_at;
     setForm(impostazioni);
     setSiteIds(targets.map((t) => t.website_id));
+    setRecipientIds(m.recipient_ids);
     setEditing(m);
     setFormOpen(true);
   };
@@ -120,8 +130,8 @@ export function WebsiteMonitorsTab({ companyId, canManage = false, fillHeight = 
     setSaving(true);
     try {
       const salvato = editing
-        ? await updateMonitorApi(editing.id, { ...form, website_ids: siteIds })
-        : await createMonitorApi(companyId, { ...form, website_ids: siteIds });
+        ? await updateMonitorApi(editing.id, { ...form, website_ids: siteIds, recipient_ids: recipientIds })
+        : await createMonitorApi(companyId, { ...form, website_ids: siteIds, recipient_ids: recipientIds });
       setFormOpen(false);
       setEditing(null);
       await load();
@@ -531,6 +541,40 @@ export function WebsiteMonitorsTab({ companyId, canManage = false, fillHeight = 
             <p className="mt-1.5 text-[11.5px] text-muted dark:text-muted-dark">
               Gli errori del monitoraggio stesso — crawler respinto, giro fallito — non generano
               avvisi: si vedono qui nel pannello.
+            </p>
+          </div>
+
+          {/* — Chi avvisare — */}
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+              Chi avvisare
+            </p>
+            <MultiSelect
+              label="Destinatari"
+              value={recipientIds}
+              onChange={setRecipientIds}
+              options={users.map((u) => ({ id: u.id, label: u.full_name || u.username }))}
+              placeholder="Nessuno: gli allarmi restano solo nel pannello"
+            />
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+              <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink dark:text-paper">
+                <Checkbox
+                  checked={form.notify_in_app}
+                  onChange={(v) => setForm((f) => ({ ...f, notify_in_app: v }))}
+                />
+                Notifica nel centro notifiche
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink dark:text-paper">
+                <Checkbox
+                  checked={form.notify_push}
+                  onChange={(v) => setForm((f) => ({ ...f, notify_push: v }))}
+                />
+                Notifica push
+              </label>
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-muted dark:text-muted-dark">
+              L'avviso parte quando un problema nasce o cambia, e quando il sito rientra — non a
+              ogni giro: un monitoraggio settimanale che ripete lo stesso avviso smette di essere letto.
             </p>
           </div>
         </div>
