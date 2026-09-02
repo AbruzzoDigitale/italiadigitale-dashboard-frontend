@@ -164,13 +164,13 @@ export function SettingsModal({
               key={item.key}
               type="button"
               onClick={() => setTab(item.key)}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-md px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${
                 tab === item.key
                   ? "bg-brand-magenta text-white"
                   : "text-muted hover:bg-cream dark:text-muted-dark dark:hover:bg-[#1c1c20]"
               }`}
             >
-              <Icon name={item.icon} className="h-3.5 w-3.5" />
+              <Icon name={item.icon} className="h-4 w-4" />
               {item.label}
             </button>
           ))}
@@ -545,6 +545,7 @@ function VehiclesTab({
           <label className="block">
             <span className="mb-1.5 block text-[11px] font-semibold text-muted dark:text-muted-dark">Intestato a</span>
             <SearchableSelect
+              menuLayer="portal"
               value={owner}
               onChange={setOwner}
               options={[{ value: "", label: "Veicolo aziendale" }, ...people]}

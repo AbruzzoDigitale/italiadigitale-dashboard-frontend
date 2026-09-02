@@ -3096,9 +3096,6 @@ export function WorkloadPage() {
         onClose={() => { setNewWorkModalOpen(false); setQuickAdd(null); setEditingItem(null); }}
         editingItem={editingItem}
         companyId={selectedCompanyId!}
-        isAdmin={!!permissions?.is_admin}
-        canManageReviewer={!!permissions?.is_admin || !!permissions?.is_project_manager}
-        canSendToClient={!!permissions?.can_send_to_client}
         defaultWorkDate={quickAdd?.day ?? selectedDay ?? getTodayDate()}
         defaultStartTime={quickAdd?.startTime}
         defaultEstimatedHours={quickAdd?.estimatedHours}

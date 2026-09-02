@@ -37,9 +37,11 @@ const SAMPLE_SELF = {
     in_review_count: 1,
     overdue_count: 2,
     estimated_hours_today: 6,
+    today_hours: 4.5,
     capacity_hours: 8,
     actual_hours_today: 4.5,
     overdue_hours: 3,
+    overdue_hours_weighted: 1.5,
     done: [
       { client_name: "TETO S.R.L.", title: "PED Agosto", estimated_hours: 1, deadline_date: "2026-08-01", urgency_level: "normal" },
       { client_name: "EDIMOBILI S.R.L.", title: "Storie promo", estimated_hours: 0.5, deadline_date: "2026-08-01", urgency_level: "low" },

@@ -49,6 +49,7 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   non_derogabile: { label: "Non derogabile", icon: "shield", tone: "magenta" },
   in_ritardo: { label: "In ritardo", icon: "clock", tone: "amber" },
   revisione: { label: "In revisione", icon: "eye", tone: "indigo" },
+  revisione_commento: { label: "Nuovo commento", icon: "annotation", tone: "indigo" },
   completata: { label: "Completata", icon: "check-circle", tone: "mint" },
   scaduta: { label: "Scaduta", icon: "alert-triangle", tone: "magenta" },
   nuova_task: { label: "Nuova task", icon: "plus", tone: "mint" },
@@ -87,12 +88,13 @@ export const GROUPED_TABS: NotifTabKey[] = ["task", "contratti"];
 /** Ordine e label delle intestazioni di gruppo (per tipo) nelle schede raggruppate. */
 export const NOTIF_GROUP_ORDER: Record<string, { order: string[]; labels: Record<string, string> }> = {
   task: {
-    order: ["non_derogabile", "scaduta", "in_ritardo", "revisione", "completata", "pronta_fatturazione", "nuova_task", "cambio_stato", "cambio_orario", "modifica", "riassegnata"],
+    order: ["non_derogabile", "scaduta", "in_ritardo", "revisione", "revisione_commento", "completata", "pronta_fatturazione", "nuova_task", "cambio_stato", "cambio_orario", "modifica", "riassegnata"],
     labels: {
       non_derogabile: "Non derogabili",
       scaduta: "Scadute",
       in_ritardo: "In ritardo",
       revisione: "In revisione",
+      revisione_commento: "Nuovi commenti",
       completata: "Completate",
       pronta_fatturazione: "Pronte da fatturare",
       nuova_task: "Nuova task assegnata",

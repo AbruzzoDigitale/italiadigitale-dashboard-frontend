@@ -438,7 +438,7 @@ export function TripModal({
     <Modal
       open={open}
       onClose={onClose}
-      size="lg"
+      size="xl"
       icon={<Icon name="map-pin" className="h-5 w-5" />}
       title={isNew ? "Nuova trasferta" : "Modifica trasferta"}
       description="I dati confluiscono nel foglio condiviso con il commercialista."
@@ -488,6 +488,7 @@ export function TripModal({
             {clients.length > 0 && (
               <Field label="Cliente">
                 <SearchableSelect
+                  menuLayer="portal"
                   value={draft.client_id}
                   onChange={(value) => set("client_id", value)}
                   options={[{ value: "", label: "Nessuno" }, ...clients]}
@@ -497,6 +498,7 @@ export function TripModal({
             )}
             <Field label="Veicolo">
               <SearchableSelect
+                menuLayer="portal"
                 value={draft.vehicle_id}
                 onChange={(value) => set("vehicle_id", value)}
                 options={[{ value: "", label: "Nessuno" }, ...vehicleOptions]}
@@ -506,6 +508,7 @@ export function TripModal({
             {canApprove && people.length > 0 && isNew && (
               <Field label="Chi ha fatto la trasferta">
                 <SearchableSelect
+                  menuLayer="portal"
                   value={draft.user_id}
                   onChange={(value) => set("user_id", value)}
                   options={people}
@@ -611,7 +614,7 @@ export function TripModal({
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <Input
                 label="Chilometri *"
                 type="number"
@@ -635,7 +638,7 @@ export function TripModal({
 
         {/* 3 · Spese */}
         <Section step={3} icon="credit-card" title="Spese documentate" hint="Importi da giustificativo">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             {([
               ["meal", "Vitto €"],
               ["lodging", "Alloggio €"],

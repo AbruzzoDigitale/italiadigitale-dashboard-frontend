@@ -538,12 +538,29 @@ export interface WorkItemFormModalProps {
   onClose: () => void;
   editingItem?: WorkItem | null;
   instantiateTemplate?: WorkItem | null;
+  /**
+   * Azienda con cui popolare le tendine (utenti, aree, tag, clienti, PED).
+   * In modifica vince sempre l'azienda della lavorazione: le opzioni devono essere
+   * quelle a cui la task appartiene, non quelle della pagina da cui la si è aperta.
+   */
   companyId: number;
-  isAdmin: boolean;
+  /**
+   * I tre permessi qui sotto sono facoltativi: se non li passi il modal li ricava
+   * da solo dalla sessione, con le stesse formule ovunque. Passali solo per
+   * RESTRINGERE di proposito. Prima li calcolava ogni pagina e divergevano.
+   */
+  isAdmin?: boolean;
   /** PM/Admin: può nominare/cambiare il revisore. */
   canManageReviewer?: boolean;
   /** Può inviare/annullare l'invio al cliente (admin/PM o operatore abilitato). */
   canSendToClient?: boolean;
+  /**
+   * Apre il modal direttamente sulla scheda Revisione, a prescindere dallo stato
+   * della task. Lo usa il deep-link `?review=1` delle notifiche di revisione: il
+   * commento che ha generato l'avviso può stare anche su una task rimandata
+   * indietro o già approvata, dove il solo stato non basterebbe a decidere.
+   */
+  openOnReview?: boolean;
   /** Pre-fill work_date when creating */
   defaultWorkDate?: string;
   /** Pre-fill start_time when creating */
@@ -647,10 +664,11 @@ export function WorkItemFormModal({
   onClose,
   editingItem = null,
   instantiateTemplate = null,
-  companyId,
-  isAdmin,
-  canManageReviewer = false,
-  canSendToClient = false,
+  companyId: companyIdProp,
+  isAdmin: isAdminProp,
+  canManageReviewer: canManageReviewerProp,
+  canSendToClient: canSendToClientProp,
+  openOnReview = false,
   defaultWorkDate,
   defaultStartTime,
   defaultEstimatedHours,
@@ -800,6 +818,22 @@ export function WorkItemFormModal({
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
 
+  // ── Azienda e permessi: decisi QUI, non dalla pagina che apre il modal ────────
+  // Ogni pagina se li calcolava per conto suo e il risultato divergeva: da
+  // "Attività del giorno" e "Situazione clienti" revisore e invio al cliente non
+  // arrivavano affatto, e dal Workload l'invio al cliente guardava solo il flag
+  // esplicito, togliendolo ad admin e PM che da Lavorazioni ce l'hanno. Ricavarli
+  // qui è l'unico modo perché il modal si comporti allo stesso modo ovunque.
+  // I prop restano come override, per restringere di proposito.
+  const isAdmin = isAdminProp ?? !!permissions?.is_admin;
+  const canManageReviewer = canManageReviewerProp ?? (isAdmin || !!permissions?.is_project_manager);
+  const canSendToClient = canSendToClientProp ?? (canManageReviewer || !!permissions?.can_send_to_client);
+
+  // In modifica le tendine devono essere quelle dell'azienda della lavorazione:
+  // aprendo una task da una pagina impostata su un'altra azienda, assegnatari,
+  // aree, tag e clienti non contenevano i valori della task.
+  const companyId = editingItem?.company_id ?? companyIdProp;
+
   // Scheda Monitoraggio: admin/PM la vedono sempre (in modifica); gli operatori
   // solo se un monitor è collegato e reso visibile (l'endpoint filtra lato server).
   const isMonitorManager = !!permissions?.is_admin || !!permissions?.is_project_manager;
@@ -863,14 +897,18 @@ export function WorkItemFormModal({
     }
   }, [open]);
 
-  // Se la task è in revisione, apri direttamente sulla scheda Revisione (una sola
-  // volta per task, quando il dettaglio è arrivato: non forza se poi l'utente cambia tab).
+  // Apri direttamente sulla scheda Revisione se la task è in revisione, oppure se
+  // chi ha aperto il modal lo chiede esplicitamente (`openOnReview`: deep-link di
+  // una notifica di revisione — lì il commento può stare anche su una task
+  // rimandata indietro o già approvata, dove lo stato non basterebbe).
+  // Una sola volta per task, quando il dettaglio è arrivato: non forza se poi
+  // l'utente cambia tab.
   useEffect(() => {
     if (!open || !sourceItem) return;
     if (reviewTabAppliedForRef.current === sourceItem.id) return;
     reviewTabAppliedForRef.current = sourceItem.id;
-    if (sourceItem.status === "review") setEditTab("revisione");
-  }, [open, sourceItem]);
+    if (openOnReview || sourceItem.status === "review") setEditTab("revisione");
+  }, [open, sourceItem, openOnReview]);
 
   // ── Load options when modal opens
   useEffect(() => {

@@ -1048,7 +1048,6 @@ export function DailyTasksPage() {
         }}
         editingItem={editingItem}
         companyId={companyId ?? 0}
-        isAdmin={isAdmin}
         onSaved={() => {
           setWorkItemModalOpen(false);
           setEditingItem(null);

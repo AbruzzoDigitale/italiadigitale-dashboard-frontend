@@ -72,10 +72,12 @@ export const RECAP_VARIABLES: Array<{ key: string; label: string }> = [
   { key: "da_fare", label: "N. da fare" },
   { key: "in_revisione", label: "N. in revisione" },
   { key: "arretrate", label: "N. arretrate" },
-  { key: "ore_oggi", label: "Ore pianificate oggi" },
+  { key: "ore_task_oggi", label: "Ore task di oggi (solo odierne)" },
+  { key: "ore_oggi", label: "Ore pianificate oggi (incluse recuperate)" },
   { key: "capacita", label: "Capacità del giorno (h)" },
   { key: "ore_tracciate", label: "Ore tracciate" },
   { key: "ore_arretrato", label: "Ore da recuperare" },
+  { key: "ore_arretrato_pesato", label: "Ore da recuperare col peso ritardo" },
 ];
 
 export function newBlockId(): string {
@@ -190,10 +192,17 @@ function buildVariables(selfData: any, dateIso: string): Record<string, string> 
     da_fare: String(recap.todo_count ?? 0),
     in_revisione: String(recap.in_review_count ?? 0),
     arretrate: String(recap.overdue_count ?? 0),
+    // Solo le task nate oggi (senza le trascinate recuperate); fallback al totale.
+    ore_task_oggi: fmtHours(recap.today_hours ?? recap.estimated_hours_today ?? selfData?.estimated_hours_total),
     ore_oggi: fmtHours(recap.estimated_hours_today ?? selfData?.estimated_hours_total),
     capacita: fmtHours(recap.capacity_hours ?? selfData?.max_capacity_hours_day),
     ore_tracciate: fmtHours(recap.actual_hours_today ?? selfData?.actual_hours_total),
     ore_arretrato: fmtHours(recap.overdue_hours),
+    // Arretrate contate col peso aziendale "recuperata a oggi" (default 50%).
+    ore_arretrato_pesato: fmtHours(
+      recap.overdue_hours_weighted ??
+        (typeof recap.overdue_hours === "number" ? recap.overdue_hours * 0.5 : 0)
+    ),
   };
 }
 
@@ -259,8 +268,8 @@ export function defaultRecapTemplate(): RecapTemplate {
         type: "text",
         content:
           "*RECAP — {{operatore}} — {{data}}*\n\n" +
-          "Task di oggi: {{task_oggi}} (completate {{completate}} · in corso {{in_corso}} · da fare {{da_fare}})\n" +
-          "Carico oggi: {{ore_oggi}}h / {{capacita}}h · Tracciate: {{ore_tracciate}}h",
+          "Task di oggi: {{task_oggi}} + {{arretrate}} arretrate (completate {{completate}} · in corso {{in_corso}} · da fare {{da_fare}})\n" +
+          "Carico oggi: {{ore_task_oggi}}h / {{capacita}}h · Arretrate: {{ore_arretrato}}h → contano {{ore_arretrato_pesato}}h · Tracciate: {{ore_tracciate}}h",
       },
       tasksBlock("done", "*COMPLETATE ({{count}}):*"),
       tasksBlock("in_progress", "*IN CORSO ({{count}}):*"),

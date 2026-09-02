@@ -16,6 +16,12 @@ build:
 preview:
 	$(NPM) run preview
 
+lint:
+	$(NPM) run lint
+
+test:
+	$(NPM) run test
+
 # Deploy del frontend di PRODUZIONE = Firebase Hosting (dominio dashboard.italiadigitale.agency).
 deploy: deploy-hosting
 
@@ -66,4 +72,4 @@ deploy-all: deploy-backend deploy-hosting deploy-mobile
 clean:
 	rm -rf dist node_modules
 
-.PHONY: install dev build preview deploy deploy-hosting deploy-cloudrun deploy-backend dev-backend google-login google-proxy dev-mobile deploy-mobile deploy-all clean
+.PHONY: install dev build preview lint test deploy deploy-hosting deploy-cloudrun deploy-backend dev-backend google-login google-proxy dev-mobile deploy-mobile deploy-all clean

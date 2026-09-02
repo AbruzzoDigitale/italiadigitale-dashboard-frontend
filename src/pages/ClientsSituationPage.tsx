@@ -1412,7 +1412,6 @@ export function ClientsSituationPage() {
         }}
         editingItem={editingWorkItem}
         companyId={effectiveCompanyId ?? 0}
-        isAdmin={isAdmin}
         onSaved={() => {
           setWorkItemModalOpen(false);
           setEditingWorkItem(null);

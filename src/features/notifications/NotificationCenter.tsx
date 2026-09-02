@@ -376,7 +376,18 @@ function routeForItem(item: NotifItem, isManager: boolean): string | null {
     return item.scope ? `/profili-social?only=${item.scope}` : "/profili-social";
   }
   const isTask = item.tab === "task" || item.entity_type === "work_item";
-  if (isTask && item.entity_id != null) return `/work-items?open=${item.entity_id}`;
+  if (isTask && item.entity_id != null) {
+    // Notifica di revisione (commento, rimando, approvazione, invio al cliente…):
+    // si apre direttamente sulla scheda Revisione, dov'è il commento che l'ha
+    // generata. Senza `review=1` il modal userebbe lo stato della task per
+    // decidere, e un commento su una task rimandata indietro o già approvata
+    // atterrerebbe su Dettagli, con il thread invisibile.
+    // `revisione_commento` (nuovo commento) e `revisione` (rimando, approvazione…)
+    // qui portano allo stesso posto: sul desktop il thread dei commenti vive dentro
+    // la scheda Revisione. Sul mobile invece sono due destinazioni diverse.
+    const review = item.type === "revisione" || item.type === "revisione_commento" ? "&review=1" : "";
+    return `/work-items?task=${item.entity_id}${review}`;
+  }
   // Richiesta: apre direttamente l'editor di QUELLA richiesta, non la lista.
   if (item.tab === "richieste") return item.entity_id != null ? `/requests/edit?quote_id=${item.entity_id}` : "/requests";
   if (item.tab === "contratti") return "/contracts-pipeline";

@@ -803,12 +803,17 @@ export function WorkItemsPage() {
   // lavorazione, così copiando il link chi lo apre vede subito la task aperta.
   // Retrocompatibilità: `?open=create` (nuova) e il vecchio `?open=<id>` → `?task`.
   const deepLinkedRef = useRef<number | null>(null);
+  // `?review=1` (notifiche di revisione): il modal si apre sulla scheda Revisione
+  // invece che su Dettagli, così il commento che ha generato l'avviso è subito lì.
+  const [deepLinkReview, setDeepLinkReview] = useState(false);
 
   const clearTaskParam = () => {
     deepLinkedRef.current = null;
+    setDeepLinkReview(false);
     const next = new URLSearchParams(searchParams);
-    if (!next.has("task")) return;
+    if (!next.has("task") && !next.has("review")) return;
     next.delete("task");
+    next.delete("review");
     setSearchParams(next, { replace: true });
   };
 
@@ -842,6 +847,7 @@ export function WorkItemsPage() {
 
     // Evita di riscaricare se la task è già quella aperta (es. apertura dalla board).
     deepLinkedRef.current = id;
+    setDeepLinkReview(searchParams.get("review") === "1");
     getWorkItemApi(id)
       .then((item) => {
         setEditingItem(item);
@@ -864,6 +870,7 @@ export function WorkItemsPage() {
 
   const openEdit = (item: WorkItem) => {
     deepLinkedRef.current = item.id; // già "gestita": l'effetto non riscaricherà
+    setDeepLinkReview(false); // apertura manuale: decide lo stato della task
     setEditingItem(item);
     setInstantiateTemplateItem(null);
     setModalOpen(true);
@@ -2279,9 +2286,7 @@ export function WorkItemsPage() {
           editingItem={editingItem}
           instantiateTemplate={instantiateTemplateItem}
           companyId={formCompanyId}
-          isAdmin={isAdmin}
-          canManageReviewer={canManageWorkItems}
-          canSendToClient={canSendToClient}
+          openOnReview={deepLinkReview}
           onSaved={(savedItem) => {
             const prev = editingItem; // snapshot pre-modifica (null in creazione)
             setModalOpen(false);
