@@ -16,7 +16,7 @@ interface Props {
   syncing: boolean;
   archiving: boolean;
   onCreateSheet: () => void;
-  onSync: () => void;
+  onSync: (force?: boolean) => void;
   onArchive: () => void;
   onOpenSettings: () => void;
 }
@@ -71,17 +71,17 @@ export function SheetCard({
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted dark:text-muted-dark">
             {settings.sheet_configured ? (
               <>
-                Le righe approvate vengono scritte nel tab <b>{tab}</b> del foglio Google, condiviso in sola lettura
-                con lo studio. Stesse colonne del file di partenza: data, località, estero, motivazione, chilometri,
-                quota km, indennità km, vitto, alloggio, parcheggi, pedaggi, indennità di trasferta.
+                Ogni collaboratore ha il suo foglio, copia del modello dello studio: le righe approvate finiscono nel
+                tab <b>{tab}</b> del foglio di chi ha viaggiato, con la sua intestazione, la sua targa e la sua firma
+                in fondo.
                 {settings.auto_sync
                   ? " Con la sincronizzazione automatica ogni riga approvata parte da sola."
                   : " Con la sincronizzazione manuale le righe restano in coda finché non premi “Invia ora”."}
               </>
             ) : (
               <>
-                Nessun foglio collegato. Il file .xlsx caricato su Drive non è scrivibile via API: il gestionale ne
-                crea uno nativo con la stessa struttura e lo condivide con il commercialista.
+                Rendicontazione non ancora preparata. Il modello .xlsx dello studio non è scrivibile via API: il
+                gestionale lo carica su Drive e ne fa una copia Google per ogni collaboratore, identica all'originale.
               </>
             )}
           </p>
@@ -115,28 +115,49 @@ export function SheetCard({
           </Button>
           {settings.sheet_configured ? (
             <>
-              <a href={settings.sheet_url} target="_blank" rel="noopener">
-                <Button variant="secondary" size="sm" leftIcon={<Icon name="link" className="h-3.5 w-3.5" />}>
-                  Apri foglio
-                </Button>
-              </a>
+              {/* Senza righe in coda il pulsante non è decorativo: riscrive i
+                  mesi già inviati. Serve quando a cambiare è il foglio (modello,
+                  intestazione, riga della targa) e non le trasferte — la firma
+                  sulla riga quei cambi non li vede. */}
               <Button
                 variant={pendingSync > 0 ? "primary" : "secondary"}
                 size="sm"
                 loading={syncing}
-                onClick={onSync}
+                onClick={() => onSync(pendingSync === 0)}
                 leftIcon={<Icon name="refresh-cw" className="h-3.5 w-3.5" />}
+                title={
+                  pendingSync > 0
+                    ? "Scrive sul foglio le righe approvate non ancora inviate"
+                    : "Riscrive i mesi già inviati, con il layout e i dati di adesso"
+                }
               >
-                {pendingSync > 0 ? `Invia ora (${pendingSync})` : "Sincronizzato"}
+                {pendingSync > 0 ? `Invia ora (${pendingSync})` : "Risincronizza"}
               </Button>
             </>
           ) : (
             <Button variant="primary" size="sm" onClick={onCreateSheet}>
-              Crea il foglio
+              Prepara i fogli
             </Button>
           )}
         </div>
       </div>
+
+      {settings.user_sheets.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-line pt-3 dark:border-[#2a2a2e]">
+          {settings.user_sheets.map((sheet) => (
+            <a
+              key={sheet.user_id}
+              href={sheet.spreadsheet_url ?? undefined}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center gap-1.5 rounded-pill border border-line bg-cream px-2.5 py-[3px] text-[10px] font-medium text-muted transition-colors hover:text-ink dark:border-[#2a2a2e] dark:bg-[#1c1c20] dark:text-muted-dark dark:hover:text-white"
+            >
+              <Icon name="document-text" className="h-3 w-3" />
+              {sheet.user_name ?? `Collaboratore ${sheet.user_id}`}
+            </a>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3 dark:border-[#2a2a2e]">
         <span className="text-[11px] text-muted dark:text-muted-dark">

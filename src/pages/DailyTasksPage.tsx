@@ -12,6 +12,7 @@ import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { getWorkItemApi, type WorkItem } from "../api/workItems";
 import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
+import { taskStatusBadges } from "../utils/taskStatus";
 import { formatDurationHuman } from "../utils/duration";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { subscribeRealtime } from "../features/realtime/realtimeBus";
@@ -370,8 +371,20 @@ export function DailyTasksPage() {
                   </span>
                 )}
               </div>
-              <div className="ag-next-m">
-                {next_task.client_name || "Senza cliente"} · {next_task.status}
+              <div className="ag-next-m flex flex-wrap items-center gap-1.5">
+                <span>{next_task.client_name || "Senza cliente"}</span>
+                {/* Prima qui usciva lo stato grezzo ("in_progress"): illeggibile e senza
+                    colore. Stesse etichette dell'accordion Workload. */}
+                {taskStatusBadges(next_task).map((b) => (
+                  <span
+                    key={b.key}
+                    className="inline-flex rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider"
+                    style={{ color: b.color, backgroundColor: `${b.color}22` }}
+                    title={b.title}
+                  >
+                    {b.label}
+                  </span>
+                ))}
               </div>
               <div className="ag-next-h">
                 {[
@@ -489,6 +502,7 @@ export function DailyTasksPage() {
                     timeLabel={task.start_time || null}
                     clientName={task.client_name}
                     status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
                     areaColor={task.work_areas?.[0]?.color ?? null}
                     isPed={Boolean(task.is_PED ?? task.is_ped)}
                     isMaintenance={task.task_type === "website_maintenance"}
@@ -527,6 +541,7 @@ export function DailyTasksPage() {
         timeLabel={task.start_time || null}
         clientName={metaLabel}
         status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
         areaColor={task.work_areas?.[0]?.color ?? null}
         isPed={Boolean(task.is_PED ?? task.is_ped)}
         isMaintenance={task.task_type === "website_maintenance"}
@@ -914,6 +929,7 @@ export function DailyTasksPage() {
                       timeLabel={task.start_time || null}
                       clientName={task.client_name}
                       status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
                       areaColor={task.work_areas?.[0]?.color ?? null}
                       isPed={Boolean(task.is_PED ?? task.is_ped)}
                       isMaintenance={task.task_type === "website_maintenance"}

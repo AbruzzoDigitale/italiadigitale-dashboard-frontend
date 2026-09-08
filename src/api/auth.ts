@@ -65,6 +65,12 @@ export interface AuthUser {
   phone: string | null;
   avatar_url: string | null;
   role_label: string | null;
+  /** Partita IVA personale: entra nella nota spese di chi rendiconta a nome proprio. */
+  vat_number: string | null;
+  /** Denominazione con cui fattura, se diversa da nome e cognome. */
+  legal_name: string | null;
+  /** "femminile" | "maschile" | "altro" | vuoto (non dichiarato). */
+  gender: string | null;
   signature: string | null;
   signature_image_url: string | null;
   operator_permissions: string[] | null;

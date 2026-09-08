@@ -351,8 +351,12 @@ export function MailTemplatesManager({ companyId, scope, canEdit }: Props) {
             />
           </div>
 
-          {/* Corpo — editor stile Gmail con variabili */}
+          {/* Corpo — editor stile Gmail con variabili.
+              `paper`: il corpo di un'email porta colori inline scritti per la
+              carta bianca del client di posta. Su fondo scuro il testo sparisce,
+              quindi qui si scrive su bianco anche in tema scuro. */}
           <RichTextEditor
+            paper
             label="Corpo del messaggio"
             value={draft.body_html}
             onChange={(v) => patchDraft({ body_html: v })}

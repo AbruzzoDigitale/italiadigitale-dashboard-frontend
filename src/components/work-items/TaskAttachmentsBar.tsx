@@ -16,7 +16,8 @@ interface ResourceLike {
 interface TaskAttachmentsBarProps {
   attachments: WorkItemAttachment[];
   resources: ResourceLike[];
-  pendingFiles: File[];
+  /** File in attesa (task in creazione): id temporaneo + file scelto. */
+  pendingFiles: Array<{ tempId: number; file: File }>;
   /** Profili social del cliente selezionato (per il picker "Aggiungi social"). */
   socials?: SocialProfile[];
   /** Id dei social attualmente collegati alla task. */
@@ -137,11 +138,11 @@ export function TaskAttachmentsBar({
         icon: <SocialIcon platform={s.platform} label={s.platform_label} color={s.platform_color} className="h-3.5 w-3.5" />,
         onClick: s.url ? () => onOpenSocial?.(s.url) : undefined,
       })),
-    ...pendingFiles.map((f, i) => ({
-      key: `p${i}-${f.name}`,
-      label: f.name,
-      title: `${f.name} · in attesa di caricamento`,
-      icon: <Icon name={attachmentIconName(f.type, f.name)} className="h-3.5 w-3.5" />,
+    ...pendingFiles.map(({ tempId, file }) => ({
+      key: `p${tempId}`,
+      label: file.name,
+      title: `${file.name} · in attesa di caricamento`,
+      icon: <Icon name={attachmentIconName(file.type, file.name)} className="h-3.5 w-3.5" />,
       muted: true,
     })),
   ];

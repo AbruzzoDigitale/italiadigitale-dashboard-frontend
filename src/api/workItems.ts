@@ -266,6 +266,7 @@ export interface WorkItem {
   actual_hours_spent: number | null;
   urgency_level: UrgencyLevel | null;
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_priority: boolean;
   schedule_state?: WorkItemScheduleState | null;
   reviewer_user_id?: number | null;
@@ -333,6 +334,13 @@ export interface BulkDeleteWorkItemsResponse {
 
 // ── Work Items ─────────────────────────────────────────────────────────────────
 
+/**
+ * Chi trova la lavorazione sfogliando l'elenco.
+ * "area" (default) = gli operatori delle aree della task; "private" = solo
+ * assegnatari e revisore. Vedi app/api/v1/endpoints/work_items.py.
+ */
+export type WorkItemVisibility = "area" | "private";
+
 export interface ListWorkItemsParams {
   company_id?: number;
   assignee_id?: number;
@@ -342,9 +350,12 @@ export interface ListWorkItemsParams {
   is_completed?: boolean;
   is_deadline_locked?: boolean;
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   affects_daily_load?: boolean;
   is_left_behind?: boolean;
   left_behind_reason?: LeftBehindReason;
+  /** Operatori: include anche le lavorazioni pubbliche delle proprie aree. */
+  include_area?: boolean;
   include_templates?: boolean;
   only_templates?: boolean;
 }
@@ -407,6 +418,7 @@ export interface CreateWorkItemPayload {
   /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
   website_ids?: number[];
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_PED?: boolean;
   /** Link al PED (URL al piano editoriale), solo per task PED. */
   link_ped?: string | null;
@@ -469,6 +481,7 @@ export interface InstantiateTemplatePayload {
   /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
   website_ids?: number[];
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_PED?: boolean;
   /** Link al PED (URL al piano editoriale), solo per task PED. */
   link_ped?: string | null;
@@ -512,6 +525,7 @@ export async function listWorkItemsApi(params: ListWorkItemsParams = {}): Promis
   if (params.is_completed != null) query.set("is_completed", String(params.is_completed));
   if (params.is_deadline_locked != null) query.set("is_deadline_locked", String(params.is_deadline_locked));
   if (params.task_type) query.set("task_type", params.task_type);
+  if (params.include_area) query.set("include_area", "true");
   if (params.affects_daily_load != null) query.set("affects_daily_load", String(params.affects_daily_load));
   if (params.is_left_behind != null) query.set("is_left_behind", String(params.is_left_behind));
   if (params.left_behind_reason) query.set("left_behind_reason", params.left_behind_reason);
@@ -740,6 +754,21 @@ export async function listArchivedWorkItemsApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare l'archivio")}`);
+  }
+  return res.json();
+}
+
+/**
+ * L'operatore si aggiunge agli assegnatari di una lavorazione pubblica della sua area
+ * ("dammi una mano"). Vedi app/api/v1/endpoints/work_items.py — endpoint dedicato:
+ * l'unica cosa che consente è aggiungersi, modificare la task resta soggetto alle
+ * regole di sempre (da assegnatario). È idempotente.
+ */
+export async function joinWorkItemApi(id: number): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/join`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile prendere in carico la lavorazione")}`);
   }
   return res.json();
 }

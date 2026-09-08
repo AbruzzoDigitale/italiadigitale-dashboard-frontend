@@ -109,6 +109,12 @@ export function ReviewWeightModal({
       open={open}
       onClose={onClose}
       title={title}
+      // Niente bozza: il commento di un rimando e' un messaggio una tantum, legato a QUELLA
+      // lavorazione. Il Modal salva le bozze in sessionStorage con una chiave ricavata da
+      // percorso + titolo — qui identica per ogni task — e non le cancella mai: il motivo
+      // scritto su una lavorazione ricompariva precompilato sul rimando successivo, di
+      // un'altra task. Un campo vuoto e' l'unico comportamento corretto.
+      persistDraft={false}
       description={description}
       size="md"
       footer={

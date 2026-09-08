@@ -46,6 +46,12 @@ export interface CreateUserPayload {
   assigned_client_ids?: number[] | null;
   /** null = usa DEFAULT_OPERATOR_VIEWS */
   operator_permissions?: string[] | null;
+  /** Partita IVA personale, per chi collabora con la propria. */
+  vat_number?: string | null;
+  /** Denominazione con cui fattura, se diversa da nome e cognome. */
+  legal_name?: string | null;
+  /** "femminile" | "maschile" | "altro" | vuoto (non dichiarato). */
+  gender?: string | null;
 }
 
 export interface UpdateUserPayload {
@@ -63,6 +69,12 @@ export interface UpdateUserPayload {
   assigned_client_ids?: number[] | null;
   phone?: string | null;
   role_label?: string | null;
+  /** Partita IVA personale, per chi collabora con la propria. */
+  vat_number?: string | null;
+  /** Denominazione con cui fattura, se diversa da nome e cognome. */
+  legal_name?: string | null;
+  /** "femminile" | "maschile" | "altro" | vuoto (non dichiarato). */
+  gender?: string | null;
   signature?: string | null;
   operator_permissions?: string[] | null;
   /** Disattiva il warning di conferma sullo scambio task (self-service). */
@@ -225,4 +237,54 @@ export async function removeUserAssignedClientApi(userId: number, clientId: numb
     throw new Error(parseApiError(body, "Errore nella rimozione cliente assegnato"));
   }
   return res.json();
+}
+
+// ── Assegnazioni del proprio profilo (sola lettura) ──────────────────────────
+// Vedi GET /api/v1/users/me/assignments. Chi può cambiarle è un admin, dalla
+// gestione utenti: qui si mostrano soltanto.
+
+export interface AssignmentItem {
+  id: number;
+  name: string;
+  /** Colore del ruolo o dell'area, per usare gli stessi chip del resto del gestionale. */
+  color?: string | null;
+}
+
+export interface MyAssignments {
+  access_level: string;
+  is_admin: boolean;
+  companies: AssignmentItem[];
+  roles: AssignmentItem[];
+  work_areas: AssignmentItem[];
+  clients: AssignmentItem[];
+}
+
+export async function getMyAssignmentsApi(): Promise<MyAssignments> {
+  const res = await authFetch(`${API_BASE}/api/v1/users/me/assignments`);
+  if (!res.ok) throw new Error("Assegnazioni non disponibili");
+  return res.json() as Promise<MyAssignments>;
+}
+
+export interface MyClientCard {
+  id: number;
+  name: string;
+  commercial_name: string | null;
+  city: string | null;
+  prov: string | null;
+  contact: string | null;
+  email: string | null;
+  phone: string | null;
+  is_lead: boolean;
+  is_active: boolean;
+  work_areas: AssignmentItem[];
+  /** Solo per admin e project manager: per gli altri arrivano nulli. */
+  vat: string | null;
+  contracts_count: number | null;
+}
+
+/** GET /api/v1/users/me/clients — i clienti assegnati a chi chiede. */
+export async function getMyClientsApi(): Promise<MyClientCard[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/users/me/clients`);
+  if (!res.ok) throw new Error("Clienti non disponibili");
+  return res.json() as Promise<MyClientCard[]>;
 }

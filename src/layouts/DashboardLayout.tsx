@@ -31,6 +31,7 @@ import { CommunicationModal } from "../features/notifications/CommunicationModal
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
 import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
+import { APP_SECTIONS, type AppSectionGroup } from "../utils/appSections";
 import { getSidebarPreferencesApi, updateSidebarPreferencesApi } from "../api/sidebarPreferences";
 
 interface NavItem {
@@ -38,204 +39,20 @@ interface NavItem {
   to: string;
   icon: React.ReactNode;
   routeKey: Parameters<typeof canAccessRoute>[1];
-  group: "overview" | "operations" | "commercial" | "catalog" | "account" | "admin";
+  group: AppSectionGroup;
 }
 
-const allNavItems: NavItem[] = [
-  {
-    label: "Dashboard",
-    to: "/",
-    icon: <Icon name="home" />,
-    routeKey: "dashboard",
-    group: "overview",
-  },
-  {
-    label: "Lavorazioni",
-    to: "/work-items",
-    icon: <Icon name="list" />,
-    routeKey: "work-items",
-    group: "operations",
-  },
-  {
-    label: "Workload",
-    to: "/workload",
-    icon: <Icon name="calendar" />,
-    routeKey: "workload",
-    group: "operations",
-  },
-  {
-    label: "Attività del giorno",
-    to: "/daily-tasks",
-    icon: <Icon name="clock" />,
-    routeKey: "daily-tasks",
-    group: "operations",
-  },
-  {
-    label: "Comunicazioni",
-    to: "/comunicazioni",
-    icon: <Icon name="annotation" />,
-    routeKey: "comunicazioni",
-    group: "operations",
-  },
-  {
-    label: "Controllo PED",
-    to: "/controllo-ped",
-    icon: <Icon name="check-circle" />,
-    routeKey: "controllo-ped",
-    group: "operations",
-  },
-  {
-    label: "Profili social",
-    to: "/profili-social",
-    icon: <Icon name="globe" />,
-    routeKey: "social-profiles",
-    group: "operations",
-  },
-  {
-    label: "Monitoraggio social",
-    to: "/monitoraggio-social",
-    icon: <Icon name="activity" />,
-    routeKey: "social-monitors",
-    group: "operations",
-  },
-  {
-    label: "Siti web",
-    to: "/siti-web",
-    icon: <Icon name="target" />,
-    routeKey: "websites",
-    group: "operations",
-  },
-  {
-    label: "Prenotazione sale",
-    to: "/prenotazione-sale",
-    icon: <Icon name="calendar" />,
-    routeKey: "prenotazione-sale",
-    group: "operations",
-  },
-  {
-    label: "Rimborsi trasferte",
-    to: "/rimborsi",
-    icon: <Icon name="map-pin" />,
-    routeKey: "rimborsi",
-    group: "operations",
-  },
-  {
-    label: "Report",
-    to: "/report",
-    icon: <Icon name="document-text" />,
-    routeKey: "reports",
-    group: "operations",
-  },
-  // Browser interno nascosto per ora (non ancora affidabile): i collegamenti
-  // rapidi aprono direttamente in una nuova scheda. Riabilitare quando pronto.
-  // {
-  //   label: "Browser",
-  //   to: "/browser",
-  //   icon: <Icon name="globe" />,
-  //   routeKey: "profile",
-  //   group: "operations",
-  // },
-  {
-    label: "Clienti",
-    to: "/clients",
-    icon: <Icon name="users" />,
-    routeKey: "clients",
-    group: "commercial",
-  },
-  {
-    label: "Situazione clienti",
-    to: "/clients-situation",
-    icon: <Icon name="activity" />,
-    routeKey: "clients-situation",
-    group: "commercial",
-  },
-  {
-    label: "Richieste",
-    to: "/requests",
-    icon: <Icon name="mail" />,
-    routeKey: "requests",
-    group: "commercial",
-  },
-  {
-    label: "Preventivi",
-    to: "/quotes",
-    icon: <Icon name="document-text" />,
-    routeKey: "quotes",
-    group: "commercial",
-  },
-  {
-    label: "Pipeline commerciale",
-    to: "/contracts-pipeline",
-    icon: <Icon name="target" />,
-    routeKey: "contracts",
-    group: "commercial",
-  },
-  {
-    label: "Fatturazione",
-    to: "/fatturazione",
-    icon: <Icon name="credit-card" />,
-    routeKey: "fatturazione",
-    group: "commercial",
-  },
-  {
-    label: "Catalogo",
-    to: "/catalog",
-    icon: <Icon name="grid" />,
-    routeKey: "catalog",
-    group: "catalog",
-  },
-  {
-    label: "Configuratore",
-    to: "/configuratore",
-    icon: <Icon name="tools" />,
-    routeKey: "configurator",
-    group: "catalog",
-  },
-  {
-    label: "Pacchetti Social",
-    to: "/social-packages",
-    icon: <Icon name="star" />,
-    routeKey: "social",
-    group: "catalog",
-  },
-  {
-    label: "Presentazione Social",
-    to: "/social-packages-presentation",
-    icon: <Icon name="eye" />,
-    routeKey: "social",
-    group: "catalog",
-  },
-  {
-    label: "Profilo",
-    to: "/profile",
-    icon: <Icon name="user-circle" />,
-    routeKey: "profile",
-    group: "account",
-  },
-  {
-    label: "Documenti",
-    to: "/documenti",
-    icon: <Icon name="document-text" />,
-    routeKey: "documenti",
-    group: "admin",
-  },
-  {
-    label: "Utenti",
-    to: "/users",
-    icon: <Icon name="shield-check" />,
-    routeKey: "admin",
-    group: "admin",
-  },
-  {
-    label: "Aziende",
-    to: "/companies",
-    icon: <Icon name="building" />,
-    routeKey: "admin",
-    group: "admin",
-  },
-];
+// Le voci vengono dal catalogo condiviso (`utils/appSections.ts`), lo stesso che alimenta
+// il widget "Scorciatoie": qui si aggiunge solo l'icona come nodo React.
+const allNavItems: NavItem[] = APP_SECTIONS.map((s) => ({
+  label: s.label,
+  to: s.to,
+  icon: <Icon name={s.icon} />,
+  routeKey: s.routeKey,
+  group: s.group,
+}));
 
-const NAV_GROUP_LABELS: Record<NavItem["group"], string> = {
+const NAV_GROUP_LABELS: Record<AppSectionGroup, string> = {
   overview: "Overview",
   operations: "Operativo",
   commercial: "Commerciale",

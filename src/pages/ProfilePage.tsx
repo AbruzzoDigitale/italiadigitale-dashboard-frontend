@@ -1,5 +1,8 @@
-import { useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { AssignmentChips } from "../features/profile/AssignmentChips";
+import { MyClientsCard } from "../features/profile/MyClientsCard";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
 import { SecuritySection } from "../components/auth/SecuritySection";
 import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
@@ -8,7 +11,13 @@ import { GoogleConnectSection } from "../components/google/GoogleConnectSection"
 import { QuickLinksSection } from "../components/quicklinks/QuickLinksSection";
 import { MobileDashboardEditor } from "../components/dashboard/MobileDashboardEditor";
 import { MailTemplatesManager } from "../features/email/MailTemplatesManager";
-import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
+import {
+  getMyAssignmentsApi,
+  updateMeApi,
+  uploadUserFileApi,
+  type MyAssignments,
+  type UpdateUserPayload,
+} from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -55,6 +64,19 @@ function ProfileNavButton({
   );
 }
 
+const LIVELLI: Record<string, string> = {
+  admin: "Amministratore",
+  project_manager: "Project manager",
+  operator: "Operatore",
+};
+
+const GENERI = [
+  { value: "", label: "Non dichiarato" },
+  { value: "femminile", label: "Femminile" },
+  { value: "maschile", label: "Maschile" },
+  { value: "altro", label: "Altro" },
+];
+
 export function ProfilePage() {
   const { user, myCompanies, activeCompanyId, login: _login } = useAuth();
   const toast = useToast();
@@ -62,14 +84,28 @@ export function ProfilePage() {
   const [form, setForm] = useState<UpdateUserPayload>({
     full_name: user?.full_name ?? "",
     phone: user?.phone ?? "",
-    role_label: user?.role_label ?? "",
+    vat_number: user?.vat_number ?? "",
+    legal_name: user?.legal_name ?? "",
+    gender: user?.gender ?? "",
     signature: user?.signature ?? "",
   });
   const [saving, setSaving] = useState(false);
+  const [assignments, setAssignments] = useState<MyAssignments | null>(null);
   const [avatarSrc, setAvatarSrc] = useState(user?.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
   const [section, setSection] = useState<"profile" | "mobile" | "mail">("profile");
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Ruoli, aree e clienti: li assegna un admin, qui si mostrano soltanto.
+  useEffect(() => {
+    let alive = true;
+    getMyAssignmentsApi()
+      .then((res) => alive && setAssignments(res))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const set = (k: keyof UpdateUserPayload, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -186,12 +222,17 @@ export function ProfilePage() {
           <p className="font-display font-bold text-[20px] tracking-tight text-ink dark:text-[#f4f4f7] mb-1">
             {user.full_name || user.username}
           </p>
-          <p className="font-body text-[13px] text-muted dark:text-[#9999a0] uppercase tracking-wider font-semibold mb-3">
-            {user.role_label || (user.is_admin ? "Amministratore" : "Operatore")}
+          <p className="mb-2 font-body text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+            Livello di accesso
           </p>
-          <div className="flex flex-wrap gap-2 justify-center">
+          <div className="flex flex-wrap justify-center gap-2">
+            {/* Il livello è l'unica cosa che descrive la persona qui dentro:
+                l'etichetta sopra dice di che si tratta, così "Operatore" non si
+                confonde con una qualifica scelta da lei. Distingue anche il PM,
+                che prima finiva insieme agli operatori. */}
             <Badge variant={user.is_admin ? "admin" : "user"}>
-              {user.is_admin ? "Admin" : "Operatore"}
+              {LIVELLI[user.access_level ?? (user.is_admin ? "admin" : "operator")] ??
+                (user.is_admin ? "Admin" : "Operatore")}
             </Badge>
             <Badge variant={user.is_active ? "success" : "default"}>
               {user.is_active ? "Attivo" : "Disabilitato"}
@@ -242,6 +283,21 @@ export function ProfilePage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {assignments && (
+            <div className="mt-4 border-t border-line pt-4 text-left dark:border-[#2a2a2e]">
+              <AssignmentChips
+                etichetta="Ruoli"
+                voci={assignments.roles}
+                vuoto="Nessun ruolo assegnato"
+              />
+              <AssignmentChips
+                etichetta="Aree di lavoro"
+                voci={assignments.work_areas}
+                vuoto="Nessuna area assegnata"
+              />
             </div>
           )}
           </div>
@@ -339,31 +395,61 @@ export function ProfilePage() {
             <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
               Nome visualizzato, contatto e ruolo nella piattaforma
             </p>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  label="Nome completo"
-                  value={form.full_name as string}
-                  onChange={(e) => set("full_name", e.target.value)}
-                  placeholder="Mario Rossi"
-                />
-                <Input
-                  label="Telefono"
-                  value={form.phone as string ?? ""}
-                  onChange={(e) => set("phone", e.target.value)}
-                  placeholder="+39 333 000 0000"
-                  type="tel"
-                />
-              </div>
+            {/* Una griglia sola a due colonne per tutti i campi: quelli brevi e
+                spesso vuoti (genere, ragione sociale, qualifica) starebbero
+                larghi una riga intera, e il blocco sembrerebbe pieno di buchi.
+                I due campi fiscali stanno insieme, con la loro spiegazione. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Input
-                label="Ruolo / Qualifica"
-                value={form.role_label as string ?? ""}
-                onChange={(e) => set("role_label", e.target.value)}
-                placeholder="es. Senior Consultant"
-                hint="Viene mostrato nel profilo e nelle presentazioni"
+                className="sm:col-span-2"
+                label="Nome completo"
+                value={form.full_name as string}
+                onChange={(e) => set("full_name", e.target.value)}
+                placeholder="Mario Rossi"
               />
+              <Input
+                label="Telefono"
+                value={form.phone as string ?? ""}
+                onChange={(e) => set("phone", e.target.value)}
+                placeholder="+39 333 000 0000"
+                type="tel"
+              />
+              <label className="block">
+                <span className="mb-1.5 block text-[11px] font-semibold text-muted dark:text-muted-dark">
+                  Genere
+                </span>
+                <SearchableSelect
+                  value={(form.gender as string) ?? ""}
+                  onChange={(v) => set("gender", v)}
+                  options={GENERI}
+                  placeholder="Non dichiarato"
+                />
+                <span className="mt-1 block text-[11px] text-muted dark:text-muted-dark">
+                  Serve dove il testo va concordato
+                </span>
+              </label>
+              <Input
+                label="Ragione sociale"
+                value={form.legal_name as string ?? ""}
+                onChange={(e) => set("legal_name", e.target.value)}
+                placeholder="Mucci Giustino"
+              />
+              <Input
+                label="Partita IVA"
+                value={form.vat_number as string ?? ""}
+                onChange={(e) => set("vat_number", e.target.value)}
+                placeholder="01234567890"
+              />
+              <p className="text-[11px] leading-relaxed text-muted dark:text-muted-dark sm:col-span-2">
+                Ragione sociale e partita IVA servono solo se collabori con la tua: finiscono nella dichiarazione
+                della tua nota spese trasferte. Lasciale vuote se rendiconti per l'azienda.
+              </p>
             </div>
           </div>
+
+          {/* I clienti seguiti: schede scorrevoli, non chip — su un cliente
+              servono più informazioni del solo nome. */}
+          <MyClientsCard />
 
           {/* Firma email — compilazione dal template aziendale (definito dall'admin) */}
           <SignatureFromTemplate companies={myCompanies} defaultCompanyId={activeCompanyId} />

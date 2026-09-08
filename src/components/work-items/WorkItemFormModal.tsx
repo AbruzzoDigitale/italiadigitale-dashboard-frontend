@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import {
   createWorkItemApi,
+  joinWorkItemApi,
   instantiateWorkItemTemplateApi,
   isWorkItemOverlapApiError,
   listWorkItemsApi,
@@ -19,6 +20,7 @@ import {
   updateWorkItemAttachmentApi,
   attachmentDisplayName,
   type WorkItem,
+  type WorkItemVisibility,
   type WorkItemAttachment,
   type WorkItemStatus,
   type UrgencyLevel,
@@ -45,7 +47,7 @@ import { listPedConfigurationsApi, type PedConfiguration } from "../../api/pedCo
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Modal } from "../ui/Modal";
+import { Modal, clearModalDraft } from "../ui/Modal";
 import { Icon } from "../ui/Icon";
 import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
@@ -67,6 +69,7 @@ import { listWebsitesApi, websiteLabel, type Website } from "../../api/websites"
 import { toEditorHtml } from "../../utils/descriptionHtml";
 import { MAINTENANCE_TASK_TYPE, isMaintenanceTitle, withMaintenancePrefix } from "../../utils/maintenance";
 import { TaskSettingsModal } from "./TaskSettingsModal";
+import { AWAITING_PUBLISH_BADGE } from "../../utils/taskStatus";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { OverbookingModal } from "./OverbookingModal";
@@ -191,6 +194,12 @@ const WORKLOAD_FIELD_HELP = {
     longText:
       "Usato quando una task non è stata svolta nel giorno previsto: permette di indicare la responsabilità e di gestirne il peso residuo.",
   },
+  visibility: {
+    title: "Visibilità",
+    shortText: "Chi trova la lavorazione sfogliando l'elenco.",
+    longText:
+      "Pubblica per l'area: gli operatori delle aree della task la vedono attivando \"Lavorazioni della mia area\" e, se sono scarichi, possono dare una mano. Privata: la trovano solo assegnatari e revisore. In entrambi i casi PM e admin la vedono sempre, perché devono poterla pianificare e revisionare.",
+  },
   is_fractionable: {
     title: "Suddivisione attività",
     shortText: "Se attivo, la task può essere spezzata in più blocchi.",
@@ -259,6 +268,7 @@ interface WorkItemFormState {
   due_time_label: string;
   estimated_hours: string;
   is_fractionable: boolean;
+  visibility: WorkItemVisibility;
   is_deadline_locked: boolean;
   affects_daily_load: boolean;
   load_weight_factor: string;
@@ -337,6 +347,7 @@ const EMPTY_FORM: WorkItemFormState = {
   due_time_label: "",
   estimated_hours: "",
   is_fractionable: true,
+  visibility: "area",
   is_deadline_locked: false,
   affects_daily_load: true,
   load_weight_factor: "1",
@@ -580,6 +591,27 @@ export interface WorkItemFormModalProps {
 }
 
 // ── Schede del modal modifica (layout affiancato personalizzabile) ─────────────
+/**
+ * Sostituisce nei chip della descrizione gli id temporanei dei file in attesa con
+ * quelli veri assegnati dal server dopo l'upload. I chip hanno la forma
+ * `<span class="wi-attach-badge" data-attachment-id="-1" …>`: si tocca solo
+ * l'attributo, il resto del markup resta com'è.
+ */
+function riscriviChipAllegati(html: string, idReali: Map<number, number>): string {
+  if (!html || idReali.size === 0) return html;
+  return html.replace(/data-attachment-id="(-\d+)"/g, (intero, grezzo: string) => {
+    const vero = idReali.get(Number(grezzo));
+    return vero != null ? `data-attachment-id="${vero}"` : intero;
+  });
+}
+
+/** Un file scelto in creazione, in attesa della task a cui appartenere. */
+interface PendingFile {
+  /** Id temporaneo negativo: identifica il chip nella descrizione prima dell'upload. */
+  tempId: number;
+  file: File;
+}
+
 type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline" | "monitoraggio" | "moduli";
 const WI_TAB_LABEL: Record<WiTabId, string> = {
   dettagli: "Dettagli",
@@ -683,7 +715,12 @@ export function WorkItemFormModal({
   // Allegati (file su cloud storage). In modifica si caricano subito; in creazione
   // restano "in attesa" e vengono caricati dopo il salvataggio della task.
   const [attachments, setAttachments] = useState<WorkItemAttachment[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // File scelti prima che la task esista. Ognuno riceve un id NEGATIVO stabile:
+  // serve a poterlo già inserire come chip nella descrizione, dove il chip è
+  // identificato da un id. Gli id veri sono positivi, quindi non collidono mai, e
+  // al salvataggio i negativi vengono riscritti con quelli assegnati dal server.
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const pendingIdRef = useRef(-1);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   // Traccia per quale task è già stata applicata l'apertura automatica sulla scheda Revisione.
@@ -833,6 +870,37 @@ export function WorkItemFormModal({
   // aprendo una task da una pagina impostata su un'altra azienda, assegnatari,
   // aree, tag e clienti non contenevano i valori della task.
   const companyId = editingItem?.company_id ?? companyIdProp;
+
+  // Chiave della bozza: una sola definizione, usata sia dal Modal sia dalla cancellazione
+  // dopo il salvataggio. Legata all'id, cosi' ogni lavorazione ha la sua.
+  const modalDraftId = `work-item:${sourceItem?.id ?? (isInstantiateMode ? `template-${instantiateTemplate?.id ?? "x"}` : "new")}`;
+
+  // "Prendi in carico": l'operatore si aggiunge a una lavorazione pubblica della sua
+  // area che sta guardando dalla vista d'area. Compare solo se non è già dentro e se
+  // può davvero farlo, così non si offre un pulsante che darebbe 403.
+  const [joining, setJoining] = useState(false);
+  const canJoinTask =
+    !!sourceItem &&
+    !canManageReviewer &&
+    (sourceItem.visibility ?? "area") === "area" &&
+    currentUser != null &&
+    !(sourceItem.assignee_ids ?? []).includes(currentUser.id);
+
+  const handleJoin = async () => {
+    if (!sourceItem) return;
+    setJoining(true);
+    try {
+      await joinWorkItemApi(sourceItem.id);
+      toast.success("Ti sei aggiunto alla lavorazione");
+      await refetchDetail();
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile prendere in carico la lavorazione");
+    } finally {
+      setJoining(false);
+    }
+  };
+
 
   // Scheda Monitoraggio: admin/PM la vedono sempre (in modifica); gli operatori
   // solo se un monitor è collegato e reso visibile (l'endpoint filtra lato server).
@@ -1148,6 +1216,7 @@ export function WorkItemFormModal({
         due_time_label: isInstantiateMode ? "" : (baseItem.due_time_label ?? ""),
         estimated_hours: baseItem.estimated_hours != null ? String(baseItem.estimated_hours) : "",
         is_fractionable: baseItem.is_fractionable ?? true,
+        visibility: baseItem.visibility ?? "area",
         is_deadline_locked: baseItem.is_deadline_locked ?? false,
         affects_daily_load: baseItem.affects_daily_load,
         load_weight_factor: String(baseItem.load_weight_factor),
@@ -1220,6 +1289,7 @@ export function WorkItemFormModal({
         estimated_hours: defaultEstimatedHours != null ? String(defaultEstimatedHours) : "",
         assignee_ids: defaultAssigneeIds ?? [],
         is_fractionable: true,
+        visibility: "area",
         is_deadline_locked: false,
       });
       // La preassegnazione (operatore corrente + sue aree) avviene dopo il caricamento
@@ -1241,10 +1311,19 @@ export function WorkItemFormModal({
     setSlotError(null);
   }, [sourceItem, templateSeedItem, open, defaultWorkDate, defaultStartTime, defaultEstimatedHours, defaultAssigneeIds, isInstantiateMode]);
 
+  // Firma degli assegnatari lato server: serve come dipendenza stabile (un array
+  // nuovo a ogni fetch farebbe girare l'effetto all'infinito).
+  const serverAssigneeKey = (sourceItem?.assignee_ids ?? []).join(",");
+
   // Sincronizza "live" nel form (già idratato) i campi che il flusso di REVISIONE cambia sul
-  // backend — status, peso, scadenza, completata — così i select dei Dettagli (anche in vista
-  // affiancata) e il footer riflettono lo stato reale e un "Salva" non rimanda la task in
-  // "revisione" (es. dopo "Metti in pubblicazione" lo stato diventa "In corso").
+  // backend — status, peso, scadenza, completata, ASSEGNATARI — così i select dei Dettagli
+  // (anche in vista affiancata) e il footer riflettono lo stato reale e un "Salva" non rimanda
+  // la task in "revisione" (es. dopo "Metti in pubblicazione" lo stato diventa "In corso").
+  //
+  // Gli assegnatari cambiano perché il revisore viene agganciato all'ingresso in revisione e
+  // staccato all'uscita. Senza questa riga il form restava con la lista di quando era in
+  // revisione: il revisore continuava a comparire fra gli intestatari dopo un rimando
+  // indietro, e al primo salvataggio ci tornava per davvero.
   useEffect(() => {
     if (!open || !sourceItem) return;
     if (hydratedFormKeyRef.current == null) return; // solo dopo l'idratazione iniziale
@@ -1257,10 +1336,15 @@ export function WorkItemFormModal({
       if (current.load_weight_factor !== lw) { next.load_weight_factor = lw; changed = true; }
       const dd = sourceItem.deadline_date ?? "";
       if (current.deadline_date !== dd) { next.deadline_date = dd; changed = true; }
+      const serverAssignees = sourceItem.assignee_ids ?? [];
+      if ([...current.assignee_ids].sort().join(",") !== [...serverAssignees].sort().join(",")) {
+        next.assignee_ids = [...serverAssignees];
+        changed = true;
+      }
       return changed ? next : current;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, sourceItem?.status, sourceItem?.is_completed, sourceItem?.load_weight_factor, sourceItem?.deadline_date]);
+  }, [open, sourceItem?.status, sourceItem?.is_completed, sourceItem?.load_weight_factor, sourceItem?.deadline_date, serverAssigneeKey]);
 
   const updateForm = <K extends keyof WorkItemFormState>(key: K, value: WorkItemFormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -1415,6 +1499,7 @@ export function WorkItemFormModal({
         due_time_label: form.due_time_label.trim(),
         estimated_hours: form.estimated_hours ? parseFloat(form.estimated_hours) : undefined,
         is_fractionable: form.is_fractionable,
+        visibility: form.visibility,
         is_deadline_locked: form.is_deadline_locked,
         affects_daily_load: form.affects_daily_load,
         load_weight_factor: form.load_weight_factor ? parseFloat(form.load_weight_factor) : undefined,
@@ -1550,15 +1635,32 @@ export function WorkItemFormModal({
       // Allegati messi in attesa durante la creazione: caricali sulla nuova task.
       if (createdItem && pendingFiles.length) {
         let failed = 0;
-        for (const file of pendingFiles) {
+        const idReali = new Map<number, number>();
+        for (const { tempId, file } of pendingFiles) {
           try {
-            await uploadWorkItemAttachmentApi(createdItem.id, file);
+            const caricato = await uploadWorkItemAttachmentApi(createdItem.id, file);
+            idReali.set(tempId, caricato.id);
           } catch {
             failed += 1;
           }
         }
         setPendingFiles([]);
         if (failed) toast.error(`${failed} allegato/i non caricati`);
+        // I chip inseriti nella descrizione puntano ancora agli id temporanei:
+        // ora che il server ha assegnato quelli veri, si riscrivono e si risalva.
+        // Senza questo passaggio i chip resterebbero morti (nessun download).
+        // Si parte da quello che il server ha davvero salvato: la descrizione può
+        // arrivare da `payload` o da `instantiatePayload` a seconda del ramo.
+        const salvata = createdItem.description ?? "";
+        const descrizione = riscriviChipAllegati(salvata, idReali);
+        if (descrizione !== salvata) {
+          try {
+            const aggiornato = await updateWorkItemApi(createdItem.id, { description: descrizione });
+            createdItem = aggiornato ?? createdItem;
+          } catch {
+            toast.error("Allegati caricati, ma i riferimenti nella descrizione non sono stati aggiornati");
+          }
+        }
       }
 
       // Dopo la creazione, verifica se l'operatore assegnato va in overbooking:
@@ -1577,6 +1679,12 @@ export function WorkItemFormModal({
           // se la verifica fallisce non blocchiamo il salvataggio
         }
       }
+
+      // Salvataggio riuscito: la bozza in sessionStorage e' ormai vecchia. Senza
+      // cancellarla, riaprendo la stessa lavorazione verrebbe ripristinata sopra i dati
+      // freschi del server — il Modal la ripristina emettendo eventi `input`, quindi
+      // vincerebbe davvero sullo stato React.
+      clearModalDraft(modalDraftId);
 
       if (opts.keepOpen && sourceItem) {
         // Salvato senza chiudere: serve quando "Salva e concludi"/"Rimanda" devono
@@ -1880,7 +1988,10 @@ export function WorkItemFormModal({
 
   // ── Allegati (file) handlers
   // Carica (task esistente) o accoda (task nuova) un file; ritorna l'allegato creato o null.
-  const uploadAttachmentFile = async (file: File): Promise<WorkItemAttachment | null> => {
+  // Restituisce id + nome del chip da inserire nel testo: in modifica sono quelli
+  // dell'allegato vero, in creazione quelli temporanei del file in attesa. Chi
+  // chiama non deve sapere in quale dei due casi si trova.
+  const uploadAttachmentFile = async (file: File): Promise<{ id: number; name: string } | null> => {
     if (file.size > 20 * 1024 * 1024) {
       toast.error("File troppo grande (max 20 MB)");
       return null;
@@ -1891,7 +2002,7 @@ export function WorkItemFormModal({
         const created = await uploadWorkItemAttachmentApi(sourceItem.id, file);
         setAttachments((prev) => [...prev, created]);
         toast.success("Allegato caricato");
-        return created;
+        return { id: created.id, name: attachmentDisplayName(created) };
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Errore caricamento allegato");
         return null;
@@ -1900,14 +2011,20 @@ export function WorkItemFormModal({
       }
     }
     // Task nuova: file in attesa, caricato dopo il salvataggio.
-    setPendingFiles((prev) => [...prev, file]);
-    return null;
+    const pending: PendingFile = { tempId: pendingIdRef.current, file };
+    pendingIdRef.current -= 1;
+    setPendingFiles((prev) => [...prev, pending]);
+    return { id: pending.tempId, name: file.name };
   };
 
   const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) await uploadAttachmentFile(file);
+    if (!file) return;
+    const chip = await uploadAttachmentFile(file);
+    // Scelto dalla graffetta con la descrizione aperta: il file entra subito nel
+    // testo al punto in cui si stava scrivendo, senza doverlo ripescare dal menu.
+    if (chip && descEditing) descEditorRef.current?.insertAttachmentBadge(chip.id, chip.name);
   };
 
   // Aggiunge un collegamento (risorsa) da un URL/percorso trascinato o digitato.
@@ -1968,9 +2085,9 @@ export function WorkItemFormModal({
     }
     // File → allegato (in modifica inserisce anche il chip al caret)
     for (const file of files) {
-      const created = await uploadAttachmentFile(file);
-      if (descEditing && created) {
-        descEditorRef.current?.insertAttachmentBadge(created.id, attachmentDisplayName(created));
+      const chip = await uploadAttachmentFile(file);
+      if (descEditing && chip) {
+        descEditorRef.current?.insertAttachmentBadge(chip.id, chip.name);
       }
     }
   };
@@ -2022,8 +2139,8 @@ export function WorkItemFormModal({
     }
   };
 
-  const removePendingFile = (index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  const removePendingFile = (tempId: number) => {
+    setPendingFiles((prev) => prev.filter((p) => p.tempId !== tempId));
   };
 
   // ── Slot handlers
@@ -2719,9 +2836,9 @@ export function WorkItemFormModal({
           ))}
 
           {/* File in attesa (task nuova, caricati al salvataggio) */}
-          {pendingFiles.map((file, index) => (
+          {pendingFiles.map(({ tempId, file }) => (
             <div
-              key={`pending-${index}`}
+              key={`pending-${tempId}`}
               className="flex items-center gap-2 rounded-lg border border-dashed border-line bg-cream/50 p-3 dark:border-line-dark dark:bg-[#1c1c20]/50"
             >
               <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]">
@@ -2735,7 +2852,7 @@ export function WorkItemFormModal({
               </div>
               <button
                 type="button"
-                onClick={() => removePendingFile(index)}
+                onClick={() => removePendingFile(tempId)}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
                 aria-label="Rimuovi file"
                 title="Rimuovi"
@@ -2849,6 +2966,17 @@ export function WorkItemFormModal({
       </div>
     );
   };
+
+  // Cliente mostrato nell'intestazione: nome commerciale se c'e', altrimenti ragione
+  // sociale — la stessa cascata usata ovunque nell'interfaccia. L'elenco clienti arriva
+  // in modo asincrono: finche' non c'e' si tace, invece di mostrare "Senza cliente" e
+  // poi correggersi.
+  const headerClientLabel = (() => {
+    if (!form.client_id) return "Senza cliente";
+    const c = clients.find((x) => String(x.id) === form.client_id);
+    if (!c) return "";
+    return c.commercial_name ?? c.name;
+  })();
 
   // Campo Cliente: anteprima (nome cliente / "Nessun cliente") → click per il
   // selettore. Condiviso dai due layout del form.
@@ -3135,10 +3263,16 @@ export function WorkItemFormModal({
               placeholder="Descrizione opzionale…"
               minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
               attachmentPicker={{
-                options: attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
-                emptyHint: sourceItem
-                  ? "Carica un file nella sezione Risorse per poterlo inserire."
-                  : "Salva la task e carica un file per poterlo inserire.",
+                // In creazione compaiono anche i file in attesa, con il loro id
+                // temporaneo: si inseriscono nel testo subito e il salvataggio
+                // sistema i riferimenti. Prima qui non c'era nulla da scegliere e
+                // toccava salvare la task, riaprirla e solo allora inserire il file.
+                options: [
+                  ...attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
+                  ...pendingFiles.map(({ tempId, file }) => ({ id: tempId, name: file.name })),
+                ],
+                emptyHint: "Aggiungi un file qui sotto o trascinalo qui per poterlo inserire.",
+                onPickFile: () => descFileInputRef.current?.click(),
               }}
             />
           )}
@@ -3600,8 +3734,39 @@ export function WorkItemFormModal({
       open={open}
       onClose={closeModal}
       icon={<Icon name="check-circle" className="h-5 w-5" />}
-      title={sourceItem ? "Modifica lavorazione" : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")}
-      description="Compila i dati della lavorazione. I campi con * sono obbligatori."
+      // In modifica l'intestazione porta il NOME della lavorazione e, sotto, il cliente:
+      // sono le due cose che servono a sapere dove sei, molto piu' di "Modifica
+      // lavorazione", uguale su ogni scheda. Il titolo segue il campo mentre lo si
+      // cambia, cosi' l'intestazione non mente. In creazione restano le diciture di
+      // prima: non c'e' ancora niente da nominare.
+      title={
+        sourceItem
+          ? (form.title.trim() || "Lavorazione senza titolo")
+          : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")
+      }
+      description={sourceItem ? headerClientLabel : "Compila i dati della lavorazione. I campi con * sono obbligatori."}
+      // "In pubblicazione" accanto al titolo: e' lo stato che deve saltare all'occhio
+      // appena si apre la scheda, senza doverlo cercare fra i campi. Segue lo stato vivo
+      // (aggiornato in modo ottimistico dalla spunta), non solo il dato caricato.
+      titleBadge={
+        sourceItem && awaitingPublish ? (
+          <span
+            className="inline-flex flex-none rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wider"
+            style={{
+              color: AWAITING_PUBLISH_BADGE.color,
+              backgroundColor: `${AWAITING_PUBLISH_BADGE.color}22`,
+            }}
+            title={AWAITING_PUBLISH_BADGE.title}
+          >
+            {AWAITING_PUBLISH_BADGE.label}
+          </span>
+        ) : undefined
+      }
+      // Chiave della bozza svincolata dal titolo: il Modal la ricava dal titolo quando
+      // manca, e con il titolo della task cambierebbe a ogni tasto digitato, seminando
+      // bozze. Legata all'id, per giunta, ogni lavorazione ha la sua invece di
+      // condividerne una sola con tutte le altre.
+      draftId={modalDraftId}
       size="xl"
       dialogClassName={`h-[85vh] ${effectiveSplit ? "!max-w-6xl" : "!max-w-3xl"}`}
       bodyClassName={effectiveSplit ? "overflow-x-hidden flex min-h-0 flex-col" : "overflow-x-hidden"}
@@ -3665,6 +3830,18 @@ export function WorkItemFormModal({
             <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
               {sourceItem ? "Chiudi" : "Annulla"}
             </Button>
+            {canJoinTask && (
+              <Button
+                variant="secondary"
+                onClick={() => void handleJoin()}
+                loading={joining}
+                disabled={saving || reviewAction != null}
+                leftIcon={<Icon name="users" className="h-4 w-4" />}
+                title="Aggiungiti agli assegnatari per dare una mano"
+              >
+                Prendi in carico
+              </Button>
+            )}
             <Button
               variant={splitReviewActions ? "secondary" : "primary"}
               onClick={() => handleSave()}
@@ -4052,6 +4229,16 @@ export function WorkItemFormModal({
                   />
                   Frazionabile
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_fractionable} />
+                </label>
+                {/* Visibilità: di norma pubblica per l'area, così chi è scarico la trova e
+                    può dare una mano. La spunta la rende privata. */}
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+                  <Checkbox
+                    checked={form.visibility === "private"}
+                    onChange={(v) => updateForm("visibility", v ? "private" : "area")}
+                  />
+                  Privata
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.visibility} />
                 </label>
               </div>
               {form.is_left_behind && (

@@ -15,7 +15,14 @@ export interface AccLaneTaskCardProps {
   /** Pill orario di inizio (colorata con l'area). */
   timeLabel?: string | null;
   clientName?: string | null;
+  /** Testo piccolo accanto al cliente: in "Attività del giorno" è la percentuale svolta. */
   status?: string | null;
+  /**
+   * Etichette di STATO (colorate): "In corso", "In revisione", "Al cliente",
+   * "In pubblicazione"… Ricavale con `taskStatusBadges` da utils/taskStatus, così la
+   * stessa lavorazione si legge uguale nell'accordion Workload e in Attività del giorno.
+   */
+  statusBadges?: Array<{ key: string; label: string; color: string; title?: string }>;
   /** Colore area di lavoro per la striscia/pill (`--wl-area`). */
   areaColor?: string | null;
   isPed?: boolean;
@@ -45,6 +52,7 @@ export function AccLaneTaskCard({
   timeLabel,
   clientName,
   status,
+  statusBadges,
   areaColor,
   isPed = false,
   isMaintenance = false,
@@ -98,6 +106,16 @@ export function AccLaneTaskCard({
         {timeLabel ? <span className="wl-acc-task__time">{timeLabel}</span> : null}
         <span className="wl-acc-task__client">{clientName || "Senza cliente"}</span>
         {status ? <span className="wl-acc-task__status">{status}</span> : null}
+        {statusBadges?.map((b) => (
+          <span
+            key={b.key}
+            className="inline-flex rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider"
+            style={{ color: b.color, backgroundColor: `${b.color}22` }}
+            title={b.title}
+          >
+            {b.label}
+          </span>
+        ))}
         {leftBehind && (
           <span className="inline-flex rounded-pill border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
             Arretrata

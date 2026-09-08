@@ -389,10 +389,10 @@
   line-height: 1;
 }
 .lv-warn-pop {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  z-index: 60;
+  /* Fisso e in un portal su <body>: dentro la card veniva ritagliato da
+     `.lv-col-body`, che scorre. Le coordinate le calcola il componente. */
+  position: fixed;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   align-items: flex-start;

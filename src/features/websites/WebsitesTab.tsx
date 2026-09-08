@@ -35,6 +35,8 @@ import { useToast } from "../../context/ToastContext";
 import { ScanDetail, ScoresRow } from "./WebsiteMetrics";
 import { WebsiteCustomFieldsModal } from "./WebsiteCustomFieldsModal";
 import { WebsiteSecretsPanel } from "./WebsiteSecretsPanel";
+import { ActionButton } from "../button-actions/ActionButton";
+import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
 type WebsiteFormState = {
   url: string;
@@ -440,6 +442,13 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     () => filtered.slice((safePage - 1) * effectiveSize, safePage * effectiveSize),
     [filtered, safePage, effectiveSize]
   );
+
+  // Bottone «Avvisa dell'aggiornamento»: lo stato (configurato? già inviata?) si
+  // chiede per le sole righe a video, in una chiamata sola.
+  const pageIds = useMemo(() => pageItems.map((s) => s.id), [pageItems]);
+  const avviso = useConfigurableButton(companyId, "website.update_notice", pageIds);
+  const avvisoTargets = (sites: Website[]) =>
+    sites.map((s) => ({ id: s.id, label: websiteLabel(s) }));
 
   const openCreate = () => {
     setEditing(null);
@@ -864,6 +873,15 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         </div>
         {canManage && (
           <div className="flex flex-none items-center gap-1">
+            {/* Avvisa il cliente che il sito sta per essere aggiornato. Finché
+                l'azione non è configurata il bottone lo vede solo un admin. */}
+            <ActionButton
+              state={avviso.item(site.id)}
+              label={avviso.label || "Avvisa dell'aggiornamento"}
+              canConfigure={avviso.canConfigure}
+              onConfigure={() => avviso.configure(site.id)}
+              onRun={() => avviso.run(avvisoTargets([site]))}
+            />
             <button
               type="button"
               title="Analizza ora (richiede qualche decina di secondi)"
@@ -1128,6 +1146,19 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             >
               Metti in coda
             </Button>
+            {/* L'avviso multiplo compare solo se il bottone è configurato: senza
+                azione collegata non c'è niente da mandare. */}
+            {avviso.allConfigured([...selectedIds]) && (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  avviso.run(avvisoTargets(websites.filter((s) => selectedIds.has(s.id))))
+                }
+                leftIcon={<Icon name="mail" className="w-3.5 h-3.5" />}
+              >
+                {avviso.label || "Avvisa i clienti"} ({selectedIds.size})
+              </Button>
+            )}
             <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
               «Analizza ora» gira subito da questa pagina e si può interrompere; «Metti in coda»
               lascia fare al controllo automatico.
@@ -1284,6 +1315,15 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                       {canManage && (
                         <td className="rounded-r-md px-3 py-3">
                           <div className="flex items-center justify-end gap-1">
+                            {/* Avvisa il cliente che il sito sta per essere aggiornato. Finché
+                                l'azione non è configurata il bottone lo vede solo un admin. */}
+                            <ActionButton
+                              state={avviso.item(site.id)}
+                              label={avviso.label || "Avvisa dell'aggiornamento"}
+                              canConfigure={avviso.canConfigure}
+                              onConfigure={() => avviso.configure(site.id)}
+                              onRun={() => avviso.run(avvisoTargets([site]))}
+                            />
                             <button
                               type="button"
                               title="Analizza ora (richiede qualche decina di secondi)"
@@ -1644,6 +1684,10 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         onChanged={refetchFields}
         canShare={canShareFields}
       />
+
+      {/* Popup di configurazione e modale d'invio del bottone «Avvisa
+          dell'aggiornamento»: uno per pagina, non uno per riga. */}
+      {avviso.modals}
     </div>
   );
 }

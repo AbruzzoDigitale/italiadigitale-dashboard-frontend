@@ -398,7 +398,7 @@ export const StickyNotesLayer = forwardRef<StickyNotesHandle, Props>(function St
             >
               {stripHtml(top.text) ? (
                 <div
-                  className="min-h-0 flex-1 overflow-hidden break-words text-[12px] leading-snug text-[#3a2f14] [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-0.5 [&_ul]:list-disc [&_ul]:pl-4"
+                  className="min-h-0 flex-1 overflow-hidden break-words text-[12px] leading-snug text-[#3a2f14] [&_a]:underline [&_blockquote]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-black/20 [&_blockquote]:pl-2 [&_blockquote]:italic [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-0.5 [&_ul]:list-disc [&_ul]:pl-4"
                   dangerouslySetInnerHTML={{ __html: top.text }}
                 />
               ) : (

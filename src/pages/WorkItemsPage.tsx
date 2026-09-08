@@ -540,6 +540,26 @@ export function WorkItemsPage() {
   // ── Work items data
   const effectiveFromDate = singleDateFilter || fromDateFilter;
   const effectiveToDate = singleDateFilter || toDateFilter;
+  // Vista d'area: l'operatore allarga l'elenco alle lavorazioni pubbliche delle sue aree,
+  // per vedere dove serve una mano quando è scarico. Per PM e admin non ha senso — vedono
+  // già tutto — quindi lo switch non compare nemmeno. La scelta resta fra una visita e
+  // l'altra: è una modalità di lavoro, non un filtro estemporaneo.
+  const [showAreaTasks, setShowAreaTasks] = useState(() => {
+    try {
+      return localStorage.getItem("wi_area_view") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleAreaTasks = (on: boolean) => {
+    setShowAreaTasks(on);
+    try {
+      localStorage.setItem("wi_area_view", on ? "1" : "0");
+    } catch {
+      /* storage negato: la scelta vale per questa sessione */
+    }
+  };
+
   const filterParams = useMemo(
     () => ({
       ...(companyId != null ? { company_id: companyId } : {}),
@@ -551,8 +571,9 @@ export function WorkItemsPage() {
       ...(affectsDailyLoadFilter !== "" ? { affects_daily_load: affectsDailyLoadFilter === "true" } : {}),
       ...(leftBehindFilter !== "" ? { is_left_behind: leftBehindFilter === "true" } : {}),
       ...(leftBehindReasonFilter ? { left_behind_reason: leftBehindReasonFilter } : {}),
+      ...(showAreaTasks && !canManageWorkItems ? { include_area: true } : {}),
     }),
-    [companyId, assigneeFilter, effectiveFromDate, effectiveToDate, statusFilter, isCompletedFilter, affectsDailyLoadFilter, leftBehindFilter, leftBehindReasonFilter]
+    [companyId, assigneeFilter, effectiveFromDate, effectiveToDate, statusFilter, isCompletedFilter, affectsDailyLoadFilter, leftBehindFilter, leftBehindReasonFilter, showAreaTasks, canManageWorkItems]
   );
   const { workItems, isLoading, error, refetch } = useWorkItems(filterParams);
   // Realtime: quando lo stream SSE spinge un evento (task modificata/cambio stato/commento),
@@ -1365,6 +1386,24 @@ export function WorkItemsPage() {
             { value: "by_client", label: <><Icon name="building" className="h-3.5 w-3.5" />Per cliente</> },
           ]}
         />
+        {/* Vista d'area: solo per gli operatori — PM e admin vedono già tutto. Attivandola
+            l'elenco si allarga alle lavorazioni pubbliche delle proprie aree, per capire
+            dove serve una mano. */}
+        {!canManageWorkItems && (
+          <Button
+            variant={showAreaTasks ? "secondary" : "ghost"}
+            onClick={() => toggleAreaTasks(!showAreaTasks)}
+            title={
+              showAreaTasks
+                ? "Torna alle sole lavorazioni assegnate a te"
+                : "Mostra anche le lavorazioni pubbliche della tua area"
+            }
+            aria-pressed={showAreaTasks}
+            leftIcon={<Icon name="users" className="h-4 w-4" />}
+          >
+            La mia area
+          </Button>
+        )}
         {/* Filtri secondari: sola icona; variante "secondary" quando ce ne sono di attivi. */}
         <Button
           variant={secondaryFiltersCount > 0 ? "secondary" : "ghost"}

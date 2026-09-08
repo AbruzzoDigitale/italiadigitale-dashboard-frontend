@@ -258,10 +258,10 @@ export default function RimborsiPage() {
     }
   };
 
-  const sync = async () => {
+  const sync = async (force = false) => {
     setSyncing(true);
     try {
-      const result = await syncSheetApi({ companyId });
+      const result = await syncSheetApi({ companyId, force });
       toast.success(result.message);
       if (settings) setSettings({ ...settings, last_sync_at: result.last_sync_at });
       await afterChange();
@@ -443,10 +443,15 @@ export default function RimborsiPage() {
                 variant={list.pending_sync > 0 ? "primary" : "secondary"}
                 size="sm"
                 loading={syncing}
-                onClick={sync}
+                onClick={() => sync(list.pending_sync === 0)}
                 leftIcon={<Icon name="refresh-cw" className="h-3.5 w-3.5" />}
+                title={
+                  list.pending_sync > 0
+                    ? "Scrive sul foglio le righe approvate non ancora inviate"
+                    : "Riscrive i mesi già inviati, con il layout e i dati di adesso"
+                }
               >
-                {list.pending_sync > 0 ? "Invia ora" : "Sincronizzato"}
+                {list.pending_sync > 0 ? "Invia ora" : "Risincronizza"}
               </Button>
             )}
           </div>

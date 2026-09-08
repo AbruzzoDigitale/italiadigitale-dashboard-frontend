@@ -35,6 +35,8 @@ export interface Vehicle {
   notes: string | null;
   label: string;
   current_rate_per_km: number;
+  /** Il veicolo che il backend userebbe per una trasferta nuova: i form lo preselezionano. */
+  is_suggested: boolean;
   rates: AciRate[];
   created_at: string | null;
 }
@@ -216,17 +218,32 @@ export interface ExpenseReport {
   archive_size_bytes: number | null;
 }
 
+export type GoogleAccountKind = "azienda" | "personale";
+
+export interface UserSheet {
+  user_id: number;
+  user_name: string | null;
+  spreadsheet_id: string;
+  spreadsheet_url: string | null;
+  shared_with: string | null;
+  last_sync_at: string | null;
+}
+
 export interface ExpenseSettings {
   company_id: number;
   origin_address: string;
+  /** Partenza sempre dalla sede: nel form l'indirizzo è di sola lettura. */
+  origin_locked: boolean;
   daily_allowance: number;
   default_rate_per_km: number;
   aci_source: string;
   daily_allowance_auto: boolean;
   evidence_required: EvidenceKind[];
   maps_configured: boolean;
-  sheet_id: string;
-  sheet_url: string;
+  /** Il modello .xlsx è su Drive: da lì nasce il foglio di ogni collaboratore. */
+  template_ready: boolean;
+  /** Un foglio per collaboratore, come nel file che usa lo studio. */
+  user_sheets: UserSheet[];
   sheet_name: string;
   sheet_configured: boolean;
   auto_sync: boolean;
@@ -244,6 +261,13 @@ export interface ExpenseSettings {
   header_vat: string;
   header_sign_place: string;
   header_authorization: string;
+  header_declaration: string;
+  header_vehicle_line: string;
+  /** Con quale account si scrive: "azienda" (automazioni) o "personale". */
+  google_account: GoogleAccountKind;
+  /** Titolare, quando l'account è personale. */
+  google_user_id: number | null;
+  google_user_name: string | null;
   google_connected: boolean;
   google_email: string | null;
   google_error: string | null;
@@ -251,12 +275,15 @@ export interface ExpenseSettings {
 
 export interface ExpenseSettingsUpdate {
   origin_address?: string;
+  origin_locked?: boolean;
   daily_allowance?: number;
   default_rate_per_km?: number;
   aci_source?: string;
   daily_allowance_auto?: boolean;
   evidence_required?: EvidenceKind[];
   maps_api_key?: string;
+  /** Scegliendo "personale" il titolare diventa chi salva. */
+  google_account?: GoogleAccountKind;
   sheet_name?: string;
   auto_sync?: boolean;
   accountant_email?: string;
@@ -269,6 +296,8 @@ export interface ExpenseSettingsUpdate {
   header_vat?: string;
   header_sign_place?: string;
   header_authorization?: string;
+  header_declaration?: string;
+  header_vehicle_line?: string;
 }
 
 export interface PlaceSuggestion {
@@ -296,12 +325,17 @@ export interface CalendarEvent {
   url: string | null;
   location: string | null;
   all_day: boolean;
+  /** Estremi separati e durata: servono alle schede della giornata. */
+  start_time: string;
+  end_time: string;
+  duration_minutes: number | null;
+  description: string | null;
 }
 
 export interface SheetSyncResult {
   synced: number;
+  /** Tab scritti, nella forma "SETT25 · Rossi". */
   tabs: string[];
-  sheet_url: string;
   last_sync_at: string;
   message: string;
 }
@@ -369,7 +403,27 @@ export async function createVehicleApi(payload: VehicleCreatePayload): Promise<V
   );
 }
 
-export async function updateVehicleApi(id: number, payload: Partial<Vehicle>): Promise<Vehicle> {
+/**
+ * Campi modificabili di un veicolo. Non è `Partial<Vehicle>`: quello porterebbe
+ * anche `label`, `rates` e `current_rate_per_km`, che il backend calcola e non
+ * accetta in scrittura.
+ */
+export type VehicleUpdatePayload = Partial<
+  Pick<
+    Vehicle,
+    | "plate"
+    | "model"
+    | "fuel"
+    | "ownership"
+    | "owner_name"
+    | "user_id"
+    | "is_default"
+    | "is_active"
+    | "notes"
+  >
+>;
+
+export async function updateVehicleApi(id: number, payload: VehicleUpdatePayload): Promise<Vehicle> {
   return jsonOrThrow(
     await authFetch(`${BASE}/vehicles/${id}`, {
       method: "PATCH",
@@ -646,23 +700,34 @@ export async function rotateShareTokenApi(companyId?: number | null): Promise<Ex
   return jsonOrThrow(await authFetch(`${BASE}/settings/share-token/rotate?${params}`, { method: "POST" }));
 }
 
-export async function connectSheetApi(companyId?: number | null, sheetId?: string): Promise<ExpenseSettings> {
+/**
+ * Prepara la rendicontazione: carica il modello su Drive e crea i fogli dei
+ * collaboratori che hanno già trasferte approvate.
+ */
+export async function connectSheetApi(companyId?: number | null): Promise<ExpenseSettings> {
   const params = withCompany(new URLSearchParams(), companyId);
-  if (sheetId) params.set("sheet_id", sheetId);
   return jsonOrThrow(await authFetch(`${BASE}/sheet/connect?${params}`, { method: "POST" }));
 }
 
+/** Stacca i fogli dal gestionale. I file su Drive restano dove sono. */
 export async function disconnectSheetApi(companyId?: number | null): Promise<ExpenseSettings> {
   const params = withCompany(new URLSearchParams(), companyId);
   return jsonOrThrow(await authFetch(`${BASE}/sheet/disconnect?${params}`, { method: "POST" }));
 }
 
 export async function syncSheetApi(
-  options: { companyId?: number | null; year?: number; month?: number } = {}
+  options: {
+    companyId?: number | null;
+    year?: number;
+    month?: number;
+    /** Riscrive anche i mesi già sincronizzati: serve dopo un cambio di layout. */
+    force?: boolean;
+  } = {}
 ): Promise<SheetSyncResult> {
   const params = withCompany(new URLSearchParams(), options.companyId);
   if (options.year != null) params.set("year", String(options.year));
   if (options.month != null) params.set("month", String(options.month));
+  if (options.force) params.set("force", "true");
   return jsonOrThrow(await authFetch(`${BASE}/sheet/sync?${params}`, { method: "POST" }));
 }
 
@@ -673,4 +738,56 @@ export async function archiveMonthApi(
 ): Promise<ArchiveResult> {
   const params = withCompany(new URLSearchParams(), companyId);
   return jsonOrThrow(await authFetch(`${BASE}/archive/${year}/${month}?${params}`, { method: "POST" }));
+}
+
+
+// ── Vista condivisa col commercialista (senza login) ─────────────────────────
+export interface SharedExpenseRow {
+  date: string;
+  location: string;
+  abroad: boolean;
+  reason: string;
+  km: number;
+  rate_per_km: number;
+  km_allowance: number;
+  meal: number;
+  lodging: number;
+  parking: number;
+  tolls: number;
+  daily_allowance: number;
+  total: number;
+  person: string;
+  receipts: string[];
+}
+
+export interface SharedExpenses {
+  company: string;
+  vat: string;
+  label: string;
+  year: number;
+  month: number;
+  aci_source: string;
+  sheet_url: string | null;
+  rows: SharedExpenseRow[];
+  totals: TripTotals;
+}
+
+/**
+ * Righe approvate del mese per chi ha il link. Niente `authFetch`: è la sola
+ * rotta del modulo senza sessione, il token nell'URL è la credenziale.
+ */
+export async function getSharedExpensesApi(
+  token: string,
+  year?: number,
+  month?: number
+): Promise<SharedExpenses> {
+  const params = new URLSearchParams();
+  if (year != null) params.set("year", String(year));
+  if (month != null) params.set("month", String(month));
+  const res = await fetch(`${BASE}/public/${encodeURIComponent(token)}?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string })?.detail ?? "Link non valido o revocato");
+  }
+  return res.json() as Promise<SharedExpenses>;
 }

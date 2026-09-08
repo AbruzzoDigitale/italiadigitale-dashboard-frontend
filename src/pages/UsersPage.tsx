@@ -25,6 +25,13 @@ import { Input } from "../components/ui/Input";
 import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+
+const GENERI = [
+  { value: "", label: "Non dichiarato" },
+  { value: "femminile", label: "Femminile" },
+  { value: "maschile", label: "Maschile" },
+  { value: "altro", label: "Altro" },
+];
 import { MultiSelect } from "../components/ui/MultiSelect";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { WorkAreaMultiSelect } from "../components/work-areas/WorkAreaMultiSelect";
@@ -79,6 +86,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
 
   const [form, setForm] = useState({
     full_name: user?.full_name ?? "",
+    vat_number: user?.vat_number ?? "",
+    legal_name: user?.legal_name ?? "",
+    gender: user?.gender ?? "",
     username: user?.username ?? "",
     email: user?.email ?? "",
     password: "",
@@ -103,6 +113,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     if (user) {
       setForm({
         full_name: user.full_name ?? "",
+        vat_number: user.vat_number ?? "",
+        legal_name: user.legal_name ?? "",
+        gender: user.gender ?? "",
         username: user.username ?? "",
         email: user.email ?? "",
         password: "",
@@ -122,6 +135,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     const fallbackCompanyId = defaultCompanyId ? String(defaultCompanyId) : "";
     setForm({
       full_name: "",
+      vat_number: "",
+      legal_name: "",
+      gender: "",
       username: "",
       email: "",
       password: "",
@@ -314,6 +330,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
             ]));
         const payload: UpdateUserPayload = {
           full_name: form.full_name,
+          vat_number: form.vat_number.trim() || null,
+          legal_name: form.legal_name.trim() || null,
+          gender: form.gender || null,
           username: form.username,
           email: form.email,
           access_level: form.access_level,
@@ -338,6 +357,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
             ? createPerms
             : null;
         const payload: CreateUserPayload = {
+          vat_number: form.vat_number.trim() || null,
+          legal_name: form.legal_name.trim() || null,
+          gender: form.gender || null,
           full_name: form.full_name,
           username: form.username,
           email: form.email,
@@ -402,6 +424,34 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
           error={errors.email}
           placeholder="mario@example.com"
         />
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Ragione sociale"
+            value={form.legal_name}
+            onChange={(e) => set("legal_name", e.target.value)}
+            placeholder="Mucci Giustino"
+          />
+          <Input
+            label="Partita IVA"
+            value={form.vat_number}
+            onChange={(e) => set("vat_number", e.target.value)}
+            placeholder="01234567890"
+          />
+        </div>
+        <p className="-mt-2 text-[11px] text-muted dark:text-muted-dark">
+          Servono solo a chi collabora con la propria partita IVA: finiscono nella dichiarazione della sua nota
+          spese trasferte.
+        </p>
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-semibold text-muted dark:text-muted-dark">Genere</span>
+          <SearchableSelect
+            menuLayer="portal"
+            value={form.gender}
+            onChange={(v) => set("gender", v)}
+            options={GENERI}
+            placeholder="Non dichiarato"
+          />
+        </label>
         {!isEdit && (
           <div className="relative">
             <Input

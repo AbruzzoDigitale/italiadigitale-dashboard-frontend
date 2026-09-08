@@ -21,6 +21,7 @@ import {
 } from "../api/workItems";
 import { getCompanyApi } from "../api/companies";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { SENT_TO_CLIENT_COLOR, isSentToClient, taskStatusBadges } from "../utils/taskStatus";
 import { TaskConflictModal } from "../components/work-items/TaskConflictModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
@@ -247,14 +248,6 @@ function taskHoursLabel(task: TaskHoursFields): string {
   return `${formatHours(effective)} eff · ${formatHours(task.estimated_hours)} st`;
 }
 
-// Ciano "consegnata al cliente": stesso colore delle card in Lavorazioni (sent-client).
-// Una task consegnata al cliente non pesa sull'operatore (0 ore effettive): va mostrata
-// come "parcheggiata al cliente", non col colore area come una lavorazione attiva.
-const SENT_TO_CLIENT_COLOR = "#2ec3f3";
-function isSentToClient(task: { status: string; delivered_to_client_at?: string | null }): boolean {
-  return task.status === "review" && !!task.delivered_to_client_at;
-}
-
 function statusLabel(status: WorkloadComputedStatus) {
   switch (status) {
     case "overload":
@@ -304,22 +297,6 @@ function sortTasksByStartTime(tasks: WorkloadTaskSummary[]): WorkloadTaskSummary
     if (diff !== 0) return diff;
     return left.work_item_id - right.work_item_id;
   });
-}
-
-// Stati task: etichetta in italiano + colore. Stessa palette della board Lavorazioni,
-// così lo stesso stato ha lo stesso colore in tutta l'app.
-const TASK_STATUS_META: Record<string, { label: string; color: string }> = {
-  in_progress: { label: "In corso", color: "#378ADD" },
-  planned: { label: "Da fare", color: "#888780" },
-  review: { label: "In revisione", color: "#EF9F27" },
-  completed: { label: "Completata", color: "#639922" },
-  done: { label: "Completata", color: "#639922" },
-  blocked: { label: "Bloccata", color: "#E24B4A" },
-  cancelled: { label: "Annullata", color: "#8c8d87" },
-};
-
-function taskStatusMeta(status: string): { label: string; color: string } {
-  return TASK_STATUS_META[status] ?? { label: status, color: "#8c8d87" };
 }
 
 // Ordine di default nelle lane: prima le in corso, poi le da fare, infine le in revisione.
@@ -1613,7 +1590,6 @@ export function WorkloadPage() {
       sourceAssigneeId: number | null,
       unassigned = false
     ) => {
-      const status = taskStatusMeta(task.status);
       const sentToClient = isSentToClient(task);
       return (
         <button
@@ -1643,26 +1619,18 @@ export function WorkloadPage() {
               <span className="wl-acc-task__time">{formatTaskStartTime(task.start_time)}</span>
             )}
             <span className="wl-acc-task__client">{task.client_name || "Senza cliente"}</span>
-            {task.client_approved_at && (
+            {/* Stesse etichette di "Attività del giorno": la funzione è una sola, così le
+                due viste non possono raccontare la stessa task in modo diverso. */}
+            {taskStatusBadges(task).map((b) => (
               <span
-                className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none"
-                style={{ color: "#0c8a57", backgroundColor: "#16eb9622" }}
-                title="Approvata/pronta ma non ancora pubblicata"
+                key={b.key}
+                className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider"
+                style={{ color: b.color, backgroundColor: `${b.color}22` }}
+                title={b.title}
               >
-                In pubblicazione
+                {b.label}
               </span>
-            )}
-            <span
-              className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none"
-              style={
-                sentToClient
-                  ? { color: SENT_TO_CLIENT_COLOR, backgroundColor: `${SENT_TO_CLIENT_COLOR}22` }
-                  : { color: status.color, backgroundColor: `${status.color}22` }
-              }
-              title={sentToClient ? "Consegnata al cliente, in attesa (non pesa sull'operatore)" : undefined}
-            >
-              {sentToClient ? "Al cliente" : status.label}
-            </span>
+            ))}
           </div>
         </button>
       );

@@ -33,10 +33,23 @@ interface RichTextEditorProps {
   className?: string;
   /** Sfondo trasparente + testo scuro (es. dentro una sticky note colorata). */
   transparent?: boolean;
+  /**
+   * Modalità «foglio»: superficie bianca e testo scuro in ENTRAMBI i temi.
+   * Serve a chi scrive un'email: il contenuto porta colori inline pensati per
+   * la carta bianca del client di posta, e su fondo scuro sparirebbe. Qui non
+   * si sta scegliendo un tema, si sta guardando il mezzo.
+   */
+  paper?: boolean;
   /** Se presente, mostra un pulsante "Allega" per inserire un badge file nel testo. */
   attachmentPicker?: {
     options: AttachmentPickerOption[];
     emptyHint?: string;
+    /**
+     * Se presente, il menu offre anche "Carica un file": serve a non costringere a
+     * uscire dalla descrizione (e, in creazione, a salvare la task) solo per avere
+     * qualcosa da inserire.
+     */
+    onPickFile?: () => void;
   };
   /** Toolbar "stile Gmail": aggiunge font, dimensione, colore testo e allineamento. */
   richToolbar?: boolean;
@@ -251,6 +264,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   minHeightClassName = "min-h-[132px]",
   className,
   transparent = false,
+  paper = false,
   attachmentPicker,
   richToolbar = false,
   allowStyles,
@@ -589,10 +603,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   // Bottoni della toolbar: su nota colorata (transparent) servono più contrasto.
   const toolbarBtnCls = transparent
     ? "rounded border border-black/25 px-2 py-0.5 text-xs font-bold text-[#241d0a] transition-colors hover:bg-black/15 disabled:cursor-not-allowed disabled:opacity-50"
+    : paper
+    // Su foglio bianco la toolbar resta chiara anche in tema scuro: è la cornice
+    // del foglio, non della pagina.
+    ? "rounded border border-[#e2e2e6] px-2 py-0.5 text-xs font-semibold text-[#6b6b73] transition-colors hover:text-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-50"
     : "rounded border border-line px-2 py-0.5 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-muted-dark dark:hover:text-paper";
 
-  const selectCls =
-    "rounded border border-line bg-paper px-1 py-0.5 text-xs text-ink outline-none disabled:opacity-50 dark:border-line-dark dark:bg-ink-soft dark:text-paper";
+  const selectCls = paper
+    ? "rounded border border-[#e2e2e6] bg-white px-1 py-0.5 text-xs text-[#1a1a1a] outline-none disabled:opacity-50"
+    : "rounded border border-line bg-paper px-1 py-0.5 text-xs text-ink outline-none disabled:opacity-50 dark:border-line-dark dark:bg-ink-soft dark:text-paper";
 
   // Variabili raggruppate per il menu (Azienda / Operatore / Cliente…).
   const variableGroups = (() => {
@@ -614,10 +633,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         className={
           transparent
             ? "relative text-[#3a2f14]"
+            : paper
+            ? "relative rounded-md border border-[#e2e2e6] bg-white text-[#1a1a1a] transition-colors duration-150 focus-within:border-[#1a1a1a]"
             : "relative rounded-md border border-line bg-paper text-ink transition-colors duration-150 focus-within:border-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:focus-within:border-paper"
         }
       >
-        <div className={`flex flex-wrap items-center gap-1 border-b px-2 py-1.5 ${transparent ? "border-black/20" : "border-line dark:border-line-dark"}`}>
+        <div className={`flex flex-wrap items-center gap-1 border-b px-2 py-1.5 ${transparent ? "border-black/20" : paper ? "border-[#e2e2e6]" : "border-line dark:border-line-dark"}`}>
           {richToolbar ? (
             <>
               <select
@@ -764,6 +785,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
               {attachMenuOpen ? (
                 <div className="absolute left-0 top-[calc(100%+6px)] z-20 max-h-64 w-64 overflow-y-auto rounded-md border border-line bg-paper p-1 shadow-lg dark:border-line-dark dark:bg-[#1b1b1f]">
+                  {attachmentPicker.onPickFile ? (
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        attachmentPicker.onPickFile?.();
+                      }}
+                      className="mb-1 flex w-full items-center gap-2 rounded border-b border-line px-2 py-1.5 text-left text-xs font-semibold text-ink hover:bg-cream dark:border-line-dark dark:text-paper dark:hover:bg-[#131316]"
+                    >
+                      <Icon name="upload" className="h-3.5 w-3.5 shrink-0" />
+                      <span>Carica un file…</span>
+                    </button>
+                  ) : null}
                   {attachmentPicker.options.length === 0 ? (
                     <p className="px-2 py-2 text-[11px] text-muted dark:text-muted-dark">
                       {attachmentPicker.emptyHint ?? "Nessun file caricato da inserire."}
@@ -844,7 +879,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           className={[
             "w-full px-3 py-2.5 text-sm font-body leading-relaxed outline-none",
             minHeightClassName,
-            "empty:before:pointer-events-none empty:before:text-muted empty:before:content-[attr(data-placeholder)] dark:empty:before:text-muted-dark",
+            paper
+              ? "empty:before:pointer-events-none empty:before:text-[#9999a0] empty:before:content-[attr(data-placeholder)]"
+              : "empty:before:pointer-events-none empty:before:text-muted empty:before:content-[attr(data-placeholder)] dark:empty:before:text-muted-dark",
             "[&_a]:underline [&_a]:decoration-dotted [&_a]:underline-offset-2",
             "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-2 [&_blockquote]:italic",
             "dark:[&_blockquote]:border-line-dark",

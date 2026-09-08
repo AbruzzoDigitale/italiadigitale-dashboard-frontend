@@ -36,8 +36,10 @@ import { SocialPackagesPage } from "./pages/SocialPackagesPage";
 import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
+import { EmailHistoryPage } from "./pages/EmailHistoryPage";
 import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
 import RimborsiPage from "./pages/RimborsiPage";
+import SharedExpensesPage from "./pages/SharedExpensesPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
@@ -95,6 +97,9 @@ function AppRoutes() {
     <Routes>
       {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
       <Route path="/firma/:token" element={<ClientSignPage />} />
+      {/* Rendicontazione trasferte per il commercialista: sola lettura, senza
+          account. Il token è la credenziale e si revoca dalle impostazioni. */}
+      <Route path="/rimborsi/condiviso/:token" element={<SharedExpensesPage />} />
       {/* Compilazione da link condiviso: NON è pubblico — serve l'accesso, e il
           permesso arriva dalle aree/operatori assegnati al modulo. */}
       <Route
@@ -165,6 +170,7 @@ function AppRoutes() {
         <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
         <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
+        <Route path="storico-email" element={<RouteAccess routeKey="admin"><EmailHistoryPage /></RouteAccess>} />
         <Route path="prenotazione-sale" element={<RouteAccess routeKey="prenotazione-sale"><MeetingRoomsPage /></RouteAccess>} />
         <Route path="rimborsi" element={<RouteAccess routeKey="rimborsi"><RimborsiPage /></RouteAccess>} />
         <Route path="report" element={<RouteAccess routeKey="reports"><ReportsPage /></RouteAccess>} />

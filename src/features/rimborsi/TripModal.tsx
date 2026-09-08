@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -72,13 +72,22 @@ interface Draft {
   notes: string;
 }
 
-function emptyDraft(settings: ExpenseSettings | null, currentUserId: number): Draft {
+function emptyDraft(
+  settings: ExpenseSettings | null,
+  currentUserId: number,
+  vehicles: Vehicle[]
+): Draft {
+  // Il veicolo di partenza lo indica il backend (`is_suggested`): è la stessa
+  // regola che applicherebbe salvando senza sceglierne uno — ultimo usato, poi
+  // predefinito, poi il primo proprio, poi uno aziendale. Il form la mostra
+  // invece di lasciare la tendina vuota e far credere che non ce ne sia uno.
+  const suggerito = vehicles.find((v) => v.is_suggested);
   return {
     trip_date: todayIso(),
     location: "",
     reason: "",
     abroad: false,
-    vehicle_id: "",
+    vehicle_id: suggerito ? String(suggerito.id) : "",
     client_id: "",
     user_id: String(currentUserId),
     origin_address: settings?.origin_address ?? "",
@@ -140,6 +149,12 @@ function calendarFromTrip(trip: Trip | null): CalendarEvent | null {
     url: trip.calendar.url,
     location: null,
     all_day: false,
+    // La trasferta salva solo la fascia già formattata: gli estremi separati
+    // esistono sull'evento vivo, non su quello che abbiamo memorizzato.
+    start_time: "",
+    end_time: "",
+    duration_minutes: null,
+    description: null,
   };
 }
 
@@ -166,7 +181,7 @@ export function TripModal({
   // modale (key) a ogni apertura, così non serve un effetto che copia props
   // dentro state a ogni render.
   const [draft, setDraft] = useState<Draft>(() =>
-    trip ? draftFromTrip(trip) : emptyDraft(settings, currentUserId)
+    trip ? draftFromTrip(trip) : emptyDraft(settings, currentUserId, vehicles)
   );
   const [maps, setMaps] = useState<RouteResult | null>(() => mapsFromTrip(trip));
   const [calendar, setCalendar] = useState<CalendarEvent | null>(() => calendarFromTrip(trip));
@@ -284,6 +299,15 @@ export function TripModal({
     setMaps({ ...maps, distance_km: Math.round(next * 10) / 10 });
     set("km", String(Math.round(next * 10) / 10));
   };
+
+  // I veicoli arrivano da una fetch della pagina: se la modale si apre prima che
+  // siano pronti, il draft nasce senza. Appena arrivano si preseleziona, ma solo
+  // su una trasferta nuova e finché non ha scelto l'utente.
+  useEffect(() => {
+    if (trip || draft.vehicle_id) return;
+    const suggerito = vehicles.find((v) => v.is_suggested);
+    if (suggerito) set("vehicle_id", String(suggerito.id));
+  }, [vehicles, trip, draft.vehicle_id]);
 
   // ── Agenda ─────────────────────────────────────────────────────────────────
   const loadEvents = async () => {
@@ -529,10 +553,15 @@ export function TripModal({
         {/* 2 · Percorso */}
         <Section step={2} icon="target" title="Percorso e chilometri" hint="Distanza calcolata da Google Maps">
           <div className="grid gap-3">
+            {/* Con la partenza fissa la sede non si tocca: i km rimborsati si
+                contano da lì, non da dove si trovava chi ha viaggiato. */}
             <Input
               label="Partenza"
-              value={draft.origin_address}
+              value={settings?.origin_locked ? settings.origin_address : draft.origin_address}
               placeholder={settings?.origin_address || "Indirizzo di partenza"}
+              readOnly={settings?.origin_locked}
+              disabled={settings?.origin_locked}
+              hint={settings?.origin_locked ? "Sede dell'agenzia: i chilometri si calcolano sempre da qui." : undefined}
               onChange={(e) => set("origin_address", e.target.value)}
             />
             <div className="relative">
@@ -743,26 +772,38 @@ export function TripModal({
             )}
 
             {events !== null && (
-              <div className="rounded-md border border-line dark:border-[#2a2a2e]">
+              <div className="rounded-md border border-line p-3 dark:border-[#2a2a2e]">
+                <div className="mb-2 flex items-center gap-2">
+                  <Icon name="calendar" className="h-3.5 w-3.5 text-muted dark:text-muted-dark" />
+                  <b className="text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">
+                    Agenda di {draft.trip_date.split("-").reverse().join("/")}
+                  </b>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => setEvents(null)}
+                    className="text-[11px] text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-white"
+                  >
+                    Chiudi
+                  </button>
+                </div>
+
                 {events.length === 0 ? (
-                  <p className="px-3 py-3 text-[11px] text-muted dark:text-muted-dark">
-                    Nessun appuntamento in agenda il {draft.trip_date.split("-").reverse().join("/")}.
+                  <p className="py-3 text-center text-[11px] text-muted dark:text-muted-dark">
+                    Nessun appuntamento quel giorno. Se ne hai uno su un altro calendario, la prova
+                    dovrà essere un'altra.
                   </p>
                 ) : (
-                  events.map((event) => (
-                    <button
-                      key={event.event_id}
-                      type="button"
-                      onClick={() => chooseEvent(event)}
-                      className="block w-full border-b border-line/60 px-3 py-2 text-left last:border-0 transition-colors hover:bg-cream dark:border-[#2a2a2e] dark:hover:bg-[#1c1c20]"
-                    >
-                      <b className="block text-[12px]">{event.title}</b>
-                      <span className="text-[11px] text-muted dark:text-muted-dark">
-                        {event.time}
-                        {event.location ? ` · ${event.location}` : ""}
-                      </span>
-                    </button>
-                  ))
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {events.map((event) => (
+                      <EventCard
+                        key={event.event_id}
+                        event={event}
+                        selected={calendar?.event_id === event.event_id}
+                        onChoose={() => chooseEvent(event)}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -875,6 +916,86 @@ function Total({ label, value, accent = false }: { label: string; value: string;
       <span className="block text-[10px] uppercase tracking-wider text-muted dark:text-muted-dark">{label}</span>
       <b className={`text-[14px] ${accent ? "text-brand-magenta" : ""}`}>{value}</b>
     </div>
+  );
+}
+
+/**
+ * Un appuntamento dell'agenda come scheda: l'orario in evidenza a sinistra,
+ * titolo e luogo a destra. La barra verticale è alta in proporzione alla durata,
+ * così si distingue a colpo d'occhio l'impegno di mezza giornata dalla call di
+ * venti minuti — è quello che si guarda per capire quale evento era la trasferta.
+ */
+function EventCard({
+  event,
+  selected,
+  onChoose,
+}: {
+  event: CalendarEvent;
+  selected: boolean;
+  onChoose: () => void;
+}) {
+  // 30 min → barra corta, 4 ore o più → barra piena.
+  const durata = event.duration_minutes ?? 0;
+  const pieno = Math.min(100, Math.max(18, Math.round((durata / 240) * 100)));
+
+  return (
+    <button
+      type="button"
+      onClick={onChoose}
+      className={`flex gap-2.5 rounded-md border p-2.5 text-left transition-colors ${
+        selected
+          ? "border-brand-magenta bg-brand-magenta/5"
+          : "border-line hover:bg-cream dark:border-[#2a2a2e] dark:hover:bg-[#1c1c20]"
+      }`}
+    >
+      <span className="flex w-14 shrink-0 flex-col items-end gap-1">
+        {event.all_day ? (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            Tutto
+            <br />
+            il giorno
+          </span>
+        ) : (
+          <>
+            <b className="text-[12px] tabular-nums">{event.start_time || event.time}</b>
+            {event.end_time && (
+              <span className="text-[10px] tabular-nums text-muted dark:text-muted-dark">
+                {event.end_time}
+              </span>
+            )}
+          </>
+        )}
+      </span>
+
+      <span
+        className={`w-[3px] shrink-0 self-stretch rounded-full ${
+          selected ? "bg-brand-magenta" : "bg-line dark:bg-[#2a2a2e]"
+        }`}
+        style={{ height: event.all_day ? "100%" : `${pieno}%`, minHeight: "18px" }}
+      />
+
+      <span className="min-w-0 flex-1">
+        <b className="block truncate text-[12px]">{event.title}</b>
+        {event.location && (
+          <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted dark:text-muted-dark">
+            <Icon name="map-pin" className="h-3 w-3 shrink-0" />
+            <span className="truncate">{event.location}</span>
+          </span>
+        )}
+        {event.description && (
+          <span className="mt-0.5 block truncate text-[10px] text-muted dark:text-muted-dark">
+            {event.description}
+          </span>
+        )}
+        {durata > 0 && !event.all_day && (
+          <span className="mt-0.5 block text-[10px] text-muted dark:text-muted-dark">
+            {durata >= 60 ? `${Math.floor(durata / 60)} h ${durata % 60 || ""}`.trim() : `${durata} min`}
+          </span>
+        )}
+      </span>
+
+      {selected && <Icon name="check" className="h-4 w-4 shrink-0 text-brand-magenta" />}
+    </button>
   );
 }
 

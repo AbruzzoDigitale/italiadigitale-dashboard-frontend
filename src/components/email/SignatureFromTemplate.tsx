@@ -4,9 +4,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
-import { SearchableSelect } from "../ui/SearchableSelect";
-import { useTheme } from "../../context/ThemeContext";
-import { getCompanyLogoUrl, type CompanyLogoFields } from "../../utils/companyLogo";
+import { type CompanyLogoFields } from "../../utils/companyLogo";
 import { uploadSignatureMediaApi } from "../../api/emailSignatures";
 import {
   getMyTemplateFillApi,
@@ -114,9 +112,12 @@ function FieldInput({
 }
 
 export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
-  const { theme } = useTheme();
   const toast = useToast();
-  const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
+  // L'organizzazione la sceglie la sidebar: qui la si segue e basta. Un secondo
+  // selettore poteva puntare a un'azienda diversa da quella in cui stai
+  // lavorando, e la firma che compilavi non era quella che ti aspettavi.
+  const companyId = defaultCompanyId ?? companies[0]?.id ?? null;
+  const companyName = companies.find((c) => c.id === companyId)?.name ?? null;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [templateName, setTemplateName] = useState<string | null>(null);
@@ -204,16 +205,10 @@ export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
         <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7]" style={{ fontSize: "17px" }}>
           Firma email
         </h2>
-        {companies.length > 1 && (
-          <div className="w-56">
-            <SearchableSelect
-              value={companyId != null ? String(companyId) : ""}
-              onChange={(v) => setCompanyId(Number(v) || null)}
-              options={companies.map((c) => ({ value: String(c.id), label: c.name, avatarUrl: getCompanyLogoUrl(c, theme) }))}
-              placeholder="Organizzazione"
-              avatarShape="logo"
-            />
-          </div>
+        {companyName && (
+          <span className="shrink-0 rounded-pill border border-line px-2.5 py-[3px] text-[11px] font-medium text-muted dark:border-[#2a2a2e] dark:text-muted-dark">
+            {companyName}
+          </span>
         )}
       </div>
       <p className="font-body text-[13px] text-muted dark:text-muted-dark mb-5">

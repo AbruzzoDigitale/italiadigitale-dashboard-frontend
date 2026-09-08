@@ -3,6 +3,8 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { SignatureTemplateAdmin } from "../components/email/SignatureTemplateAdmin";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
 import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
+import { MapsKeyCard } from "../features/rimborsi/MapsKeyCard";
+import { OfficeAddressCard } from "../features/rimborsi/OfficeAddressCard";
 import { WorkloadWeightsSection } from "../components/workload/WorkloadWeightsSection";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
@@ -802,6 +804,9 @@ export function CompanyBrandPage() {
           phone:              b.phone              ?? "",
           address:            b.address            ?? "",
           address_maps_url:   b.address_maps_url   ?? "",
+          // Dati fiscali: usati dalla nota spese trasferte.
+          legal_name:         b.legal_name         ?? "",
+          vat_number:         b.vat_number         ?? "",
           signature_logo_url: b.signature_logo_url ?? "",
           facebook_url:       b.facebook_url       ?? "",
           instagram_url:      b.instagram_url      ?? "",
@@ -1394,6 +1399,20 @@ export function CompanyBrandPage() {
                   hint="Opzionale: link cliccabile dell'indirizzo"
                 />
                 <Input
+                  label="Ragione sociale"
+                  value={(form.legal_name as string) ?? ""}
+                  onChange={(e) => set("legal_name", e.target.value)}
+                  placeholder="G. & G. Servizi srl"
+                  hint="Come si chiama davanti al fisco, se diverso dal nome con cui vi presentate"
+                />
+                <Input
+                  label="Partita IVA"
+                  value={(form.vat_number as string) ?? ""}
+                  onChange={(e) => set("vat_number", e.target.value)}
+                  placeholder="01611390673"
+                  hint="Finisce nella dichiarazione della nota spese trasferte"
+                />
+                <Input
                   label="Logo firma (URL)"
                   value={(form.signature_logo_url as string) ?? ""}
                   onChange={(e) => set("signature_logo_url", e.target.value)}
@@ -1485,6 +1504,7 @@ export function CompanyBrandPage() {
         {activeTab === "google" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <GoogleConnectSection scope="company" companyId={companyId} />
+            <MapsKeyCard companyId={companyId} />
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
               <h2
                 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
@@ -1546,6 +1566,8 @@ export function CompanyBrandPage() {
 
         {activeTab === "settings" && (
           <>
+            <OfficeAddressCard companyId={companyId} />
+
             {/* Auto-archiviazione delle lavorazioni completate */}
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
               <h2

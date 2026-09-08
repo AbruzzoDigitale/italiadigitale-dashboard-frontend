@@ -12,6 +12,8 @@ import { authFetch, API_BASE } from "./auth";
 const BASE = `${API_BASE}/api/v1/email-templates`;
 
 export type EmailTemplateScope = "company" | "personal";
+/** Filtro dell'elenco: "all" = modelli aziendali + i personali di chi chiede. */
+export type EmailTemplateListScope = EmailTemplateScope | "all";
 
 export interface EmailTemplate {
   id: number;
@@ -62,7 +64,7 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 
 export async function listEmailTemplatesApi(
   companyId: number,
-  scope: EmailTemplateScope = "personal",
+  scope: EmailTemplateListScope = "personal",
 ): Promise<EmailTemplate[]> {
   return jsonOrThrow(await authFetch(`${BASE}?company_id=${companyId}&scope=${scope}`));
 }

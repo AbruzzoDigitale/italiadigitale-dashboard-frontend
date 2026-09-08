@@ -17,10 +17,31 @@ type ModalDraftPayload = {
   fields: Record<string, DraftFieldValue>;
 };
 
+/**
+ * Cancella la bozza di un modal salvata in sessionStorage. Da chiamare quando il
+ * contenuto e' stato PERSISTITO davvero (salvataggio riuscito): da quel momento la bozza
+ * e' vecchia, e ripristinarla riscriverebbe dati freschi con dati superati. Il Modal da
+ * solo non puo' saperlo, perche' non conosce l'esito dell'azione.
+ */
+export function clearModalDraft(draftId: string): void {
+  try {
+    sessionStorage.removeItem(`modal-draft:${draftId}`);
+  } catch {
+    // storage negato: niente da cancellare
+  }
+}
+
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: string;
+  /**
+   * Elemento reso SUBITO DOPO il titolo, sulla stessa riga: serve a mostrare uno stato
+   * che deve saltare all'occhio appena si apre (es. "In pubblicazione" su una
+   * lavorazione). Separato da `title` perche' quello resta una stringa: lo usano
+   * l'attributo aria e il tooltip.
+   */
+  titleBadge?: React.ReactNode;
   description?: string;
   icon?: React.ReactNode;
   /** Azioni extra nell'header, rese a sinistra del pulsante di chiusura (X). */
@@ -65,6 +86,7 @@ export function Modal({
   open,
   onClose,
   title,
+  titleBadge,
   description,
   icon,
   headerActions,
@@ -296,12 +318,19 @@ export function Modal({
               </span>
             )}
             <div className="min-w-0">
-              <h2
-                id="modal-title"
-                className="font-display font-bold text-lg leading-tight tracking-tight text-ink dark:text-paper"
-              >
-                {title}
-              </h2>
+              {/* line-clamp-2: da quando l'intestazione porta il nome della lavorazione il
+                  titolo puo' essere lungo. Due righe restano leggibili senza far crescere
+                  l'intestazione; il testo intero resta nel tooltip. */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h2
+                  id="modal-title"
+                  title={title}
+                  className="font-display font-bold text-lg leading-tight tracking-tight text-ink line-clamp-2 dark:text-paper"
+                >
+                  {title}
+                </h2>
+                {titleBadge}
+              </div>
               {description && (
                 <p className="mt-0.5 text-xs text-muted dark:text-muted-dark">
                   {description}

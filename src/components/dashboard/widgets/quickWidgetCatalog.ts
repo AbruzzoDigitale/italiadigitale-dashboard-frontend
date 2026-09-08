@@ -14,6 +14,8 @@ export interface QuickWidgetDef {
 }
 
 export const QUICK_WIDGETS: QuickWidgetDef[] = [
+  { type: "qw-feed", label: "Novità", description: "Le ultime cose successe in giro per il gestionale, a rotazione.", icon: "star" },
+  { type: "qw-shortcuts", label: "Scorciatoie", description: "Tessere di collegamento alle sezioni del gestionale.", icon: "grid" },
   { type: "qw-notifications", label: "Notifiche", description: "Ultime notifiche, non lette in evidenza.", icon: "bell" },
   { type: "qw-work-items", label: "Lavorazioni", description: "Lavorazioni aperte.", icon: "list", requiresRoute: "work-items" },
   { type: "qw-requests", label: "Richieste", description: "Ultime richieste ricevute.", icon: "annotation", requiresRoute: "requests" },

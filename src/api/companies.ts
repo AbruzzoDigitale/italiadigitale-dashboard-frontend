@@ -81,6 +81,8 @@ export interface CompanyBrand {
   phone: string | null;
   address: string | null;
   address_maps_url: string | null;
+  legal_name: string | null;
+  vat_number: string | null;
   signature_logo_url: string | null;
   facebook_url: string | null;
   instagram_url: string | null;
@@ -129,6 +131,9 @@ export interface UpdateCompanyBrandPayload {
   phone?: string | null;
   address?: string | null;
   address_maps_url?: string | null;
+  /** Ragione sociale e p.iva: quello che va sui documenti fiscali. */
+  legal_name?: string | null;
+  vat_number?: string | null;
   signature_logo_url?: string | null;
   facebook_url?: string | null;
   instagram_url?: string | null;
