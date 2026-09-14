@@ -37,6 +37,8 @@ interface Props {
   /** Una riga sola, oppure tutte quelle selezionate (invio multiplo). */
   targets: Target[];
   catalog: ActionCatalog | null;
+  /** Campi già noti a chi apre il modale (es. la data di una manutenzione). */
+  initialValues?: Record<string, string>;
   onDone: () => void;
 }
 
@@ -49,6 +51,7 @@ export function ActionRunModal({
   buttonKey,
   targets,
   catalog,
+  initialValues,
   onDone,
 }: Props) {
   const toast = useToast();
@@ -140,7 +143,11 @@ export function ActionRunModal({
       setValues({});
       return;
     }
-    void carica({}, true);
+    void carica(initialValues ?? {}, true);
+    // `initialValues` è volutamente fuori dalle dipendenze: cambia identità a
+    // ogni render del chiamante e rilancerebbe la prepare all'infinito. Conta
+    // solo il valore che ha all'apertura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, carica]);
 
   // Invio multiplo: si chiede l'anteprima di ogni riga per mostrare CHI riceverà.

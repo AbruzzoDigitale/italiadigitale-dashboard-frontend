@@ -66,6 +66,8 @@ import { RichTextEditor, type RichTextEditorHandle } from "../ui/RichTextEditor"
 import { TaskAttachmentsBar } from "./TaskAttachmentsBar";
 import { TaskFormsTab } from "../../features/forms/TaskFormsTab";
 import { listWebsitesApi, websiteLabel, type Website } from "../../api/websites";
+import { ActionButton } from "../../features/button-actions/ActionButton";
+import { useConfigurableButton } from "../../features/button-actions/useConfigurableButton";
 import { toEditorHtml } from "../../utils/descriptionHtml";
 import { MAINTENANCE_TASK_TYPE, isMaintenanceTitle, withMaintenancePrefix } from "../../utils/maintenance";
 import { TaskSettingsModal } from "./TaskSettingsModal";
@@ -2892,6 +2894,71 @@ export function WorkItemFormModal({
     unlinkedClientWebsites.length > 0 && websiteSuggestDismissed !== Number(form.client_id);
 
   const isMaintenance = form.task_type === MAINTENANCE_TASK_TYPE;
+
+  // ── Avviso di aggiornamento al cliente ──────────────────────────────────────
+  // Stesso bottone della lista siti (stessa chiave, quindi stessa configurazione
+  // e stesso storico). Qui vale la pena averlo perché la data la sappiamo già:
+  // è quella della task, non la prossima manutenzione in calendario.
+  const avviso = useConfigurableButton(
+    companyId,
+    "website.update_notice",
+    // Solo le manutenzioni mostrano l'avviso: per tutte le altre task l'elenco
+    // resta vuoto e l'hook non interroga il server.
+    isMaintenance ? form.website_ids : [],
+  );
+
+  const renderAvvisoSiti = () => {
+    if (!isMaintenance || form.website_ids.length === 0) return null;
+    const collegati = clientWebsites.filter((w) => form.website_ids.includes(w.id));
+    if (collegati.length === 0) return null;
+    // Nessun bottone visibile (non configurato e chi guarda non è admin):
+    // meglio niente che un'intestazione che non introduce nulla.
+    if (!collegati.some((w) => avviso.item(w.id)?.visible)) return null;
+
+    return (
+      <div className="mt-3 border-t border-line pt-3 dark:border-line-dark">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+          Avvisa il cliente
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {collegati.map((w) => {
+            const stato = avviso.item(w.id);
+            if (!stato?.visible) return null;
+            return (
+              <div key={w.id} className="flex items-center gap-2">
+                <ActionButton
+                  state={stato}
+                  label={avviso.label || "Avvisa dell'aggiornamento"}
+                  canConfigure={avviso.canConfigure}
+                  onConfigure={() => avviso.configure(w.id)}
+                  onRun={() =>
+                    avviso.run(
+                      [{ id: w.id, label: websiteLabel(w) }],
+                      // La data della task: è il giorno in cui l'intervento
+                      // viene fatto, l'unico che abbia senso dire al cliente.
+                      form.work_date ? { "aggiornamento.data": form.work_date } : undefined,
+                    )
+                  }
+                />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink dark:text-paper">
+                  {websiteLabel(w)}
+                </span>
+                {stato.last_run && (
+                  <span className="flex-none text-[11px] text-success">
+                    avvisato il{" "}
+                    {new Date(stato.last_run.at).toLocaleDateString("it-IT", {
+                      day: "numeric",
+                      month: "long",
+                    })}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
   const titleSuggestsMaintenance = isMaintenanceTitle(form.title);
 
   // Come per il PED: attivandola portiamo "Manutenzione sito" nel titolo, se il
@@ -3696,6 +3763,7 @@ export function WorkItemFormModal({
               placeholder="Seleziona siti web..."
             />
           )}
+          {renderAvvisoSiti()}
           {renderMaintenanceCheckbox()}
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderChecklistSection()}
@@ -4450,6 +4518,7 @@ export function WorkItemFormModal({
                   : "Nessun sito in archivio: aggiungili dalla pagina \u201cSiti web\u201d nel men\u00f9."}
               </p>
             )}
+            {renderAvvisoSiti()}
             {renderMaintenanceCheckbox()}
             {isMaintenance && (
               <p className="text-[12.5px] text-muted dark:text-muted-dark">
@@ -4659,6 +4728,10 @@ export function WorkItemFormModal({
       onReschedule={handleOverbookingReschedule}
       onProceed={finishAfterOverbooking}
     />
+
+    {/* Configurazione e invio dell'avviso: fuori dal modale della task, così
+        restano montati una volta sola e non uno per sito collegato. */}
+    {avviso.modals}
     </>
   );
 }

@@ -8,6 +8,8 @@ import { createSubmissionApi } from "../../api/forms";
 import { Badge } from "../../components/ui/Badge";
 import { Icon } from "../../components/ui/Icon";
 import { useToast } from "../../context/ToastContext";
+import { ActionButton } from "../button-actions/ActionButton";
+import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
 /**
  * Calendario delle manutenzioni, mese per mese: sotto ogni giorno i siti da
@@ -129,6 +131,20 @@ export function MaintenanceCalendarTab({ companyId, fillHeight = false }: Mainte
   }, [dati]);
 
   const celle = useMemo(() => monthGrid(anno, mese), [anno, mese]);
+
+  // Bottone «Avvisa dell'aggiornamento»: stesso bottone della lista siti, quindi
+  // stessa configurazione e stesso storico. Lo stato si chiede per tutti i siti
+  // del mese in una volta, non per cella.
+  const sitiDelMese = useMemo(() => {
+    const ids = new Set<number>();
+    (dati?.days ?? []).forEach((g) =>
+      g.items.forEach((i) => {
+        if (i.website_id) ids.add(i.website_id);
+      }),
+    );
+    return [...ids];
+  }, [dati]);
+  const avviso = useConfigurableButton(companyId, "website.update_notice", sitiDelMese);
 
   const cambiaMese = (delta: number) => {
     const d = new Date(anno, mese + delta, 1);
@@ -273,8 +289,8 @@ export function MaintenanceCalendarTab({ companyId, fillHeight = false }: Mainte
                         const consegnato = item.submission_status === "submitted";
                         const stato = STATI[statoVoce(item)];
                         return (
+                          <div key={item.work_item_id} className="group/voce relative">
                           <button
-                            key={item.work_item_id}
                             type="button"
                             onClick={() => apriReport(item)}
                             disabled={apertura === item.work_item_id}
@@ -295,6 +311,36 @@ export function MaintenanceCalendarTab({ companyId, fillHeight = false }: Mainte
                               />
                             )}
                           </button>
+                          {/* La busta compare al passaggio del mouse: la voce è
+                              alta 10 px e un bottone sempre visibile mangerebbe
+                              il nome del sito. Resta visibile se l'avviso è già
+                              partito, altrimenti non si saprebbe. */}
+                          {item.website_id != null && avviso.item(item.website_id)?.visible && (
+                            <span
+                              className={`absolute right-0.5 top-1/2 -translate-y-1/2 transition-opacity ${
+                                avviso.item(item.website_id)?.last_run
+                                  ? "opacity-100"
+                                  : "opacity-0 focus-within:opacity-100 group-hover/voce:opacity-100"
+                              }`}
+                            >
+                              <ActionButton
+                                state={avviso.item(item.website_id)}
+                                label={avviso.label || "Avvisa dell'aggiornamento"}
+                                size="xs"
+                                canConfigure={avviso.canConfigure}
+                                onConfigure={() => avviso.configure(item.website_id!)}
+                                onRun={() =>
+                                  avviso.run(
+                                    [{ id: item.website_id!, label: item.website_domain ?? item.title }],
+                                    // La data è quella della manutenzione, non
+                                    // la prossima in calendario: qui si sa già.
+                                    { "aggiornamento.data": chiave },
+                                  )
+                                }
+                              />
+                            </span>
+                          )}
+                          </div>
                         );
                       })}
                     </div>
@@ -312,6 +358,8 @@ export function MaintenanceCalendarTab({ companyId, fillHeight = false }: Mainte
           </p>
         )}
       </div>
+      {/* Configurazione e invio del bottone: uno per pagina, non per voce. */}
+      {avviso.modals}
     </div>
   );
 }

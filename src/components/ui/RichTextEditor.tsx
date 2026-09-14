@@ -292,6 +292,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   // Modifica di un link ESISTENTE: popover posizionato sotto il link cliccato.
   const editAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const editLinkInputRef = useRef<HTMLInputElement | null>(null);
+  // Link per cui l'utente ha gia' chiuso (o applicato) il popover: finche' il caret
+  // resta dentro QUEL link non lo si riapre. `detectLinkAtCaret` gira a ogni tasto
+  // rilasciato, quindi senza questa memoria chiudere il popover non serviva a nulla:
+  // bastava premere un tasto e tornava, rendendo impossibile scrivere dopo un link.
+  const dismissedAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const [linkEdit, setLinkEdit] = useState<{ top: number; left: number } | null>(null);
   const [editHref, setEditHref] = useState("");
 
@@ -424,6 +429,25 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     setLinkDraft("");
   };
 
+  /**
+   * Porta il caret SUBITO DOPO l'ancora, fuori dal link. `createLink` lascia
+   * selezionato il testo linkato, quindi il caret resta dentro <a>: da li' si
+   * continuava a scrivere DENTRO il link (e il popover di modifica si riapriva a
+   * ogni tasto). Si aggiunge uno spazio come "uscita", altrimenti molti browser
+   * riassorbono nel link il testo digitato subito dopo.
+   */
+  const placeCaretAfterAnchor = (anchor: HTMLAnchorElement) => {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const spazio = document.createTextNode("\u00A0");
+    anchor.parentNode?.insertBefore(spazio, anchor.nextSibling);
+    const range = document.createRange();
+    range.setStart(spazio, spazio.length);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+
   const confirmLink = () => {
     const url = normalizeUrl(linkDraft);
     if (!url) {
@@ -432,6 +456,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     }
     restoreSelectionRange();
     runCommand("createLink", url);
+
+    // Uscita dal link appena creato: e' quello che ci si aspetta dopo averlo
+    // inserito, cioe' poter continuare a scrivere il resto della frase.
+    const selection = window.getSelection();
+    let node: Node | null = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).endContainer : null;
+    const editor = editorRef.current;
+    while (node && node !== editor) {
+      if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "A") {
+        placeCaretAfterAnchor(node as HTMLAnchorElement);
+        emitChange();
+        break;
+      }
+      node = node.parentNode;
+    }
     closeLinkTooltip();
   };
 
@@ -543,7 +581,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   // Rileva se il cursore/selezione è dentro un link e, in tal caso, apre il
   // popover di modifica posizionato SOTTO al link cliccato.
-  const detectLinkAtCaret = () => {
+  /**
+   * `daClick`: un click sul link e' una richiesta esplicita di modificarlo, quindi
+   * riapre il popover anche se era stato congedato. Digitare no: li' si sta scrivendo.
+   */
+  const detectLinkAtCaret = (daClick = false) => {
     const editor = editorRef.current;
     const wrapper = wrapperRef.current;
     const selection = window.getSelection();
@@ -562,8 +604,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       node = node.parentNode;
     }
     if (!anchor || !editor.contains(anchor)) {
+      // Caret fuori da qualunque link: la memoria della chiusura si azzera, cosi'
+      // rientrando in quel link il popover torna disponibile.
+      dismissedAnchorRef.current = null;
       setLinkEdit(null);
       editAnchorRef.current = null;
+      return;
+    }
+    if (daClick) dismissedAnchorRef.current = null;
+    if (anchor === dismissedAnchorRef.current) {
+      // Popover gia' congedato per questo link: si sta solo scrivendo.
+      setLinkEdit(null);
       return;
     }
     editAnchorRef.current = anchor;
@@ -574,6 +625,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   };
 
   const closeLinkEdit = () => {
+    dismissedAnchorRef.current = editAnchorRef.current;
     setLinkEdit(null);
     editAnchorRef.current = null;
   };
@@ -871,7 +923,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           role="textbox"
           aria-multiline
           data-placeholder={placeholder ?? "Scrivi qui..."}
-          onMouseUp={() => { saveSelectionRange(); detectLinkAtCaret(); }}
+          onMouseUp={() => { saveSelectionRange(); detectLinkAtCaret(true); }}
           onKeyUp={() => { saveSelectionRange(); detectLinkAtCaret(); }}
           onFocus={saveSelectionRange}
           onInput={emitChange}

@@ -16,6 +16,8 @@ interface Props {
   state: ButtonStateItem | undefined;
   label: string;
   icon?: IconName;
+  /** "xs" per le righe strette (le voci del calendario manutenzioni). */
+  size?: "xs" | "sm";
   canConfigure: boolean;
   onConfigure: () => void;
   onRun: () => void;
@@ -32,12 +34,16 @@ export function ActionButton({
   state,
   label,
   icon = "mail",
+  size = "sm",
   canConfigure,
   onConfigure,
   onRun,
   disabled = false,
 }: Props) {
   if (!state?.visible) return null;
+
+  const box = size === "xs" ? "h-[18px] w-[18px]" : "h-7 w-7";
+  const glifo = size === "xs" ? "h-2.5 w-2.5" : "h-3.5 w-3.5";
 
   const inviato = state.last_run ? quandoLeggibile(state.last_run.at) : "";
 
@@ -49,9 +55,9 @@ export function ActionButton({
         aria-label={`Configura: ${label}`}
         onClick={onConfigure}
         disabled={disabled}
-        className="inline-grid h-7 w-7 place-items-center rounded-md border border-dashed border-brand-magenta bg-line/30 text-muted transition-colors hover:bg-brand-magenta/10 hover:text-brand-magenta disabled:opacity-40 dark:bg-[#2a2a2e]/60 dark:text-[#9999a0]"
+        className={`inline-grid ${box} place-items-center rounded-md border border-dashed border-brand-magenta bg-line/30 text-muted transition-colors hover:bg-brand-magenta/10 hover:text-brand-magenta disabled:opacity-40 dark:bg-[#2a2a2e]/60 dark:text-[#9999a0]`}
       >
-        <Icon name={icon} className="h-3.5 w-3.5" />
+        <Icon name={icon} className={glifo} />
       </button>
     );
   }
@@ -73,13 +79,13 @@ export function ActionButton({
           : undefined
       }
       disabled={disabled}
-      className={`relative inline-grid h-7 w-7 place-items-center rounded-md border transition-colors disabled:opacity-40 ${
+      className={`relative inline-grid ${box} place-items-center rounded-md border transition-colors disabled:opacity-40 ${
         inviato
           ? "border-success/30 bg-success/5 text-success hover:bg-success/10"
           : "border-line text-ink hover:bg-paper dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
       }`}
     >
-      <Icon name={icon} className="h-3.5 w-3.5" />
+      <Icon name={icon} className={glifo} />
       {inviato && (
         <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-success" />
       )}

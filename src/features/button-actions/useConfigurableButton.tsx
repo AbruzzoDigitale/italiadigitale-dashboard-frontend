@@ -29,8 +29,16 @@ export function useConfigurableButton(
   const [catalog, setCatalog] = useState<ActionCatalog | null>(null);
   const [configuring, setConfiguring] = useState<{ entityId: number | null } | null>(null);
   const [running, setRunning] = useState<ConfigurableButtonTarget[] | null>(null);
+  // Valori con cui aprire il modale: chi preme da un contesto che conosce già
+  // la risposta (la manutenzione sa la propria data) non deve ridigitarla.
+  const [valoriIniziali, setValoriIniziali] = useState<Record<string, string>>({});
 
+  // Il catalogo serve solo quando si APRE un modale, e questo hook vive anche
+  // dentro schermate che si aprono di continuo (la scheda di una lavorazione).
+  // Scaricarlo al montaggio sarebbe una richiesta a vuoto ogni volta.
+  const serveCatalogo = configuring !== null || running !== null;
   useEffect(() => {
+    if (!serveCatalogo || catalog !== null) return;
     let vivo = true;
     void (async () => {
       try {
@@ -44,7 +52,7 @@ export function useConfigurableButton(
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [serveCatalogo, catalog]);
 
   const item = useCallback((entityId: number) => byEntity.get(entityId), [byEntity]);
 
@@ -72,12 +80,13 @@ export function useConfigurableButton(
             buttonKey={buttonKey}
             targets={running}
             catalog={catalog}
+            initialValues={valoriIniziali}
             onDone={reload}
           />
         )}
       </>
     ),
-    [companyId, buttonKey, configuring, running, catalog, reload],
+    [companyId, buttonKey, configuring, running, valoriIniziali, catalog, reload],
   );
 
   return {
@@ -87,8 +96,15 @@ export function useConfigurableButton(
     item,
     /** Apre il popup di configurazione (solo admin). */
     configure: (entityId: number | null) => setConfiguring({ entityId }),
-    /** Apre il modale di esecuzione su una o più righe. */
-    run: (targets: ConfigurableButtonTarget[]) => setRunning(targets),
+    /**
+     * Apre il modale di esecuzione su una o più righe.
+     * `valori` precompila i campi del bottone (es. `{"aggiornamento.data": "2026-10-14"}`
+     * quando si parte da una manutenzione, che la data ce l'ha già).
+     */
+    run: (targets: ConfigurableButtonTarget[], valori?: Record<string, string>) => {
+      setValoriIniziali(valori ?? {});
+      setRunning(targets);
+    },
     /** Le righe selezionate sono configurate? Serve alla barra multipla.
      *  Lo stato si conosce solo per le righe a video: di una selezione fatta su
      *  un'altra pagina non si sa nulla, e non è un motivo per nascondere il
