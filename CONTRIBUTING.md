@@ -83,6 +83,19 @@ For each frontend feature:
 
 ---
 
+## 🧩 New Pages & Proposal / Demo Branches
+
+If you are adding a **new page/screen** — especially as a **proposal to demo** before integration — follow **[`CREATING_NEW_PAGES.md`](./CREATING_NEW_PAGES.md)**. It is also written to be used with AI coding assistants.
+
+Key isolation rules for proposal branches:
+
+- 🌿 Branch from **`dev`** (freshly pulled), **never** from someone else's `feat/*` branch.
+- 🆕 Keep new code in **new files**; the only shared files you edit are `src/App.tsx`, `src/utils/access.ts`, `src/layouts/DashboardLayout.tsx` (append your route/access/nav entries).
+- 🚫 Do **not** edit files of features under active development (workload, work‑items, users) — see the "Files you must NOT edit" list in the guide.
+- 🔍 Push your branch and open a **Draft PR → `dev`** so the owner can review. **Do not merge** into shared or others' branches.
+
+---
+
 ## 📝 Important Rules
 
 - ❌ No direct pushes to `main` or `dev`
