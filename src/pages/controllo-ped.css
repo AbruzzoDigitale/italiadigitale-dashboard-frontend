@@ -529,6 +529,35 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
+/* Link PED: icona cliccabile nell'angolo della cella (apre il piano editoriale). */
+.ped-cell {
+  position: relative;
+}
+.ped-cell-link {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  color: var(--ped-magenta, #d6336c);
+  opacity: 0.75;
+}
+.ped-cell-link:hover {
+  opacity: 1;
+}
+.ped-mcard-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+  color: var(--ped-magenta, #d6336c);
+  opacity: 0.85;
+}
+.ped-mcard-link:hover {
+  opacity: 1;
+}
 .ped-cell.cur {
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--ped-magenta) 40%, transparent),
     inset -1px 0 0 color-mix(in srgb, var(--ped-magenta) 40%, transparent);

@@ -13,16 +13,36 @@ import { API_BASE } from "../../api/auth";
 import { useBrand } from "../../context/BrandContext";
 import { DEFAULT_NOTIFICATION_PREFERENCES, type NotificationPreferences } from "./notificationPreferences";
 import type { NotifItem, NotifTabKey } from "./notificationsData";
+import { emitNotificationToast } from "./notificationToastBus";
 import { emitRealtime } from "../realtime/realtimeBus";
+import { ensurePushSubscription, isPushSubscriptionActive } from "./pushSubscription";
+import { cachePushOpenMode } from "./pushOpenPreference";
 
-const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni"];
+/** Titolo/corpo dal payload SSE (fallback generico se non è JSON). */
+function parseNotifPayload(ev?: MessageEvent): { title: string; body: string } {
+  let title = "Italia Digitale";
+  let body = "Hai una nuova notifica";
+  try {
+    if (ev?.data && ev.data !== "{}") {
+      const d = JSON.parse(ev.data);
+      title = d.title ?? title;
+      body = d.body ?? d.message ?? d.text ?? body;
+    }
+  } catch {
+    /* payload non JSON: resta il testo generico */
+  }
+  return { title, body };
+}
+
+const TABS: NotifTabKey[] = ["task", "richieste", "contratti", "comunicazioni", "monitoraggi", "sale", "rimborsi"];
 
 /**
  * Stato del centro notifiche: carica le notifiche dell'utente dal backend e
  * deriva i contatori non lette per scheda + il totale per il badge della campanella.
  * Le azioni "segna letta" aggiornano ottimisticamente e chiamano l'API.
  */
-export function useNotifications() {
+export function useNotifications(hiddenTabs: NotifTabKey[] = []) {
+  const hiddenKey = hiddenTabs.join(",");
   const [items, setItems] = useState<NotifItem[]>([]);
   const [archived, setArchived] = useState<NotifItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +54,8 @@ export function useNotifications() {
   // Notifiche push/desktop attive per l'utente + copia completa delle preferenze
   // (per attivarle/persisterle all'ingresso nel gestionale).
   const pushRef = useRef(true);
+  // Toast in-app quando la scheda è attiva.
+  const toastRef = useRef(true);
   const prefsRef = useRef<NotificationPreferences | null>(null);
   const companySoundRef = useRef<{ enabled: boolean; url: string | null }>({ enabled: true, url: null });
   // Singolo elemento Audio precaricato e riusato (più affidabile di new Audio() ogni volta).
@@ -59,10 +81,15 @@ export function useNotifications() {
         prefsRef.current = p;
         userSoundRef.current = p.sound_enabled;
         pushRef.current = p.push_enabled;
+        toastRef.current = p.toast_enabled ?? true;
+        // Copia locale della scelta "dove apro la notifica": il clic arriva dal
+        // service worker e va gestito senza aspettare il server.
+        cachePushOpenMode(p.push_open_mode ?? "ask");
       })
       .catch(() => {
         userSoundRef.current = true;
         pushRef.current = true;
+        toastRef.current = true;
       });
   }, []);
 
@@ -82,23 +109,21 @@ export function useNotifications() {
     }
   }, []);
 
-  // Notifica desktop di sistema quando la scheda è in background (con suono del SO),
-  // altrimenti suono in-app. Rispetta la preferenza utente (silent) per l'audio.
+  // Notifica desktop di sistema quando l'utente NON sta guardando il gestionale:
+  // scheda nascosta oppure finestra visibile ma senza focus (sta lavorando altrove).
+  // Il solo document.hidden non basta su desktop: con l'app in una finestra propria
+  // ma non a fuoco resta false e il toast di sistema non partirebbe mai.
+  // Se invece la scheda è attiva e a fuoco: solo suono in-app.
   const showNotification = useCallback((ev?: MessageEvent) => {
     const canDesktop =
       pushRef.current && typeof Notification !== "undefined" && Notification.permission === "granted";
-    if (typeof document !== "undefined" && document.hidden && canDesktop) {
-      let title = "Italia Digitale";
-      let body = "Hai una nuova notifica";
-      try {
-        if (ev?.data && ev.data !== "{}") {
-          const d = JSON.parse(ev.data);
-          title = d.title ?? title;
-          body = d.body ?? d.message ?? d.text ?? body;
-        }
-      } catch {
-        /* payload non JSON: resta il testo generico */
-      }
+    const isAway =
+      typeof document !== "undefined" && (document.hidden || !document.hasFocus());
+    const { title, body } = parseNotifPayload(ev);
+    if (isAway && canDesktop) {
+      // Con l'iscrizione Web Push attiva è il SERVICE WORKER a mostrare il banner
+      // di sistema (arriva anche a scheda chiusa): qui non duplichiamo.
+      if (isPushSubscriptionActive()) return;
       try {
         const n = new Notification(title, {
           body,
@@ -113,6 +138,8 @@ export function useNotifications() {
         /* Notification non disponibile: ignora */
       }
     } else {
+      // Scheda attiva: toast in-app (che poi "vola" nella campanella) + suono.
+      if (toastRef.current) emitNotificationToast({ title, body });
       playSound();
     }
   }, [playSound]);
@@ -151,6 +178,9 @@ export function useNotifications() {
         }
         if (perm !== "granted") return;
         pushRef.current = true;
+        // Iscrizione Web Push (service worker): banner di sistema affidabili
+        // anche a scheda chiusa/in background. Idempotente, no-op se non supportato.
+        void ensurePushSubscription();
         if (typeof localStorage !== "undefined" && !localStorage.getItem("notif_autoactivated")) {
           localStorage.setItem("notif_autoactivated", "1");
           const base = prefsRef.current ?? DEFAULT_NOTIFICATION_PREFERENCES;
@@ -171,6 +201,14 @@ export function useNotifications() {
       window.removeEventListener("pointerdown", onFirstGesture);
       window.removeEventListener("keydown", onFirstGesture);
     };
+  }, []);
+
+  // Permesso già concesso in visite precedenti: iscrivi subito il browser al
+  // Web Push (nessun gesto utente richiesto quando il permesso c'è già).
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      void ensurePushSubscription();
+    }
   }, []);
 
   const reload = useCallback(async () => {
@@ -201,16 +239,28 @@ export function useNotifications() {
       // Segnala a chi mostra dati live (es. thread commenti del task aperto) di ricaricarsi.
       emitRealtime();
     });
+    // Canale realtime a livello azienda: qualsiasi modifica a una task in azienda (anche
+    // fatta da altri) fa ricaricare le viste live (board Lavorazioni, task aperta) — senza
+    // toast né ricarica della lista notifiche.
+    es.addEventListener("work_item_changed", () => {
+      emitRealtime();
+    });
     return () => es.close();
   }, [reload, showNotification]);
 
   const counts = useMemo(() => {
-    const c: Record<NotifTabKey, number> = { task: 0, richieste: 0, contratti: 0, comunicazioni: 0 };
+    const c: Record<NotifTabKey, number> = { task: 0, richieste: 0, contratti: 0, comunicazioni: 0, monitoraggi: 0, sale: 0, rimborsi: 0 };
     for (const it of items) if (it.unread && TABS.includes(it.tab)) c[it.tab] += 1;
     return c;
   }, [items]);
 
-  const totalUnread = counts.task + counts.richieste + counts.contratti + counts.comunicazioni;
+  // Badge campanella: esclude le schede nascoste (es. "contratti" per gli operatori),
+  // così non compare un conteggio non raggiungibile.
+  const totalUnread = useMemo(
+    () => TABS.filter((k) => !hiddenTabs.includes(k)).reduce((s, k) => s + counts[k], 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [counts, hiddenKey],
+  );
 
   const itemsByTab = useCallback((tab: NotifTabKey) => items.filter((i) => i.tab === tab), [items]);
 
@@ -271,6 +321,35 @@ export function useNotifications() {
     }
   }, []);
 
+  // Azioni multiple (selezione): aggiornano ottimisticamente items + archived in un
+  // colpo solo e sparano i singoli endpoint (nessun endpoint bulk lato backend).
+  const markManyRead = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: false } : i)));
+    setArchived((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: false } : i)));
+    await Promise.all(ids.map((id) => markNotificationReadApi(id).catch(() => {})));
+  }, []);
+
+  const markManyUnread = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: true } : i)));
+    setArchived((prev) => prev.map((i) => (set.has(i.id) ? { ...i, unread: true } : i)));
+    await Promise.all(ids.map((id) => markNotificationUnreadApi(id).catch(() => {})));
+  }, []);
+
+  const archiveMany = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setItems((prev) => prev.filter((i) => !set.has(i.id)));
+    await Promise.all(ids.map((id) => archiveNotificationApi(id).catch(() => {})));
+  }, []);
+
+  const unarchiveMany = useCallback(async (ids: number[]) => {
+    const set = new Set(ids);
+    setArchived((prev) => prev.filter((i) => !set.has(i.id)));
+    await Promise.all(ids.map((id) => unarchiveNotificationApi(id).catch(() => {})));
+    await reload(); // tornano tra le notifiche normali
+  }, [reload]);
+
   return {
     items,
     archived,
@@ -283,6 +362,10 @@ export function useNotifications() {
     markAllRead,
     archive,
     unarchive,
+    markManyRead,
+    markManyUnread,
+    archiveMany,
+    unarchiveMany,
     loadArchived,
     reload,
   };

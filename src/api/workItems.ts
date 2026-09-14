@@ -36,7 +36,8 @@ export function isReviewSendBack(oldStatus: string, newStatus: string): boolean 
   const to = STATUS_STAGE[newStatus] ?? 0;
   return (oldStatus === "review" || oldStatus === "completed" || oldStatus === "done") && to < from;
 }
-export type WorkItemTaskType = "standard" | "quick";
+/** "website_maintenance" = manutenzione programmata di un sito. */
+export type WorkItemTaskType = "standard" | "quick" | "website_maintenance";
 export type LeftBehindReason = "operator_responsibility" | "client_protection" | "justified_delay" | "other";
 export type WorkItemRecurrenceType = "daily_interval" | "monthly_day";
 export type WorkItemScheduleDelayCode = "carried_over" | "carried_forward" | "non_deferrable_overdue" | null;
@@ -181,6 +182,24 @@ export interface WorkItemResourceInput {
   url: string;
 }
 
+/** File allegato alla task (salvato su cloud storage, scaricabile via URL firmato). */
+export interface WorkItemAttachment {
+  id: number;
+  original_filename: string;
+  /** Nome mostrato scelto dall'utente; se assente si usa original_filename. */
+  label?: string | null;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by: number | null;
+  uploaded_by_name?: string | null;
+  created_at: string;
+}
+
+/** Nome da mostrare per un allegato: etichetta scelta o nome file. */
+export function attachmentDisplayName(a: Pick<WorkItemAttachment, "label" | "original_filename">): string {
+  return a.label?.trim() || a.original_filename;
+}
+
 export interface WorkItemHistoryEvent {
   id: number;
   actor_user_id: number | null;
@@ -194,11 +213,28 @@ export interface WorkItemHistoryEvent {
   created_at: string;
 }
 
+export type TrelloSyncDirection = "push" | "pull";
+/** "push" = comanda il gestionale (→ Trello); "pull" = comanda Trello (→ gestionale). */
+export interface TrelloSyncSettings {
+  enabled?: boolean;
+  direction?: TrelloSyncDirection | null;
+}
+export interface WorkItemSettings {
+  trello_sync?: TrelloSyncSettings;
+  [key: string]: unknown;
+}
+
 export interface WorkItem {
   id: number;
   company_id: number;
   client_id: number | null;
   contract_ids?: number[];
+  /** True se un monitoraggio social collegato ha un profilo in allarme. */
+  has_monitor_alert?: boolean;
+  /** Profili social collegati (id dal registro profili social dell'azienda). */
+  social_profile_ids?: number[];
+  /** Siti web collegati (id dal registro siti dell'azienda). */
+  website_ids?: number[];
   is_template?: boolean;
   template_source_id?: number | null;
   is_ai_generated?: boolean;
@@ -230,28 +266,36 @@ export interface WorkItem {
   actual_hours_spent: number | null;
   urgency_level: UrgencyLevel | null;
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_priority: boolean;
   schedule_state?: WorkItemScheduleState | null;
   reviewer_user_id?: number | null;
   reviewer_name?: string | null;
   // Scheda Revisione
-  review_stage?: "interna" | "cliente" | null;
+  review_stage?: "interna" | "approvata_interna" | "cliente" | "approvata_cliente" | null;
   rework_count?: number;
   rework_interna?: number;
   last_review_source?: "interna" | "cliente" | null;
   delivered_to_client_at?: string | null;
+  /** "In pubblicazione": approvata/pronta ma non ancora pubblicata (badge + peso ridotto). */
+  client_approved_at?: string | null;
   // Collegamento Trello
   trello_card_id?: string | null;
   trello_card_url?: string | null;
   trello_board_id?: string | null;
+  // Impostazioni per-task (contenitore generico, estensibile)
+  settings?: WorkItemSettings | null;
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
   time_slots: TimeSlot[];
   checklists?: Checklist[];
   resources?: WorkItemResource[];
+  attachments?: WorkItemAttachment[];
   history?: WorkItemHistoryEvent[];
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;
@@ -290,6 +334,13 @@ export interface BulkDeleteWorkItemsResponse {
 
 // ── Work Items ─────────────────────────────────────────────────────────────────
 
+/**
+ * Chi trova la lavorazione sfogliando l'elenco.
+ * "area" (default) = gli operatori delle aree della task; "private" = solo
+ * assegnatari e revisore. Vedi app/api/v1/endpoints/work_items.py.
+ */
+export type WorkItemVisibility = "area" | "private";
+
 export interface ListWorkItemsParams {
   company_id?: number;
   assignee_id?: number;
@@ -299,9 +350,12 @@ export interface ListWorkItemsParams {
   is_completed?: boolean;
   is_deadline_locked?: boolean;
   task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   affects_daily_load?: boolean;
   is_left_behind?: boolean;
   left_behind_reason?: LeftBehindReason;
+  /** Operatori: include anche le lavorazioni pubbliche delle proprie aree. */
+  include_area?: boolean;
   include_templates?: boolean;
   only_templates?: boolean;
 }
@@ -359,7 +413,15 @@ export interface CreateWorkItemPayload {
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
+  /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
+  social_profile_ids?: number[];
+  /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
+  website_ids?: number[];
+  task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;
@@ -414,7 +476,15 @@ export interface InstantiateTemplatePayload {
   assignee_ids?: number[];
   work_area_ids?: number[];
   tag_ids?: number[];
+  /** Profili social del cliente da collegare alla task (sostituisce l'insieme). */
+  social_profile_ids?: number[];
+  /** Siti web del cliente da collegare alla task (sostituisce l'insieme). */
+  website_ids?: number[];
+  task_type?: WorkItemTaskType;
+  visibility?: WorkItemVisibility;
   is_PED?: boolean;
+  /** Link al PED (URL al piano editoriale), solo per task PED. */
+  link_ped?: string | null;
   ped_configuration_id?: number | null;
   ped_configuration?: {
     monthly_publications_total: number;
@@ -455,6 +525,7 @@ export async function listWorkItemsApi(params: ListWorkItemsParams = {}): Promis
   if (params.is_completed != null) query.set("is_completed", String(params.is_completed));
   if (params.is_deadline_locked != null) query.set("is_deadline_locked", String(params.is_deadline_locked));
   if (params.task_type) query.set("task_type", params.task_type);
+  if (params.include_area) query.set("include_area", "true");
   if (params.affects_daily_load != null) query.set("affects_daily_load", String(params.affects_daily_load));
   if (params.is_left_behind != null) query.set("is_left_behind", String(params.is_left_behind));
   if (params.left_behind_reason) query.set("left_behind_reason", params.left_behind_reason);
@@ -499,6 +570,113 @@ export async function updateWorkItemApi(id: number, payload: UpdateWorkItemPaylo
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw buildApiError(res, body, "Errore nell'aggiornamento lavorazione");
+  }
+  return res.json();
+}
+
+/** Spunta "In pubblicazione": approvata/pronta ma non pubblicata → torna in corso a peso
+ *  ridotto (~10%) e resta visibile finché non esce. `on=false` rimuove la spunta. */
+export async function setAwaitingPublishApi(
+  id: number,
+  on: boolean,
+  loadWeightFactor?: number,
+): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/awaiting-publish`, {
+    method: "POST",
+    body: JSON.stringify({ on, load_weight_factor: loadWeightFactor ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw buildApiError(res, body, "Errore nell'aggiornamento 'In pubblicazione'");
+  }
+  return res.json();
+}
+
+// ── Allegati (file su cloud storage) ─────────────────────────────────────────
+
+export interface WorkItemAttachmentDownload {
+  url: string;
+  filename: string;
+  expires_at: string;
+}
+
+/** Carica un file e lo allega alla task. Multipart: fetch raw (authFetch forza JSON). */
+export async function uploadWorkItemAttachmentApi(
+  workItemId: number,
+  file: File
+): Promise<WorkItemAttachment> {
+  const token = localStorage.getItem("id_token");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/v1/work-items/${workItemId}/attachments`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Errore nel caricamento dell'allegato"));
+  }
+  return res.json();
+}
+
+export async function getWorkItemAttachmentDownloadUrlApi(
+  workItemId: number,
+  attachmentId: number
+): Promise<WorkItemAttachmentDownload> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}/download`
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile scaricare l'allegato"));
+  }
+  return res.json();
+}
+
+export async function updateWorkItemAttachmentApi(
+  workItemId: number,
+  attachmentId: number,
+  body: { label: string | null }
+): Promise<WorkItemAttachment> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile rinominare l'allegato"));
+  }
+  return res.json();
+}
+
+export async function deleteWorkItemAttachmentApi(
+  workItemId: number,
+  attachmentId: number
+): Promise<void> {
+  const res = await authFetch(
+    `${API_BASE}/api/v1/work-items/${workItemId}/attachments/${attachmentId}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok && res.status !== 204) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(parseApiError(body, "Impossibile eliminare l'allegato"));
+  }
+}
+
+/** Merge (shallow) delle impostazioni per-task, es. { trello_sync: { enabled, direction } }. */
+export async function saveWorkItemSettingsApi(id: number, patch: Partial<WorkItemSettings>): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw buildApiError(res, body, "Errore nel salvataggio impostazioni");
   }
   return res.json();
 }
@@ -576,6 +754,21 @@ export async function listArchivedWorkItemsApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare l'archivio")}`);
+  }
+  return res.json();
+}
+
+/**
+ * L'operatore si aggiunge agli assegnatari di una lavorazione pubblica della sua area
+ * ("dammi una mano"). Vedi app/api/v1/endpoints/work_items.py — endpoint dedicato:
+ * l'unica cosa che consente è aggiungersi, modificare la task resta soggetto alle
+ * regole di sempre (da assegnatario). È idempotente.
+ */
+export async function joinWorkItemApi(id: number): Promise<WorkItem> {
+  const res = await authFetch(`${API_BASE}/api/v1/work-items/${id}/join`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile prendere in carico la lavorazione")}`);
   }
   return res.json();
 }

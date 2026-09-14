@@ -1,5 +1,6 @@
 import type { IconName } from "../../components/ui/Icon";
 import type { NotifTone } from "./notificationsData";
+import type { PushOpenMode } from "./pushOpenPreference";
 
 // Forma condivisa con il backend (GET/PUT /api/v1/notifications/preferences).
 // Per-utente: cosa/come essere avvisati. La SCELTA del suono resta lato azienda
@@ -14,7 +15,9 @@ export type NotifCategoryKey =
   | "task_changes"
   | "requests"
   | "contracts"
-  | "communications";
+  | "communications"
+  | "room_bookings"
+  | "expense_trips";
 
 export interface NotificationPreferences {
   /** Canali aggiuntivi (in-app è sempre attivo). */
@@ -22,6 +25,10 @@ export interface NotificationPreferences {
   push_enabled: boolean;
   /** Suono notifiche (il file è scelto a livello azienda dall'admin). */
   sound_enabled: boolean;
+  /** Toast in-app all'arrivo di una notifica mentre stai usando il gestionale. */
+  toast_enabled: boolean;
+  /** Clic su una notifica push con la dashboard già aperta: dove aprire la pagina. */
+  push_open_mode: PushOpenMode;
   /** Non disturbare in una fascia oraria. */
   quiet_hours_enabled: boolean;
   quiet_hours_start: string; // "HH:MM"
@@ -50,12 +57,16 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
   { key: "requests", label: "Richieste preventivo", description: "Nuove richieste in arrivo dai clienti.", icon: "mail", tone: "indigo" },
   { key: "contracts", label: "Contratti", description: "Da avviare, in scadenza o scaduti.", icon: "document-text", tone: "neutral" },
   { key: "communications", label: "Comunicazioni", description: "Avvisi globali, di area o personali.", icon: "annotation", tone: "magenta" },
+  { key: "room_bookings", label: "Prenotazione sale", description: "Riunioni in cui sei organizzatore o partecipante.", icon: "calendar", tone: "indigo" },
+  { key: "expense_trips", label: "Rimborsi trasferte", description: "Trasferte da approvare e esito delle tue richieste.", icon: "map-pin", tone: "amber" },
 ];
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   email_enabled: false,
   push_enabled: true,
   sound_enabled: true,
+  toast_enabled: true,
+  push_open_mode: "ask",
   quiet_hours_enabled: false,
   quiet_hours_start: "20:00",
   quiet_hours_end: "08:00",
@@ -69,5 +80,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     requests: true,
     contracts: true,
     communications: true,
+    room_bookings: true,
+    expense_trips: true,
   },
 };

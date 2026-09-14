@@ -87,6 +87,9 @@ export function EstimatedHoursField({ value, onChange, label = "Ore stimate", he
             aria-label="Ore"
             value={hours}
             onChange={(e) => { setHours(e.target.value); emit(e.target.value, mins); }}
+            // Sfondo trasparente forzato: dentro le modali una regola CSS colora gli input
+            // (#131413) creando un mismatch con lo sfondo del contenitore sotto "h"/"m".
+            style={{ backgroundColor: "transparent" }}
             className={`${seg} text-right`}
           />
           <span className={unit}>h</span>
@@ -99,6 +102,7 @@ export function EstimatedHoursField({ value, onChange, label = "Ore stimate", he
             aria-label="Minuti"
             value={mins}
             onChange={(e) => { setMins(e.target.value); emit(hours, e.target.value); }}
+            style={{ backgroundColor: "transparent" }}
             className={`${seg} text-left`}
           />
           <span className={unit}>m</span>

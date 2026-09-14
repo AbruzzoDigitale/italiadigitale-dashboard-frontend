@@ -72,6 +72,9 @@ export function FicDuplicateInvoicesPanel() {
   // Mese di origine (input type=month → "YYYY-MM"); vuoto = mese precedente.
   const [sourceMonthInput, setSourceMonthInput] = useState("");
   const [dueDate, setDueDate] = useState("");
+  // Data di emissione: vuoto = automatica (mai nel futuro). Vedi data_documento
+  // lato server: una fattura datata domani viene rifiutata da FIC.
+  const [docDate, setDocDate] = useState("");
   const [excludeInput, setExcludeInput] = useState("");
   const [onlyFirstN, setOnlyFirstN] = useState("0");
   const [busy, setBusy] = useState(false);
@@ -104,6 +107,7 @@ export function FicDuplicateInvoicesPanel() {
         sourceYear,
         sourceMonth,
         dueDate: dueDate.trim() || null,
+        documentDate: docDate.trim() || null,
         excludeNumbers: parseExclude(),
         onlyFirstN: Math.max(0, Number(onlyFirstN) || 0),
         dryRun,
@@ -133,6 +137,15 @@ export function FicDuplicateInvoicesPanel() {
             value={sourceMonthInput}
             onChange={(e) => setSourceMonthInput(e.target.value)}
             title="Vuoto = mese precedente rispetto ad oggi"
+          />
+        </div>
+        <div className="fr-field">
+          <label className="fr-label">Data documento</label>
+          <Input
+            type="date"
+            value={docDate}
+            onChange={(e) => setDocDate(e.target.value)}
+            title="Data di emissione delle copie. Vuoto = stesso giorno dell'originale nel mese di destinazione, ma mai oltre oggi (FIC rifiuta le fatture datate nel futuro)"
           />
         </div>
         <div className="fr-field">

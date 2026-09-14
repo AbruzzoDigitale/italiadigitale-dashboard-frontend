@@ -1,15 +1,23 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeCompanySync } from "./context/ThemeCompanySync";
 import { ToastProvider } from "./context/ToastContext";
 import { UndoProvider } from "./context/UndoContext";
 import { AuthProvider } from "./context/AuthContext";
 import { BrandProvider } from "./context/BrandContext";
+import { BrowserTabsProvider } from "./context/BrowserTabsContext";
 import { useAuth } from "./hooks/useAuth";
+import { useSegmentedPills } from "./hooks/useSegmentedPills";
 import { FullPageSpinner } from "./components/ui/Spinner";
 import { LoginPage } from "./pages/LoginPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import ClientSignPage from "./pages/ClientSignPage";
+import { SharedFormPage } from "./pages/SharedFormPage";
+import { FormFillPage } from "./pages/FormFillPage";
 import { CompanyPickerPage } from "./pages/CompanyPickerPage";
 import { DashboardLayout } from "./layouts/DashboardLayout";
+import { MobileAppBanner } from "./components/MobileAppBanner";
 import { DashboardHome } from "./pages/DashboardHome";
 import { UsersPage } from "./pages/UsersPage";
 import { CompaniesPage } from "./pages/CompaniesPage";
@@ -25,6 +33,14 @@ import { QuoteEditorPage } from "./pages/QuoteEditorPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { ConfiguratorModularPage } from "./pages/ConfiguratorModularPage";
 import { SocialPackagesPage } from "./pages/SocialPackagesPage";
+import { SocialProfilesPage } from "./pages/SocialProfilesPage";
+import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
+import { WebsitesPage } from "./pages/WebsitesPage";
+import { EmailHistoryPage } from "./pages/EmailHistoryPage";
+import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
+import RimborsiPage from "./pages/RimborsiPage";
+import SharedExpensesPage from "./pages/SharedExpensesPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
@@ -33,12 +49,24 @@ import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
 import { FatturazionePage } from "./pages/FatturazionePage";
+import { DocumentsPage } from "./pages/DocumentsPage";
+import { ModelEditorPage } from "./pages/ModelEditorPage";
+import { BrowserPage } from "./pages/BrowserPage";
 import { canAccessRoute, getFallbackRoute } from "./utils/access";
+
+/** Percorso richiesto (con query), da riprendere dopo il login. */
+function useRequestedPath(): string {
+  const location = useLocation();
+  return `${location.pathname}${location.search}`;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const from = useRequestedPath();
   if (isLoading) return <FullPageSpinner />;
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  // `from`: un link condiviso (es. impostazioni azienda) deve riaprirsi dov'era
+  // dopo il login, non scaricare chi lo riceve sulla home.
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" state={{ from }} replace />;
 }
 
 function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
@@ -51,7 +79,9 @@ function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAc
   const { permissions, isLoading, isAuthenticated } = useAuth();
   const location = useLocation();
   if (isLoading) return <FullPageSpinner />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}` }} replace />;
+  }
   if (canAccessRoute(permissions, routeKey)) return <>{children}</>;
   // La dashboard non è una pagina "vietata": chi non può vederla (es. operatore)
   // viene portato alla propria vista di partenza invece di un "accesso negato".
@@ -65,11 +95,44 @@ function RouteAccess({ routeKey, children }: { routeKey: Parameters<typeof canAc
 function AppRoutes() {
   return (
     <Routes>
+      {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
+      <Route path="/firma/:token" element={<ClientSignPage />} />
+      {/* Rendicontazione trasferte per il commercialista: sola lettura, senza
+          account. Il token è la credenziale e si revoca dalle impostazioni. */}
+      <Route path="/rimborsi/condiviso/:token" element={<SharedExpensesPage />} />
+      {/* Compilazione da link condiviso: NON è pubblico — serve l'accesso, e il
+          permesso arriva dalle aree/operatori assegnati al modulo. */}
+      <Route
+        path="/modulo/:token"
+        element={
+          <ProtectedRoute>
+            <SharedFormPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* Compilazione di un report: scheda dedicata, senza barra laterale, per
+          restare concentrati su un modulo solo. */}
+      <Route
+        path="/modulo/compila/:submissionId"
+        element={
+          <ProtectedRoute>
+            <FormFillPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/login"
         element={
           <PublicOnlyRoute>
             <LoginPage />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <PublicOnlyRoute>
+            <ResetPasswordPage />
           </PublicOnlyRoute>
         }
       />
@@ -85,7 +148,9 @@ function AppRoutes() {
         path="/"
         element={
           <ProtectedRoute>
-            <DashboardLayout />
+            <BrowserTabsProvider>
+              <DashboardLayout />
+            </BrowserTabsProvider>
           </ProtectedRoute>
         }
       >
@@ -102,16 +167,26 @@ function AppRoutes() {
         <Route path="requests/edit" element={<RouteAccess routeKey="requests"><QuoteEditorPage /></RouteAccess>} />
         <Route path="catalog" element={<RouteAccess routeKey="catalog"><CatalogPage /></RouteAccess>} />
         <Route path="configuratore" element={<RouteAccess routeKey="configurator"><ConfiguratorModularPage /></RouteAccess>} />
+        <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
+        <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
+        <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
+        <Route path="storico-email" element={<RouteAccess routeKey="admin"><EmailHistoryPage /></RouteAccess>} />
+        <Route path="prenotazione-sale" element={<RouteAccess routeKey="prenotazione-sale"><MeetingRoomsPage /></RouteAccess>} />
+        <Route path="rimborsi" element={<RouteAccess routeKey="rimborsi"><RimborsiPage /></RouteAccess>} />
+        <Route path="report" element={<RouteAccess routeKey="reports"><ReportsPage /></RouteAccess>} />
         <Route path="social-packages" element={<RouteAccess routeKey="social"><SocialPackagesPage /></RouteAccess>} />
         <Route path="social-packages-presentation" element={<RouteAccess routeKey="social"><SocialPackagesPresentationPage /></RouteAccess>} />
         <Route path="profile" element={<RouteAccess routeKey="profile"><ProfilePage /></RouteAccess>} />
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
+        <Route path="documenti" element={<RouteAccess routeKey="documenti"><DocumentsPage /></RouteAccess>} />
+        <Route path="documenti/modello/:documentId" element={<RouteAccess routeKey="documenti"><ModelEditorPage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
         <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
         <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
+        <Route path="browser" element={<RouteAccess routeKey="profile"><BrowserPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
       {/* Fallback */}
@@ -121,13 +196,18 @@ function AppRoutes() {
 }
 
 export default function App() {
+  // Pillola scorrevole (motion graphic) di default su ogni segmented switch dell'app.
+  useSegmentedPills();
   return (
     <ThemeProvider>
       <ToastProvider>
         <UndoProvider>
           <AuthProvider>
             <BrandProvider>
+              {/* Tema per utente × azienda dal DB (localStorage solo come cache). */}
+              <ThemeCompanySync />
               <AppRoutes />
+              <MobileAppBanner />
             </BrandProvider>
           </AuthProvider>
         </UndoProvider>

@@ -26,8 +26,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /* Viewport "app-like" su iOS Safari: il documento NON scrolla mai (lo scroll è
+     nei contenitori interni, es. <main>). Così la toolbar di Safari non collassa,
+     i contenuti non ci finiscono sotto e la safe-area in fondo non resta bianca
+     (serve viewport-fit=cover nel meta). */
+  html, body, #root {
+    height: 100%;
+  }
   body {
     @apply bg-cream text-ink transition-colors duration-300;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   .dark body {
     @apply bg-ink text-paper;
@@ -35,6 +44,47 @@
 }
 
 @layer components {
+  /* Badge/chip di un file allegato inserito nella descrizione di una task.
+     Usato sia nell'editor (span contenteditable=false) sia in sola lettura. */
+  .wi-attach-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: 100%;
+    padding: 0.05rem 0.45rem;
+    margin: 0 0.1rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(190, 24, 93, 0.35);
+    background: rgba(190, 24, 93, 0.08);
+    color: #9d174d;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.4;
+    vertical-align: baseline;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .wi-attach-badge::before {
+    content: "";
+    width: 0.85em;
+    height: 0.85em;
+    flex: none;
+    background-color: currentColor;
+    -webkit-mask: var(--wi-attach-clip) center / contain no-repeat;
+    mask: var(--wi-attach-clip) center / contain no-repeat;
+    --wi-attach-clip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E");
+  }
+  .wi-attach-badge:hover {
+    background: rgba(190, 24, 93, 0.16);
+  }
+  :root[data-theme="dark"] .wi-attach-badge,
+  .dark .wi-attach-badge {
+    border-color: rgba(236, 72, 153, 0.4);
+    background: rgba(236, 72, 153, 0.15);
+    color: #f9a8d4;
+  }
+
   .EmojiPickerReact {
     --epr-bg-color: #fffdf8;
     --epr-text-color: #0a0a0a;
@@ -98,18 +148,14 @@
     transform-origin: top center;
   }
 
-  /* Header compatto, full-width — allineato al prototipo "card pacchetti" (.head/.crumb) */
-  .section-eyebrow {
-    @apply inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted dark:text-[#8a8a8a] mb-2;
-  }
-
-  .section-eyebrow svg {
-    @apply text-brand-magenta;
-  }
-
+  /* Header compatto, full-width — icona magenta accanto al titolo */
   .section-title {
     @apply font-display font-bold leading-none tracking-tight text-ink dark:text-[#f4f4f7];
     font-size: 34px;
+  }
+
+  .section-title > svg {
+    @apply text-brand-magenta flex-shrink-0;
   }
 
   .section-lead {
@@ -295,6 +341,21 @@
   to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%)); }
 }
 
+/* Mentre gira la view transition del tema, sospendi le transition per-elemento
+   (tutti i `transition-colors` da 300ms sparsi nell'app): il tema nuovo deve
+   comparire istantaneo nello snapshot — è solo il reveal circolare ad animare.
+   Senza questo il cerchio rivela contenuto ancora in dissolvenza (vicino al
+   bottone il wipe è invisibile) e le centinaia di transition simultanee fanno
+   perdere frame all'animazione del clip-path. */
+html.vt-theme-switch,
+html.vt-theme-switch * {
+  transition: none !important;
+}
+/* Eccezione: l'icona sole ⇄ luna mantiene la sua micro-animazione. */
+html.vt-theme-switch .theme-ico > svg {
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.35s ease !important;
+}
+
 /* ── Icona toggle tema animata (sole ⇄ luna) ─────────────────────────────────── */
 .theme-ico {
   position: relative;
@@ -332,6 +393,17 @@
   transform-origin: 50% 15%; /* pivot sul gancio della campana */
 }
 
+/* La campanella "acchiappa" l'aeroplanino del toast: rimbalzo elastico. */
+@keyframes notif-catch {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.22) rotate(-6deg); }
+  70%  { transform: scale(0.94) rotate(3deg); }
+  100% { transform: scale(1); }
+}
+.notif-catch {
+  animation: notif-catch 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 @keyframes notif-pop {
   0%   { transform: scale(0.3); opacity: 0; }
   55%  { transform: scale(1.3); opacity: 1; }
@@ -352,7 +424,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .notif-ring, .notif-pop, .notif-halo { animation: none; }
+  .notif-ring, .notif-pop, .notif-halo, .notif-catch { animation: none; }
 }
 
 /* ── Icone sidebar: motion graphic su hover/click ─────────────────────────────── */
@@ -404,4 +476,258 @@ button:active > .nav-ico {
 }
 @media (prefers-reduced-motion: reduce) {
   .fav-burst, .fav-spark { animation: none; }
+}
+
+/* ── Anteprima firma email ────────────────────────────────────────────────────
+   Il preflight di Tailwind imposta img{display:block}: nell'anteprima le icone
+   contatto andrebbero a capo. Qui le riporto inline. Le immagini "vere" (foto,
+   logo, social) hanno display:block INLINE che vince su questa regola → restano
+   a blocco. Nell'email vera non serve (i client non applicano Tailwind). */
+.sig-preview img {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ── Skeleton loader: shimmer che scorre (import card Trello, ecc.) ────────────── */
+.skel-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(120, 120, 128, 0.14);
+}
+.dark .skel-shimmer {
+  background: rgba(255, 255, 255, 0.06);
+}
+.skel-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: skel-sweep 1.25s ease-in-out infinite;
+}
+.dark .skel-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent);
+}
+@keyframes skel-sweep {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel-shimmer::after { animation: none; }
+}
+
+/* ── Pillola scorrevole di DEFAULT su OGNI segmented switch (.seg-switch, .wl-segmented) ──
+   Gestita da useSegmentedPills (hooks): imposta --seg-x/-y/-w/-h e le classi
+   seg-anim/seg-has-pill/seg-ready. La pillola è uno pseudo-elemento, così non
+   c'è nessun nodo iniettato nel DOM controllato da React. */
+.seg-anim {
+  position: relative;
+}
+.seg-anim > * {
+  position: relative;
+  z-index: 1;
+}
+.seg-anim::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--seg-y, 3px);
+  width: var(--seg-w, 0px);
+  height: var(--seg-h, 0px);
+  transform: translateX(var(--seg-x, 0px));
+  border-radius: 999px;
+  background: #0a0a0a;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, width;
+}
+.dark .seg-anim::before {
+  background: #ffffff;
+}
+.seg-anim.seg-has-pill::before {
+  opacity: 1;
+}
+.seg-anim.seg-ready::before {
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.28, 0.5, 1),
+    width 0.32s cubic-bezier(0.34, 1.28, 0.5, 1);
+}
+/* La pillola disegna lo sfondo dell'attivo: il bottone attivo resta trasparente
+   (il testo/colore attivo li fornisce già lo stile esistente del segmented). */
+.seg-anim.seg-has-pill > .is-active {
+  background: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-anim.seg-ready::before {
+    transition: none;
+  }
+}
+
+/* ── Dropdown / menu: apertura fluida (fade + scale dall'origine) ──────────────── */
+@keyframes dd-pop-in {
+  0%   { opacity: 0; transform: scale(0.96) translateY(-6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes dd-pop-in-up {
+  0%   { opacity: 0; transform: scale(0.96) translateY(6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.dd-pop {
+  animation: dd-pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+.dd-pop-up {
+  animation: dd-pop-in-up 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-pop, .dd-pop-up { animation: none; }
+}
+
+/* Voci del dropdown: entrata a cascata (lo stagger è dato inline con animation-delay). */
+@keyframes dd-item-in {
+  0%   { opacity: 0; transform: translateY(-5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.dd-item {
+  animation: dd-item-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-item { animation: none; }
+}
+
+/* Sticky note lightbox: sfilata tra note (slider). Direzione data dalla classe. */
+@keyframes sn-slide-next {
+  0%   { opacity: 0; transform: translateX(40px) rotate(1.5deg) scale(0.97); }
+  100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+}
+@keyframes sn-slide-prev {
+  0%   { opacity: 0; transform: translateX(-40px) rotate(-1.5deg) scale(0.97); }
+  100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+}
+.sn-slide-next { animation: sn-slide-next 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.sn-slide-prev { animation: sn-slide-prev 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .sn-slide-next, .sn-slide-prev { animation: none; }
+}
+
+/* Skeleton "shimmer" (caricamento profili social): lampo di luce che scorre. */
+@keyframes sp-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.sp-skeleton {
+  background: linear-gradient(100deg, #efede8 40%, #fbfaf8 50%, #efede8 60%);
+  background-size: 200% 100%;
+  animation: sp-shimmer 1.3s ease-in-out infinite;
+}
+.dark .sp-skeleton {
+  background: linear-gradient(100deg, #1c1c20 40%, #27272d 50%, #1c1c20 60%);
+  background-size: 200% 100%;
+}
+/* Ingresso a cascata degli elementi appena caricati (usato con animationDelay). */
+@keyframes sp-pop-in {
+  0% { opacity: 0; transform: translateY(10px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.sp-pop-in { animation: sp-pop-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Verifica riuscita: il badge "Verificato" entra con un piccolo scatto elastico,
+   la spunta si disegna e parte un anello di conferma (motion graphic). */
+@keyframes sp-verified-pop {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.sp-verified-pop { animation: sp-verified-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes sp-check-draw {
+  from { stroke-dashoffset: 14; }
+  to { stroke-dashoffset: 0; }
+}
+.sp-check-draw { stroke-dasharray: 14; animation: sp-check-draw 0.5s 0.08s cubic-bezier(0.65, 0, 0.35, 1) both; }
+@keyframes sp-verified-ring {
+  0% { box-shadow: 0 0 0 0 rgba(34, 160, 90, 0.5); }
+  100% { box-shadow: 0 0 0 9px rgba(34, 160, 90, 0); }
+}
+.sp-verified-ring { animation: sp-verified-ring 0.7s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-skeleton { animation: none; }
+  .sp-pop-in { animation: none; }
+  .sp-verified-pop, .sp-check-draw, .sp-verified-ring { animation: none; }
+}
+
+/* ── Registro siti: apertura di "Dettagli e metriche" ────────────────────────
+   La riga di dettaglio non può animare l'altezza (è dentro una cella di
+   tabella): usiamo il trucco della griglia, da 0fr a 1fr, che apre e chiude in
+   modo fluido senza conoscere in anticipo quanto è alto il contenuto. */
+@keyframes wb-detail-in {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}
+@keyframes wb-detail-out {
+  from { grid-template-rows: 1fr; opacity: 1; }
+  to   { grid-template-rows: 0fr; opacity: 0; }
+}
+.wb-detail { display: grid; grid-template-rows: 1fr; }
+/* Il figlio va azzerato e ritagliato, altrimenti sborda mentre la riga si chiude. */
+.wb-detail > * { min-height: 0; overflow: hidden; }
+.wb-detail-in { animation: wb-detail-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.wb-detail-out { animation: wb-detail-out 0.24s cubic-bezier(0.4, 0, 1, 1) both; }
+
+/* Le schede dentro il pannello entrano a cascata, non tutte insieme. */
+@keyframes wb-card-in {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.wb-card-in { animation: wb-card-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-detail-in, .wb-detail-out, .wb-card-in { animation: none; }
+  .wb-detail { grid-template-rows: 1fr; }
+}
+
+/* ── Suggerimento "collega cliente" (rilevato dal titolo) ─────────────────────
+   La card entra con uno slide elastico; una scia luminosa la attraversa una
+   volta per attirare l'occhio; l'icona a catena fa un piccolo scatto magnetico. */
+@keyframes cl-suggest-in {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  60% { transform: translateY(0) scale(1.012); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cl-suggest-in { animation: cl-suggest-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes cl-suggest-sheen {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 0.9; }
+  100% { transform: translateX(220%); opacity: 0; }
+}
+.cl-suggest-sheen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: cl-suggest-sheen 1.15s cubic-bezier(0.4, 0, 0.2, 1) 0.25s 1 both;
+}
+.dark .cl-suggest-sheen {
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+@keyframes cl-suggest-link {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  30% { transform: rotate(-12deg) scale(1.14); }
+  60% { transform: rotate(8deg) scale(1.06); }
+}
+.cl-suggest-link { animation: cl-suggest-link 0.9s ease-in-out 0.4s 1 both; transform-origin: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-suggest-in, .cl-suggest-sheen, .cl-suggest-link { animation: none; }
+  .cl-suggest-sheen { display: none; }
 }

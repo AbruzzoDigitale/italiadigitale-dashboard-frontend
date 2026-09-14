@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { createLeadApi, getClientsApi, type Client } from "../api/clients";
+import { createLeadApi, deleteClientApi, getClientsApi, type Client } from "../api/clients";
 import {
   bulkDeleteContractsApi,
   CONTRACT_STAGE_LABELS,
@@ -54,10 +54,12 @@ import { Spinner } from "../components/ui/Spinner";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { WorkAreaCreateModal } from "../components/work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../components/work-taxonomy/WorkTagCreateModal";
+import { useTheme } from "../context/ThemeContext";
 import { useToast } from "../context/ToastContext";
 import { useCommercialPipeline } from "../hooks/useCommercialPipeline";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import "./contracts-pipeline.css";
 
 // Colore della barra superiore di ogni stage (dal prototipo).
@@ -340,6 +342,7 @@ function buildPipelineClusters(items: CommercialPipelineItem[]): PipelineCluster
 export function ContractsPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, permissions, activeCompanyId, myCompanies } = useAuth();
+  const { theme } = useTheme();
   const { selectedCompanyId } = useSelectedCompanyId(activeCompanyId ?? user?.company_id ?? null);
   const toast = useToast();
   const isAdmin = !!permissions?.is_admin;
@@ -444,6 +447,8 @@ export function ContractsPipelinePage() {
   const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [leadForm, setLeadForm] = useState(EMPTY_LEAD_FORM);
   const [leadSaving, setLeadSaving] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Client | null>(null);
+  const [leadDeleting, setLeadDeleting] = useState(false);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -522,8 +527,9 @@ export function ContractsPipelinePage() {
       value: String(company.id),
       label: company.name,
       keywords: `${company.name} ${company.slug}`,
+      avatarUrl: getCompanyLogoUrl(company, theme),
     })),
-    [myCompanies]
+    [myCompanies, theme]
   );
 
   const stageOptions = useMemo(
@@ -841,6 +847,22 @@ export function ContractsPipelinePage() {
       toast.error(err instanceof Error ? err.message : "Errore salvataggio lead");
     } finally {
       setLeadSaving(false);
+    }
+  };
+
+  // Eliminazione lead: soft delete del cliente-appunto (sparisce dalla colonna Bozza).
+  const deleteLead = async () => {
+    if (!leadToDelete) return;
+    setLeadDeleting(true);
+    try {
+      await deleteClientApi(leadToDelete.id);
+      setLeads((current) => current.filter((l) => l.id !== leadToDelete.id));
+      toast.success("Lead eliminato");
+      setLeadToDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore eliminazione lead");
+    } finally {
+      setLeadDeleting(false);
     }
   };
 
@@ -1230,8 +1252,7 @@ export function ContractsPipelinePage() {
   return (
     <div className="px-6 pt-4 mx-auto w-full h-full flex flex-col overflow-hidden animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Contratti"
-        eyebrowIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}
+        icon={<Icon name="document-text" className="w-6 h-6" />}
         title="Pipeline commerciale"
         lead={isLoading ? "Caricamento in corso..." : `${displayedItems.length} elementi · Tot ${formatEur(boardTotal)} · Mese ${formatEur(boardMonthly)} · Una tantum ${formatEur(boardOneTime)}`}
         actions={isAdmin ? (
@@ -1482,13 +1503,24 @@ export function ContractsPipelinePage() {
                           <div className="pipe-c-foot">
                             <span className="pipe-c-upd">Richiesta {formatIsoDate(lead.lead_date)}</span>
                             {isAdmin && (
-                              <button
-                                type="button"
-                                className="pipe-c-lead-cta"
-                                onClick={() => convertLeadToQuote(lead)}
-                              >
-                                Converti in preventivo
-                              </button>
+                              <span className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  className="pipe-c-lead-cta"
+                                  onClick={() => convertLeadToQuote(lead)}
+                                >
+                                  Converti in preventivo
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Elimina lead"
+                                  aria-label="Elimina lead"
+                                  onClick={() => setLeadToDelete(lead)}
+                                  className="inline-grid h-6 w-6 flex-none place-items-center rounded-md border border-danger/20 bg-danger/5 text-danger transition-colors hover:bg-danger/10"
+                                >
+                                  <Icon name="trash" className="h-3 w-3" />
+                                </button>
+                              </span>
                             )}
                           </div>
                         </div>
@@ -1919,6 +1951,7 @@ export function ContractsPipelinePage() {
                   onChange={(value) => updateQuoteContractForm("company_id", value)}
                   options={companyOptions}
                   placeholder="Seleziona azienda"
+                  avatarShape="logo"
                 />
               </div>
 
@@ -2309,6 +2342,31 @@ export function ContractsPipelinePage() {
             onChange={(event) => setLeadForm((current) => ({ ...current, lead_date: event.target.value }))}
           />
         </div>
+      </Modal>
+
+      <Modal
+        open={!!leadToDelete}
+        onClose={() => {
+          if (!leadDeleting) setLeadToDelete(null);
+        }}
+        title="Elimina lead"
+        description="Il lead viene rimosso dalla pipeline (archiviato in anagrafica)."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLeadToDelete(null)} disabled={leadDeleting}>
+              Annulla
+            </Button>
+            <Button variant="danger" onClick={() => void deleteLead()} loading={leadDeleting}>
+              Elimina
+            </Button>
+          </>
+        }
+      >
+        <p className="font-body text-sm text-ink dark:text-paper">
+          Sei sicuro di voler eliminare il lead{" "}
+          <strong>{leadToDelete ? leadToDelete.commercial_name || leadToDelete.name : ""}</strong>?
+        </p>
       </Modal>
 
       <ContractFromQuoteModal

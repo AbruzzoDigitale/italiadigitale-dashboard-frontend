@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
 import { getUsersApi, updateMeApi, type User } from "../api/users";
 import { listRolesApi, type Role } from "../api/roles";
 import {
@@ -20,6 +21,7 @@ import {
 } from "../api/workItems";
 import { getCompanyApi } from "../api/companies";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
+import { SENT_TO_CLIENT_COLOR, isSentToClient, taskStatusBadges } from "../utils/taskStatus";
 import { TaskConflictModal } from "../components/work-items/TaskConflictModal";
 import { WorkloadTeamModal } from "../components/workload/WorkloadTeamModal";
 import { MultiOperatorCalendar, type MultiOperatorMeta } from "../components/workload/MultiOperatorCalendar";
@@ -28,6 +30,7 @@ import { WorkloadDateNav } from "../components/workload/WorkloadDateNav";
 import { WorkloadTray, type WorkloadTrayLayout, type WorkloadTrayTab, type WorkloadTrayGroup, type WorkloadTrayItem } from "../components/workload/WorkloadTray";
 import { WorkloadMonthGrid } from "../components/workload/WorkloadMonthGrid";
 import { SwapConfirmModal } from "../components/workload/SwapConfirmModal";
+import { formatDurationHuman } from "../utils/duration";
 import {
   getWorkloadUserCalendarDayApi,
   getWorkloadToPlanApi,
@@ -44,6 +47,7 @@ import {
   type WorkloadUserSummary,
 } from "../api/workload";
 import { Button } from "../components/ui/Button";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
@@ -220,21 +224,25 @@ function formatRangeLabel(fromIso: string, toIso: string): string {
 }
 
 function formatHours(value: number) {
-  const totalMinutes = Math.round((value || 0) * 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
+  return formatDurationHuman(value);
 }
 
-function taskEffectiveHours(task: Pick<WorkloadTaskSummary, "affects_daily_load" | "effective_load_hours" | "estimated_hours">): number {
+type TaskHoursFields = Pick<
+  WorkloadTaskSummary,
+  "affects_daily_load" | "effective_load_hours" | "estimated_hours" | "schedule_state"
+>;
+
+// Stesso ordine di risoluzione del calendario (resolveTimelineEffectiveHours): lo
+// schedule_state ha la precedenza, perché porta già il peso delle arretrate (×0,5) e
+// della revisione (0 all'operatore, 0,25 al revisore).
+function taskEffectiveHours(task: TaskHoursFields): number {
+  if (typeof task.schedule_state?.effective_load_hours === "number") return task.schedule_state.effective_load_hours;
   if (!task.affects_daily_load) return 0;
   if (typeof task.effective_load_hours === "number") return task.effective_load_hours;
   return task.estimated_hours ?? 0;
 }
 
-function taskHoursLabel(task: Pick<WorkloadTaskSummary, "affects_daily_load" | "effective_load_hours" | "estimated_hours">): string {
+function taskHoursLabel(task: TaskHoursFields): string {
   const effective = taskEffectiveHours(task);
   if (task.estimated_hours == null) return `${formatHours(effective)} eff`;
   return `${formatHours(effective)} eff · ${formatHours(task.estimated_hours)} st`;
@@ -274,7 +282,9 @@ function accBadgeClass(status: WorkloadComputedStatus): string {
 }
 
 function getTaskDay(task: WorkloadTaskSummary): string {
-  return (task.work_date ?? "").slice(0, 10);
+  // Stesso criterio del calendario: la task vive nel suo giorno EFFETTIVO. Le arretrate
+  // e le trascinate compaiono nel giorno di recupero (oggi), non in quello originale.
+  return (task.schedule_state?.effective_work_date ?? task.work_date ?? "").slice(0, 10);
 }
 
 function getTaskStartMinutes(task: WorkloadTaskSummary): number {
@@ -285,6 +295,24 @@ function sortTasksByStartTime(tasks: WorkloadTaskSummary[]): WorkloadTaskSummary
   return [...tasks].sort((left, right) => {
     const diff = getTaskStartMinutes(left) - getTaskStartMinutes(right);
     if (diff !== 0) return diff;
+    return left.work_item_id - right.work_item_id;
+  });
+}
+
+// Ordine di default nelle lane: prima le in corso, poi le da fare, infine le in revisione.
+const TASK_STATUS_ORDER = ["in_progress", "planned", "review"];
+
+function taskStatusRank(status: string): number {
+  const index = TASK_STATUS_ORDER.indexOf(status);
+  return index === -1 ? TASK_STATUS_ORDER.length : index;
+}
+
+function sortTasksByStatusThenTime(tasks: WorkloadTaskSummary[]): WorkloadTaskSummary[] {
+  return [...tasks].sort((left, right) => {
+    const byStatus = taskStatusRank(left.status) - taskStatusRank(right.status);
+    if (byStatus !== 0) return byStatus;
+    const byTime = getTaskStartMinutes(left) - getTaskStartMinutes(right);
+    if (byTime !== 0) return byTime;
     return left.work_item_id - right.work_item_id;
   });
 }
@@ -983,6 +1011,15 @@ export function WorkloadPage() {
     weekOffset,
   ]);
 
+  // Realtime: qualsiasi modifica a una task in azienda (segnale SSE `work_item_changed`
+  // instradato sul bus) ricarica in silenzio la vista attiva. I pesi per-ruolo/fase sono
+  // ricalcolati server-side a ogni fetch, quindi arrivano già aggiornati.
+  useEffect(() => subscribeRealtime(() => {
+    void loadMain({ silent: true });
+    void reloadCalendar();
+    setMultiReloadToken((t) => t + 1);
+  }), [loadMain, reloadCalendar]);
+
   const loadProfiles = useCallback(async () => {
     if (!selectedCompanyId) {
       setCompanyUsers([]);
@@ -1552,32 +1589,52 @@ export function WorkloadPage() {
       task: WorkloadTaskSummary,
       sourceAssigneeId: number | null,
       unassigned = false
-    ) => (
-      <button
-        key={task.work_item_id}
-        type="button"
-        draggable
-        style={{ ["--wl-area" as string]: unassigned ? "#f5b800" : taskAreaColor(task) }}
-        onDragStart={(event) => onTaskDragStart(event, task.work_item_id, sourceAssigneeId)}
-        onDragEnd={onTaskDragEnd}
-        onClick={() => void openEditWorkItemModal(task.work_item_id)}
-        className={`wl-acc-task${unassigned ? " wl-acc-task--unassigned" : ""}${
-          draggingTaskId === task.work_item_id ? " is-dragging" : ""
-        }`}
-      >
-        <div className="wl-acc-task__main">
-          <span className="wl-acc-task__title">{task.title}</span>
-          <span className="wl-acc-task__hours">{taskHoursLabel(task)}</span>
-        </div>
-        <div className="wl-acc-task__meta">
-          {formatTaskStartTime(task.start_time) && (
-            <span className="wl-acc-task__time">{formatTaskStartTime(task.start_time)}</span>
-          )}
-          <span className="wl-acc-task__client">{task.client_name || "Senza cliente"}</span>
-          <span className="wl-acc-task__status">{task.status}</span>
-        </div>
-      </button>
-    );
+    ) => {
+      const sentToClient = isSentToClient(task);
+      return (
+        <button
+          key={task.work_item_id}
+          type="button"
+          draggable
+          style={{
+            ["--wl-area" as string]: sentToClient
+              ? SENT_TO_CLIENT_COLOR
+              : unassigned
+                ? "#f5b800"
+                : taskAreaColor(task),
+          }}
+          onDragStart={(event) => onTaskDragStart(event, task.work_item_id, sourceAssigneeId)}
+          onDragEnd={onTaskDragEnd}
+          onClick={() => void openEditWorkItemModal(task.work_item_id)}
+          className={`wl-acc-task${unassigned ? " wl-acc-task--unassigned" : ""}${
+            draggingTaskId === task.work_item_id ? " is-dragging" : ""
+          }`}
+        >
+          <div className="wl-acc-task__main">
+            <span className="wl-acc-task__title">{task.title}</span>
+            <span className="wl-acc-task__hours">{taskHoursLabel(task)}</span>
+          </div>
+          <div className="wl-acc-task__meta">
+            {formatTaskStartTime(task.start_time) && (
+              <span className="wl-acc-task__time">{formatTaskStartTime(task.start_time)}</span>
+            )}
+            <span className="wl-acc-task__client">{task.client_name || "Senza cliente"}</span>
+            {/* Stesse etichette di "Attività del giorno": la funzione è una sola, così le
+                due viste non possono raccontare la stessa task in modo diverso. */}
+            {taskStatusBadges(task).map((b) => (
+              <span
+                key={b.key}
+                className="rounded-pill px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider"
+                style={{ color: b.color, backgroundColor: `${b.color}22` }}
+                title={b.title}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+        </button>
+      );
+    };
 
     return (
       <div className={`wlfull-shell${calendarDensity === "compact" ? " wlfull-shell--compact" : ""}`}>
@@ -1705,7 +1762,7 @@ export function WorkloadPage() {
                       <Fragment key={day}>
                         <div className="wl-acc-day-label">{formatAccDayLabel(day)}</div>
                         <div className="wl-acc-tasks">
-                          {sortTasksByStartTime(tasksByDay.get(day) ?? []).map((task) => renderTaskCard(task, item.user_id))}
+                          {sortTasksByStatusThenTime(tasksByDay.get(day) ?? []).map((task) => renderTaskCard(task, item.user_id))}
                         </div>
                       </Fragment>
                     ))
@@ -1785,7 +1842,7 @@ export function WorkloadPage() {
                       <Fragment key={day}>
                         <div className="wl-acc-day-label">{formatAccDayLabel(day)}</div>
                         <div className="wl-acc-tasks">
-                          {sortTasksByStartTime(unassignedByDay.get(day) ?? []).map((task) => renderTaskCard(task, null, true))}
+                          {sortTasksByStatusThenTime(unassignedByDay.get(day) ?? []).map((task) => renderTaskCard(task, null, true))}
                         </div>
                       </Fragment>
                     ))
@@ -1822,6 +1879,9 @@ export function WorkloadPage() {
       opts?: { unassigned?: boolean }
     ) => {
       const time = formatTaskStartTime(task.start_time);
+      const sentToClient = isSentToClient(task);
+      // Consegnata al cliente → ciano come in Lavorazioni; altrimenti colore area.
+      const chipColor = opts?.unassigned ? null : sentToClient ? SENT_TO_CLIENT_COLOR : areaColor;
       return (
         <button
           key={task.work_item_id}
@@ -1831,8 +1891,8 @@ export function WorkloadPage() {
           onDragEnd={onTaskDragEnd}
           onClick={() => void openEditWorkItemModal(task.work_item_id)}
           className={`wlfull-chip${opts?.unassigned ? " is-unassigned" : ""}${draggingTaskId === task.work_item_id ? " is-dragging" : ""}`}
-          style={!opts?.unassigned && areaColor ? ({ "--area": areaColor } as CSSProperties) : undefined}
-          title={task.title}
+          style={chipColor ? ({ "--area": chipColor } as CSSProperties) : undefined}
+          title={sentToClient ? `${task.title} — al cliente` : task.title}
         >
           <span className="wlfull-chip-main">
             <span className="wlfull-chip-t">{task.title}</span>
@@ -2523,14 +2583,10 @@ export function WorkloadPage() {
   return (
     <div className={`px-6 mx-auto w-full animate-fadeIn ${isFillView ? "max-w-none pt-4 h-full flex flex-col overflow-hidden" : "py-8 pb-20"}`}>
       <div className={isFillView ? "mb-1" : "mb-8"}>
-        <div className="section-eyebrow">
-          <Icon name="activity" className="w-3.5 h-3.5" />
-          Produzione
-        </div>
-        <h1 className="section-title">Workload</h1>
-        {!isFillView && (
-          <p className="section-lead">Timeline operativa con filtri dinamici, viste multiple e controllo carico per operatore.</p>
-        )}
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="activity" className="w-6 h-6" />
+          Workload
+        </h1>
       </div>
 
       <div className={`wl-toolbar-shell ${isFillView ? "mb-0" : "mb-5"}`}>
@@ -2548,18 +2604,12 @@ export function WorkloadPage() {
               Oggi
             </button>
 
-            <div className="wl-segmented wl-segmented--range">
-              {RANGE_MODE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setRangeMode(option.value)}
-                  className={`wl-segmented-btn wl-segmented-btn--range ${rangeMode === option.value ? "is-active" : ""}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <SegmentedSwitch<RangeMode>
+              value={rangeMode}
+              onChange={setRangeMode}
+              ariaLabel="Intervallo"
+              options={RANGE_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            />
 
             <button
               type="button"
@@ -2658,24 +2708,20 @@ export function WorkloadPage() {
 
           <div className="wl-toolbar-group">
             {/* Densità comodo/compatto — disponibile in tutte le view */}
-            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Densità">
-              {([
+            <SegmentedSwitch<WorkloadCalendarDensity>
+              value={calendarDensity}
+              onChange={setCalendarDensity}
+              ariaLabel="Densità"
+              buttonClassName="wl-icon-btn"
+              options={([
                 { value: "comfortable", icon: "grid", label: "Comodo" },
                 { value: "compact", icon: "grid-compact", label: "Compatto" },
-              ] as const).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setCalendarDensity(option.value)}
-                  title={`Densità: ${option.label}`}
-                  aria-label={`Densità: ${option.label}`}
-                  aria-pressed={calendarDensity === option.value}
-                  className={`wl-segmented-btn wl-segmented-btn--view wl-icon-btn ${calendarDensity === option.value ? "is-active" : ""}`}
-                >
-                  <Icon name={option.icon} className="w-4 h-4" />
-                </button>
-              ))}
-            </div>
+              ] as const).map((option) => ({
+                value: option.value,
+                title: `Densità: ${option.label}`,
+                label: <Icon name={option.icon} className="w-4 h-4" />,
+              }))}
+            />
 
             {/* Mostra/nascondi task in revisione */}
             <div className="wl-segmented wl-segmented--view" role="group" aria-label="Task in revisione">
@@ -2693,22 +2739,15 @@ export function WorkloadPage() {
             </div>
 
             {/* Tray "Da pianificare": Sidebar (colonna) o Dock (pannello a scomparsa) */}
-            <div className="wl-segmented wl-segmented--view" role="group" aria-label="Tray Da pianificare">
-              {([
+            <SegmentedSwitch<WorkloadTrayLayout>
+              value={trayLayout}
+              onChange={(v) => { setTrayLayout(v); if (v === "dock") setTrayDockOpen(false); }}
+              ariaLabel="Tray Da pianificare"
+              options={[
                 { value: "sidebar", label: "Sidebar" },
                 { value: "dock", label: "Dock" },
-              ] as const).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => { setTrayLayout(option.value); if (option.value === "dock") setTrayDockOpen(false); }}
-                  aria-pressed={trayLayout === option.value}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${trayLayout === option.value ? "is-active" : ""}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+              ]}
+            />
           </div>
         </div>
 
@@ -3025,7 +3064,6 @@ export function WorkloadPage() {
         onClose={() => { setNewWorkModalOpen(false); setQuickAdd(null); setEditingItem(null); }}
         editingItem={editingItem}
         companyId={selectedCompanyId!}
-        isAdmin={!!permissions?.is_admin}
         defaultWorkDate={quickAdd?.day ?? selectedDay ?? getTodayDate()}
         defaultStartTime={quickAdd?.startTime}
         defaultEstimatedHours={quickAdd?.estimatedHours}

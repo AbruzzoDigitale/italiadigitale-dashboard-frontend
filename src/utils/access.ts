@@ -13,12 +13,19 @@ export type AppRouteKey =
   | "quotes"
   | "clients"
   | "social"
+  | "social-profiles"
+  | "social-monitors"
+  | "websites"
+  | "prenotazione-sale"
+  | "rimborsi"
+  | "reports"
   | "catalog"
   | "llm"
   | "profile"
   | "work-items"
   | "comunicazioni"
   | "fatturazione"
+  | "documenti"
   | "admin";
 
 export function canAccessRoute(
@@ -33,6 +40,9 @@ export function canAccessRoute(
       return permissions.is_admin || permissions.is_project_manager;
     case "fatturazione":
       // Area amministrativa: riservata SOLO agli admin.
+      return permissions.is_admin;
+    case "documenti":
+      // Archivio documenti aziendali (contratti, modelli): SOLO admin.
       return permissions.is_admin;
     case "dashboard":
       return permissions.allowed_views.includes("dashboard");
@@ -63,6 +73,30 @@ export function canAccessRoute(
       return permissions.can_view_clients || permissions.allowed_views.includes("clients");
     case "social":
       return permissions.can_view_social_packages || permissions.allowed_views.includes("social");
+    case "social-profiles":
+      // Registro profili social dei clienti: consultabile da tutti (admin, PM,
+      // operatori); la gestione è limitata lato API ad admin/PM.
+      return true;
+    case "social-monitors":
+      // Monitoraggio pubblicazioni (configurazioni di revisione): SOLO admin e PM.
+      return permissions.is_admin || permissions.is_project_manager;
+    case "reports":
+      // Pagina Report: la vedono tutti, ma il backend mostra solo i report dei
+      // moduli assegnati alle proprie aree (l'admin tutti).
+      return true;
+    case "prenotazione-sale":
+      // Calendario condiviso delle sale: lo vede e lo usa chiunque in azienda.
+      // Le sale (anagrafica) restano configurabili solo dagli admin, lato API.
+      return true;
+    case "rimborsi":
+      // Rimborsi trasferte: ognuno registra le proprie. La coda di approvazione
+      // e le impostazioni (foglio, Drive, tariffe) restano agli admin, sia in
+      // pagina sia lato API.
+      return true;
+    case "websites":
+      // Registro siti web dei clienti: consultabile e gestibile da tutti, come i
+      // profili social. Le tassonomie restano in mano ad admin/PM (lato API).
+      return true;
     case "catalog":
       return permissions.can_view_catalog || permissions.allowed_views.includes("catalog");
     case "llm":

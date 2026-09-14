@@ -471,11 +471,10 @@ export function QuotesPage() {
       {/* ── Header ── */}
       <div className="mb-6 flex shrink-0 items-start justify-between gap-4">
         <div>
-          <div className="section-eyebrow">
-            <Icon name="activity" className="w-3.5 h-3.5" />
-            Commerciale
-          </div>
-          <h1 className="section-title">Preventivi</h1>
+          <h1 className="section-title flex items-center gap-2.5">
+            <Icon name="activity" className="w-6 h-6" />
+            Preventivi
+          </h1>
           <p className="section-lead">
             {isLoading ? "Caricamento…" : `${total} preventiv${total === 1 ? "o" : "i"}`}
           </p>

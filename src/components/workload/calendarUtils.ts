@@ -6,6 +6,7 @@ import type {
   WorkloadUserCalendarDayResponse,
 } from "../../api/workload";
 import type { WorkItem, WorkItemScheduleState } from "../../api/workItems";
+import { formatDurationHuman } from "../../utils/duration";
 
 export interface WorkloadTrayItem {
   id: number;
@@ -65,14 +66,9 @@ export function minutesToHHMM(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** Durata leggibile in ore/minuti: 2.8 → "2h 48m", 0.8 → "48m", 1 → "1h", 0 → "0m". */
+/** Durata in linguaggio umano: 2.8 → "2h48min", 0.8 → "48min", 1 → "1h", 0 → "0min". */
 export function formatHours(value: number) {
-  const totalMinutes = Math.round((value || 0) * 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
+  return formatDurationHuman(value);
 }
 
 export function snapMinutesToSlotInRange(totalMinutes: number, min: number, max: number, slotMinutes = CALENDAR_SLOT_MINUTES): number {

@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { SignatureTemplateAdmin } from "../components/email/SignatureTemplateAdmin";
+import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
+import { MapsKeyCard } from "../features/rimborsi/MapsKeyCard";
+import { OfficeAddressCard } from "../features/rimborsi/OfficeAddressCard";
+import { WorkloadWeightsSection } from "../components/workload/WorkloadWeightsSection";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import {
@@ -44,10 +49,26 @@ import { ColorHexField } from "../components/ui/ColorHexField";
 import { WorkAreasTab } from "../features/company/WorkAreasTab";
 import { RolesTab } from "../features/company/RolesTab";
 import { WorkTagsTab } from "../features/company/WorkTagsTab";
+import { SocialPlatformsTab } from "../features/company/SocialPlatformsTab";
+import { WebsiteTaxonomiesTab } from "../features/company/WebsiteTaxonomiesTab";
+import { MaintenanceSettingsTab } from "../features/company/MaintenanceSettingsTab";
+import { DailyRecapTemplateTab } from "../features/company/DailyRecapTemplateTab";
+import { MailTemplatesTab } from "../features/company/MailTemplatesTab";
 import { LlmSettingsTab } from "../features/company/LlmSettingsTab";
 import { NotificheTab } from "../features/company/NotificheTab";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+// Intervalli per l'auto-archiviazione delle task completate ("" = mai).
+const AUTO_ARCHIVE_OPTIONS = [
+  { value: "", label: "Mai (disattivata)" },
+  { value: "3", label: "Dopo 3 giorni" },
+  { value: "7", label: "Dopo 1 settimana" },
+  { value: "14", label: "Dopo 2 settimane" },
+  { value: "30", label: "Dopo 1 mese" },
+  { value: "90", label: "Dopo 3 mesi" },
+  { value: "180", label: "Dopo 6 mesi" },
+];
 
 const KPI_OPTIONS = [
   { value: "active",   label: "Preventivi attivi" },
@@ -72,12 +93,15 @@ interface CompanySettingFormState {
   is_active: boolean;
 }
 
-type BrandTab = "login" | "brand" | "firma" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags";
+type BrandTab = "login" | "brand" | "firma" | "email" | "google" | "mail" | "media" | "settings" | "operations" | "notifiche" | "llm" | "areas" | "roles" | "tags" | "social" | "siti" | "recap";
 
 const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   login: "Login",
   brand: "Brand",
   firma: "Firma",
+  email: "Email",
+  google: "Google",
+  mail: "Modelli email",
   media: "Media",
   settings: "Settings",
   operations: "Regole",
@@ -86,6 +110,9 @@ const BRAND_TAB_LABELS: Record<BrandTab, string> = {
   areas: "Aree",
   roles: "Ruoli",
   tags: "Tag",
+  social: "Social",
+  siti: "Siti web",
+  recap: "Recap",
 };
 
 const SCHEDULE_KIND_OPTIONS: Array<{ value: CompanyScheduleWindowKind; label: string }> = [
@@ -738,7 +765,20 @@ export function CompanyBrandPage() {
   const [cardStyle, setCardStyle] = useState<SocialPackageCardStyle>("sober");
   const [cardStyleOptions, setCardStyleOptions] = useState<CardStyleOption[]>([]);
   const [cardStyleSaving, setCardStyleSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<BrandTab>("login");
+  // Tab iniziale da ?tab= (serve al ritorno dall'OAuth Google del tab Email,
+  // che ricarica la pagina; rende anche i tab linkabili).
+  const [activeTab, setActiveTab] = useState<BrandTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t && (Object.keys(BRAND_TAB_LABELS) as string[]).includes(t) ? (t as BrandTab) : "login";
+  });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (activeTab === "login") params.delete("tab");
+    else params.set("tab", activeTab);
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, [activeTab]);
   const canEditSettings = !!user?.is_admin;
   const canManageRoles = !!permissions?.can_manage_roles || !!permissions?.is_admin;
 
@@ -757,12 +797,16 @@ export function CompanyBrandPage() {
           bg_color:           b.bg_color           ?? "#0a0a0a",
           theme_color:        b.theme_color        ?? "#2b1342",
           dashboard_kpis:     b.dashboard_kpis     ?? ["active", "accepted", "pipeline", "clients"],
+          auto_archive_completed_days: b.auto_archive_completed_days ?? null,
           // Contatti / firma
           website:            b.website            ?? "",
           contact_email:      b.contact_email      ?? "",
           phone:              b.phone              ?? "",
           address:            b.address            ?? "",
           address_maps_url:   b.address_maps_url   ?? "",
+          // Dati fiscali: usati dalla nota spese trasferte.
+          legal_name:         b.legal_name         ?? "",
+          vat_number:         b.vat_number         ?? "",
           signature_logo_url: b.signature_logo_url ?? "",
           facebook_url:       b.facebook_url       ?? "",
           instagram_url:      b.instagram_url      ?? "",
@@ -1115,17 +1159,29 @@ export function CompanyBrandPage() {
       </button>
 
       {/* ── Header ── */}
-      <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="pencil" className="w-3.5 h-3.5" />
-          Brand & Personalizzazione
-        </div>
-        <h1 className="section-title">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="pencil" className="w-6 h-6" />
           {companyName}
         </h1>
-        <p className="section-lead">
-          Loghi, colori e testi personalizzati per questa azienda
-        </p>
+        {/* Link alla scheda aperta: si manda a un altro admin perché faccia la
+            sua parte (es. il consenso Google) senza spiegargli dove cliccare.
+            Chi lo apre senza sessione atterra qui dopo il login. */}
+        <button
+          type="button"
+          onClick={() => {
+            const url = `${window.location.origin}/companies/${companyId}/brand?tab=${activeTab}`;
+            navigator.clipboard
+              ?.writeText(url)
+              .then(() => toast.success(`Link copiato: scheda ${BRAND_TAB_LABELS[activeTab]}`))
+              .catch(() => toast.error("Copia non riuscita: copia l'indirizzo dalla barra del browser"));
+          }}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line dark:border-[#2a2a2e] px-3 py-2 text-[12px] font-semibold text-muted dark:text-[#9999a0] hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          title="Copia il link di questa scheda per condividerlo con un altro admin"
+        >
+          <Icon name="copy" className="w-3.5 h-3.5" />
+          Copia link scheda
+        </button>
       </div>
 
       <div className="mb-6 rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] p-2">
@@ -1343,6 +1399,20 @@ export function CompanyBrandPage() {
                   hint="Opzionale: link cliccabile dell'indirizzo"
                 />
                 <Input
+                  label="Ragione sociale"
+                  value={(form.legal_name as string) ?? ""}
+                  onChange={(e) => set("legal_name", e.target.value)}
+                  placeholder="G. & G. Servizi srl"
+                  hint="Come si chiama davanti al fisco, se diverso dal nome con cui vi presentate"
+                />
+                <Input
+                  label="Partita IVA"
+                  value={(form.vat_number as string) ?? ""}
+                  onChange={(e) => set("vat_number", e.target.value)}
+                  placeholder="01611390673"
+                  hint="Finisce nella dichiarazione della nota spese trasferte"
+                />
+                <Input
                   label="Logo firma (URL)"
                   value={(form.signature_logo_url as string) ?? ""}
                   onChange={(e) => set("signature_logo_url", e.target.value)}
@@ -1418,6 +1488,46 @@ export function CompanyBrandPage() {
 
         {activeTab === "firma" && <SignatureTemplateAdmin companyId={companyId} />}
 
+        {activeTab === "mail" && <MailTemplatesTab companyId={companyId} isAdmin={!!user?.is_admin} />}
+
+        {activeTab === "email" && (
+          <EmailAccountsSection
+            companies={[]}
+            defaultCompanyId={companyId}
+            scope="company"
+            lockCompany
+            title="Email aziendale"
+            description="Mittenti condivisi dell'organizzazione (es. info@): usati come mittente aziendale, indipendenti dagli account personali degli operatori. Le credenziali sono cifrate."
+          />
+        )}
+
+        {activeTab === "google" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <GoogleConnectSection scope="company" companyId={companyId} />
+            <MapsKeyCard companyId={companyId} />
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <h2
+                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+                style={{ fontSize: "17px" }}
+              >
+                A cosa serve
+              </h2>
+              <p className="font-body text-[13px] text-muted dark:text-[#9999a0]">
+                Questo account è l'identità dell'azienda su Google, distinta sia dai mittenti email (che hanno solo i
+                permessi di Gmail) sia dal Google collegato nel profilo delle persone. Con questo il gestionale
+                scrive il <b>foglio dei rimborsi trasferte</b> condiviso col commercialista e crea l'
+                <b>archivio mensile su Drive</b>, anche quando nessuno è collegato alla dashboard: le
+                sincronizzazioni partono da un job schedulato.
+              </p>
+              <p className="mt-3 font-body text-[13px] text-muted dark:text-[#9999a0]">
+                Conviene usare un indirizzo aziendale (es. amministrazione@): se qui finisce l'account personale di
+                una persona, il giorno che quella persona se ne va si ferma tutto. Scollegandolo, le sincronizzazioni
+                si fermano ma nulla viene cancellato da Drive.
+              </p>
+            </div>
+          </div>
+        )}
+
         {activeTab === "media" && (
           <>
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
@@ -1456,6 +1566,36 @@ export function CompanyBrandPage() {
 
         {activeTab === "settings" && (
           <>
+            <OfficeAddressCard companyId={companyId} />
+
+            {/* Auto-archiviazione delle lavorazioni completate */}
+            <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+              <h2
+                className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+                style={{ fontSize: "17px" }}
+              >
+                Archiviazione automatica
+              </h2>
+              <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+                Le lavorazioni completate vengono archiviate automaticamente dopo il periodo scelto.
+                Restano consultabili e ricercabili nell'Archivio.
+              </p>
+              <div className="max-w-xs">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+                  Archivia le completate dopo
+                </label>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={form.auto_archive_completed_days == null ? "" : String(form.auto_archive_completed_days)}
+                    onChange={(v) => setForm((f) => ({ ...f, auto_archive_completed_days: v === "" ? null : Number(v) }))}
+                    options={AUTO_ARCHIVE_OPTIONS}
+                    placeholder="Scegli un periodo"
+                    showAvatar={false}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
                 <div>
@@ -1772,6 +1912,8 @@ export function CompanyBrandPage() {
             )}
           </div>
 
+          <WorkloadWeightsSection companyId={companyId} canEdit={canEditSettings} />
+
           </>
         )}
 
@@ -1793,6 +1935,25 @@ export function CompanyBrandPage() {
 
         {activeTab === "tags" && (
           <WorkTagsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+        )}
+
+        {activeTab === "social" && (
+          <SocialPlatformsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+        )}
+
+        {activeTab === "siti" && (
+          <>
+            <MaintenanceSettingsTab companyId={companyId} isAdmin={!!user?.is_admin} />
+            <WebsiteTaxonomiesTab
+              companyId={companyId}
+              canManage={!!user?.is_admin || user?.access_level === "project_manager"}
+              isAdmin={!!user?.is_admin}
+            />
+          </>
+        )}
+
+        {activeTab === "recap" && (
+          <DailyRecapTemplateTab companyId={companyId} isAdmin={!!user?.is_admin} />
         )}
 
         <CompanySettingModal

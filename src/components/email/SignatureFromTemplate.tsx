@@ -4,7 +4,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Icon } from "../ui/Icon";
 import { Spinner } from "../ui/Spinner";
-import { SearchableSelect } from "../ui/SearchableSelect";
+import { type CompanyLogoFields } from "../../utils/companyLogo";
 import { uploadSignatureMediaApi } from "../../api/emailSignatures";
 import {
   getMyTemplateFillApi,
@@ -18,7 +18,7 @@ import {
 // L'utente vede solo i campi editabili + anteprima; il resto è bloccato.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Company { id: number; name: string; }
+interface Company extends CompanyLogoFields { id: number; name: string; }
 interface Props { companies: Company[]; defaultCompanyId: number | null; }
 
 const labelCls = "text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark";
@@ -113,7 +113,11 @@ function FieldInput({
 
 export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
   const toast = useToast();
-  const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
+  // L'organizzazione la sceglie la sidebar: qui la si segue e basta. Un secondo
+  // selettore poteva puntare a un'azienda diversa da quella in cui stai
+  // lavorando, e la firma che compilavi non era quella che ti aspettavi.
+  const companyId = defaultCompanyId ?? companies[0]?.id ?? null;
+  const companyName = companies.find((c) => c.id === companyId)?.name ?? null;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [templateName, setTemplateName] = useState<string | null>(null);
@@ -201,15 +205,10 @@ export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
         <h2 className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7]" style={{ fontSize: "17px" }}>
           Firma email
         </h2>
-        {companies.length > 1 && (
-          <div className="w-56">
-            <SearchableSelect
-              value={companyId != null ? String(companyId) : ""}
-              onChange={(v) => setCompanyId(Number(v) || null)}
-              options={companies.map((c) => ({ value: String(c.id), label: c.name }))}
-              placeholder="Organizzazione"
-            />
-          </div>
+        {companyName && (
+          <span className="shrink-0 rounded-pill border border-line px-2.5 py-[3px] text-[11px] font-medium text-muted dark:border-[#2a2a2e] dark:text-muted-dark">
+            {companyName}
+          </span>
         )}
       </div>
       <p className="font-body text-[13px] text-muted dark:text-muted-dark mb-5">
@@ -258,7 +257,7 @@ export function SignatureFromTemplate({ companies, defaultCompanyId }: Props) {
           {/* Anteprima (sotto, a tutta larghezza) */}
           <div className="flex flex-col gap-2">
             <span className={labelCls}>Anteprima</span>
-            <div className="rounded-md border border-line dark:border-[#2a2a2e] bg-white p-4 overflow-x-auto">
+            <div className="sig-preview rounded-md border border-line dark:border-[#2a2a2e] bg-white p-4 overflow-x-auto">
               {previewHtml ? (
                 <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
               ) : (

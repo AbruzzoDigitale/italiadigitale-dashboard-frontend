@@ -1,4 +1,8 @@
 import type { WorkItemHistoryEvent } from "../../api/workItems";
+import { formatDurationHuman } from "../../utils/duration";
+
+/** Campi la cui variazione va mostrata in ore/minuti umani (non decimali). */
+const DURATION_FIELDS = new Set(["estimated_hours", "actual_hours_spent"]);
 
 const HISTORY_FIELD_LABELS: Record<string, string> = {
   title: "Titolo",
@@ -25,8 +29,12 @@ const HISTORY_FIELD_LABELS: Record<string, string> = {
   client_id: "Cliente",
 };
 
-function formatHistoryValue(value: unknown): string {
+function formatHistoryValue(value: unknown, fieldName?: string | null): string {
   if (value == null) return "-";
+  if (fieldName && DURATION_FIELDS.has(fieldName)) {
+    const n = typeof value === "string" ? parseFloat(value) : typeof value === "number" ? value : NaN;
+    if (!Number.isNaN(n)) return formatDurationHuman(n);
+  }
   if (typeof value === "string") {
     const date = new Date(value);
     if (!Number.isNaN(date.getTime()) && value.includes("T")) {
@@ -82,11 +90,11 @@ export function WorkItemHistoryTimeline({ events }: { events: WorkItemHistoryEve
               )}
               <div>
                 <span className="font-semibold">Da:</span>{" "}
-                {formatHistoryValue(event.from_value)}
+                {formatHistoryValue(event.from_value, event.field_name)}
               </div>
               <div>
                 <span className="font-semibold">A:</span>{" "}
-                {formatHistoryValue(event.to_value)}
+                {formatHistoryValue(event.to_value, event.field_name)}
               </div>
             </div>
           )}

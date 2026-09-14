@@ -20,8 +20,10 @@ import { Modal } from "../ui/Modal";
 import { Spinner } from "../ui/Spinner";
 import { Checkbox } from "../ui/Checkbox";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { useTheme } from "../../context/ThemeContext";
+import { getCompanyLogoUrl, type CompanyLogoFields } from "../../utils/companyLogo";
 
-interface Company { id: number; name: string; }
+interface Company extends CompanyLogoFields { id: number; name: string; }
 interface Props { companies: Company[]; defaultCompanyId: number | null; }
 type Editing = { id?: number; name: string; is_default: boolean };
 
@@ -32,6 +34,7 @@ type Unlayer = any;
 
 export function EmailSignatureBuilder({ companies, defaultCompanyId }: Props) {
   const toast = useToast();
+  const { theme } = useTheme();
   const [companyId, setCompanyId] = useState<number | null>(defaultCompanyId ?? companies[0]?.id ?? null);
   const [list, setList] = useState<EmailSignature[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,8 +138,9 @@ export function EmailSignatureBuilder({ companies, defaultCompanyId }: Props) {
           <SearchableSelect
             value={companyId != null ? String(companyId) : ""}
             onChange={(v) => setCompanyId(Number(v))}
-            options={companies.map((c) => ({ value: String(c.id), label: c.name }))}
+            options={companies.map((c) => ({ value: String(c.id), label: c.name, avatarUrl: getCompanyLogoUrl(c, theme) }))}
             placeholder="Seleziona organizzazione"
+            avatarShape="logo"
           />
         </div>
       )}

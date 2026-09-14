@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 
 interface PageSectionHeaderProps {
-  eyebrow: string;
-  eyebrowIcon?: ReactNode;
+  icon?: ReactNode;
   title: string;
   lead?: string;
   actions?: ReactNode;
@@ -10,8 +9,7 @@ interface PageSectionHeaderProps {
 }
 
 export function PageSectionHeader({
-  eyebrow,
-  eyebrowIcon,
+  icon,
   title,
   lead,
   actions,
@@ -20,11 +18,10 @@ export function PageSectionHeader({
   return (
     <div className={`mb-5 flex items-start justify-between gap-4 ${className}`}>
       <div>
-        <div className="section-eyebrow">
-          {eyebrowIcon}
-          {eyebrow}
-        </div>
-        <h1 className="section-title">{title}</h1>
+        <h1 className="section-title flex items-center gap-2.5">
+          {icon}
+          {title}
+        </h1>
         {lead && <p className="section-lead">{lead}</p>}
       </div>
 

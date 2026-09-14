@@ -73,6 +73,10 @@ export interface WorkloadTaskSummary {
   is_left_behind: boolean;
   left_behind_reason: LeftBehindReason | null;
   left_behind_note: string | null;
+  /** "In pubblicazione": approvata/pronta ma non ancora pubblicata (badge). */
+  client_approved_at?: string | null;
+  /** "Al cliente": consegnata e in attesa (status "review", stage "cliente") → colore ciano come in Lavorazioni. */
+  delivered_to_client_at?: string | null;
   schedule_state?: WorkItemScheduleState | null;
   work_areas: WorkloadTaskWorkArea[];
 }

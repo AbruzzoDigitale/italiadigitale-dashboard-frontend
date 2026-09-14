@@ -73,12 +73,16 @@ export interface CompanyBrand {
   notif_sound_enabled: boolean | null;
   notification_settings: Record<string, unknown> | null;
   dashboard_kpis: string[] | null;
+  /** Auto-archiviazione task completate dopo N giorni; null = disattivata. */
+  auto_archive_completed_days: number | null;
   // Contatti / brand (firma email)
   website: string | null;
   contact_email: string | null;
   phone: string | null;
   address: string | null;
   address_maps_url: string | null;
+  legal_name: string | null;
+  vat_number: string | null;
   signature_logo_url: string | null;
   facebook_url: string | null;
   instagram_url: string | null;
@@ -120,12 +124,16 @@ export interface UpdateCompanyBrandPayload {
   notif_sound_enabled?: boolean | null;
   notification_settings?: Record<string, unknown> | null;
   dashboard_kpis?: string[] | null;
+  auto_archive_completed_days?: number | null;
   // Contatti / brand (firma email)
   website?: string | null;
   contact_email?: string | null;
   phone?: string | null;
   address?: string | null;
   address_maps_url?: string | null;
+  /** Ragione sociale e p.iva: quello che va sui documenti fiscali. */
+  legal_name?: string | null;
+  vat_number?: string | null;
   signature_logo_url?: string | null;
   facebook_url?: string | null;
   instagram_url?: string | null;

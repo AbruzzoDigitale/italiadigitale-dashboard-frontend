@@ -138,6 +138,14 @@
   font-weight: 700;
   color: var(--tx-2);
 }
+/* Controllo di ordinamento colonna (menu in testata). */
+.lv-col-count + .lv-col-sort {
+  margin-left: 2px;
+}
+.lv-col-sort {
+  flex: none;
+  color: var(--tx-2);
+}
 .lv-col-body {
   flex: 1;
   min-height: 0;
@@ -146,6 +154,27 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* Riordino manuale (custom): linea di inserimento tra le card. */
+.lv-reorder-slot {
+  position: relative;
+}
+.lv-reorder-slot.insert-before::before,
+.lv-reorder-slot.insert-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 99px;
+  background: #e91e8a;
+  box-shadow: 0 0 0 3px rgba(233, 30, 138, 0.18);
+}
+.lv-reorder-slot.insert-before::before {
+  top: -7px;
+}
+.lv-reorder-slot.insert-after::after {
+  bottom: -7px;
 }
 .lv-col-body::-webkit-scrollbar {
   width: 7px;
@@ -198,6 +227,21 @@
 .lv-card.dragging {
   opacity: 0.35;
 }
+/* Manutenzione sito: tinta verde acqua leggera + banda laterale. Sta PRIMA degli
+   stati di revisione così, se la task è anche al cliente o in pubblicazione,
+   vince quello stato — la manutenzione resta comunque leggibile dal badge. */
+.lv-card.maint {
+  border-color: color-mix(in srgb, #0d9488 40%, var(--line-2));
+  background: color-mix(in srgb, #0d9488 7%, var(--surface));
+}
+.lv-card.maint::before {
+  width: 4px;
+  background: #0d9488;
+}
+.dark .lv-card.maint {
+  background: color-mix(in srgb, #0d9488 13%, var(--surface));
+}
+
 /* In revisione + inviata al cliente: card nettamente cyan (come stato a sé). */
 .lv-card.sent-client {
   border-color: #2ec3f3;
@@ -210,6 +254,20 @@
 }
 .dark .lv-card.sent-client {
   background: color-mix(in srgb, #2ec3f3 20%, var(--surface));
+}
+/* In pubblicazione (approvata dal cliente): sfondo pieno come "al cliente" ma con
+   il colore DEDICATO della pubblicazione (viola), non il cyan del cliente. */
+.lv-card.publishing {
+  border-color: #7c3aed;
+  background: color-mix(in srgb, #7c3aed 14%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #7c3aed 45%, transparent);
+}
+.lv-card.publishing::before {
+  width: 5px;
+  background: #7c3aed;
+}
+.dark .lv-card.publishing {
+  background: color-mix(in srgb, #7c3aed 20%, var(--surface));
 }
 
 /* Rimandata da revisione: 1 rimando → giallo, 2+ → rosso (gravità crescente).
@@ -297,7 +355,10 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
+  /* Con gli avvisi accorpati nel triangolo i badge sono pochi: restano su una sola
+     riga (niente a-capo) e non si restringono; è il nome cliente a troncare se serve. */
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   justify-content: flex-end;
 }
 .lv-warn {
@@ -305,6 +366,43 @@
 }
 .lv-star {
   color: var(--magenta);
+}
+/* Avvisi accorpati nel triangolo: chip cliccabile (+N) con popover dell'elenco. */
+.lv-warnchip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  outline: none;
+  color: var(--magenta);
+}
+.lv-warnchip.late {
+  color: #b07d00;
+}
+.dark .lv-warnchip.late {
+  color: var(--amber);
+}
+.lv-warnchip-n {
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+.lv-warn-pop {
+  /* Fisso e in un portal su <body>: dentro la card veniva ritagliato da
+     `.lv-col-body`, che scorre. Le coordinate le calcola il componente. */
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  white-space: nowrap;
 }
 .lv-badge {
   font-size: 8.5px;
@@ -348,6 +446,15 @@
 .dark .lv-badge.ai {
   color: oklch(0.8 0.12 264);
 }
+/* in pubblicazione (approvata dal cliente) — colore dedicato viola */
+.lv-badge.publishing {
+  background: color-mix(in srgb, #7c3aed 16%, transparent);
+  color: #6d28d9;
+  border: 1px solid color-mix(in srgb, #7c3aed 34%, transparent);
+}
+.dark .lv-badge.publishing {
+  color: #c4b5fd;
+}
 /* collegata a contratto (positivo) */
 .lv-badge.ok {
   background: color-mix(in srgb, var(--mint) 18%, transparent);
@@ -358,16 +465,40 @@
   color: var(--mint);
 }
 
+/* manutenzione sito (verde acqua, come la banda della card) */
+.lv-badge.maint {
+  background: color-mix(in srgb, #0d9488 15%, transparent);
+  color: #0f766e;
+  border: 1px solid color-mix(in srgb, #0d9488 34%, transparent);
+}
+.dark .lv-badge.maint {
+  color: #5eead4;
+}
+
 /* azioni hover (modifica / elimina / rigenera / usa modello) */
 .lv-actions {
   display: flex;
   align-items: center;
   gap: 2px;
+  /* A riposo occupa spazio ZERO: i badge restano tutti a destra. In hover si espande
+     con lo stesso motion delle notifiche, spingendo i badge verso sinistra. */
   opacity: 0;
-  transition: opacity 0.14s var(--ease);
+  max-width: 0;
+  overflow: hidden;
+  transform: translateX(4px);
+  transition:
+    max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
 }
 .lv-card:hover .lv-actions {
   opacity: 1;
+  max-width: 160px;
+  transform: translateX(0);
+}
+/* In hover il nome cliente può restringersi di più per fare posto ai pulsanti. */
+.lv-card:hover .lv-client {
+  min-width: 3em;
 }
 .lv-act {
   display: grid;
@@ -391,6 +522,11 @@
 
 .lv-client {
   display: flex;
+  /* Il nome cliente ha priorità con una larghezza minima; in hover si restringe per
+     fare posto ai pulsanti (vedi .lv-card:hover .lv-client). */
+  flex: 1 1 auto;
+  min-width: 5.5em;
+  transition: min-width 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   align-items: center;
   gap: 5px;
   font-size: 10px;
@@ -458,6 +594,46 @@
   height: 7px;
   border-radius: 2px;
   background: var(--area);
+}
+/* Chip "+N" che accorpa le aree extra (vedi WorkAreaChips) */
+.lv-area-more {
+  position: relative;
+  cursor: pointer;
+  color: var(--tx-3);
+  outline: none;
+}
+.lv-area-more:hover,
+.lv-area-more:focus-visible {
+  color: var(--tx);
+  border-color: var(--line-2);
+}
+/* Popover con l'elenco completo delle aree residue */
+.lv-area-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  white-space: nowrap;
+  cursor: default;
+}
+.lv-area-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--surface);
 }
 .lv-peso {
   font-size: 10px;
@@ -546,6 +722,36 @@
 .lv-av.more {
   background: var(--surface-3);
   color: var(--tx-3);
+}
+
+/* ---------------- pannello contratti: apertura/chiusura animata ----------------
+   Lo stesso <aside> passa da .ct-rail (60px) a .ct-panel (316px): la larghezza
+   anima in transizione e le colonne kanban accanto (flex a quota uguale) si
+   ridistribuiscono fluidamente frame per frame. I contenuti scambiati (rail ⇄
+   pannello) entrano in dissolvenza, leggermente ritardata per non farsi
+   schiacciare a metà corsa. */
+.ct-side {
+  transition: width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  will-change: width;
+}
+@keyframes ct-side-swap {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ct-side > * {
+  animation: ct-side-swap 0.26s ease 0.1s both;
+}
+/* Durante l'espansione il contenuto del pannello mantiene il layout finale
+   (viene rivelato, non re-impaginato a larghezze intermedie). */
+.ct-side .ct-panel-head,
+.ct-side .ct-panel-body {
+  min-width: 314px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-side,
+  .ct-side.ct-rail { transition: none; }
+  .ct-side > * { animation: none; }
 }
 
 /* ---------------- pannello contratti (espanso) ---------------- */
@@ -801,7 +1007,8 @@
   border: 1px solid color-mix(in srgb, var(--ct-accent) 24%, var(--line));
   border-top: 3px solid var(--ct-accent);
   border-radius: 14px;
-  transition: background 0.15s var(--ease);
+  /* width qui, non solo in .ct-side: questa regola vince sulla shorthand. */
+  transition: background 0.15s var(--ease), width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .ct-rail:hover {
   background: color-mix(in srgb, var(--ct-accent) 14%, var(--surface-2));

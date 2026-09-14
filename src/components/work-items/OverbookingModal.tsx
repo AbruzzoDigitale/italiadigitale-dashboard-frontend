@@ -4,6 +4,7 @@ import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icon";
 import type { OverbookingCheckResponse } from "../../api/workload";
 import type { User } from "../../api/users";
+import { formatDurationHuman } from "../../utils/duration";
 
 interface OverbookingModalProps {
   open: boolean;
@@ -20,7 +21,7 @@ interface OverbookingModalProps {
   onProceed: () => void;
 }
 
-const fmtH = (value: number) => `${value.toFixed(1)}h`;
+const fmtH = (value: number) => formatDurationHuman(value);
 
 const AVAILABILITY_LABELS: Record<string, string> = {
   active: "Attivo",

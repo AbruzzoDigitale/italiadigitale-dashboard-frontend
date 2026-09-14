@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import { useBrand } from "../context/BrandContext";
 import { useToast } from "../context/ToastContext";
 import { Avatar } from "../components/ui/Avatar";
@@ -17,10 +18,20 @@ import { syncFicClientsApi } from "../api/fic";
 import { syncCompanyItalianHolidaysApi } from "../api/companies";
 import { useFicQuotesSync } from "../hooks/useFicQuotesSync";
 import { useNotifications } from "../features/notifications/useNotifications";
+import type { NotifTabKey } from "../features/notifications/notificationsData";
 import { subscribeRealtime } from "../features/realtime/realtimeBus";
+
+// Operatori: nel centro notifiche non vedono le notifiche "contratti".
+const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
+const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
+import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
+import { PushOpenPrompt } from "../features/notifications/PushOpenPrompt";
+import { CommunicationModal } from "../features/notifications/CommunicationModal";
 import { NotificationPreferencesModal } from "../features/notifications/NotificationPreferencesModal";
+import { QuickLinksBar } from "../components/quicklinks/QuickLinksBar";
 import { canAccessRoute } from "../utils/access";
+import { APP_SECTIONS, type AppSectionGroup } from "../utils/appSections";
 import { getSidebarPreferencesApi, updateSidebarPreferencesApi } from "../api/sidebarPreferences";
 
 interface NavItem {
@@ -28,146 +39,20 @@ interface NavItem {
   to: string;
   icon: React.ReactNode;
   routeKey: Parameters<typeof canAccessRoute>[1];
-  group: "overview" | "operations" | "commercial" | "catalog" | "account" | "admin";
+  group: AppSectionGroup;
 }
 
-const allNavItems: NavItem[] = [
-  {
-    label: "Dashboard",
-    to: "/",
-    icon: <Icon name="home" />,
-    routeKey: "dashboard",
-    group: "overview",
-  },
-  {
-    label: "Lavorazioni",
-    to: "/work-items",
-    icon: <Icon name="list" />,
-    routeKey: "work-items",
-    group: "operations",
-  },
-  {
-    label: "Workload",
-    to: "/workload",
-    icon: <Icon name="calendar" />,
-    routeKey: "workload",
-    group: "operations",
-  },
-  {
-    label: "Attività del giorno",
-    to: "/daily-tasks",
-    icon: <Icon name="clock" />,
-    routeKey: "daily-tasks",
-    group: "operations",
-  },
-  {
-    label: "Comunicazioni",
-    to: "/comunicazioni",
-    icon: <Icon name="annotation" />,
-    routeKey: "comunicazioni",
-    group: "operations",
-  },
-  {
-    label: "Controllo PED",
-    to: "/controllo-ped",
-    icon: <Icon name="check-circle" />,
-    routeKey: "controllo-ped",
-    group: "operations",
-  },
-  {
-    label: "Clienti",
-    to: "/clients",
-    icon: <Icon name="users" />,
-    routeKey: "clients",
-    group: "commercial",
-  },
-  {
-    label: "Situazione clienti",
-    to: "/clients-situation",
-    icon: <Icon name="activity" />,
-    routeKey: "clients-situation",
-    group: "commercial",
-  },
-  {
-    label: "Richieste",
-    to: "/requests",
-    icon: <Icon name="mail" />,
-    routeKey: "requests",
-    group: "commercial",
-  },
-  {
-    label: "Preventivi",
-    to: "/quotes",
-    icon: <Icon name="document-text" />,
-    routeKey: "quotes",
-    group: "commercial",
-  },
-  {
-    label: "Pipeline commerciale",
-    to: "/contracts-pipeline",
-    icon: <Icon name="target" />,
-    routeKey: "contracts",
-    group: "commercial",
-  },
-  {
-    label: "Fatturazione",
-    to: "/fatturazione",
-    icon: <Icon name="credit-card" />,
-    routeKey: "fatturazione",
-    group: "commercial",
-  },
-  {
-    label: "Catalogo",
-    to: "/catalog",
-    icon: <Icon name="grid" />,
-    routeKey: "catalog",
-    group: "catalog",
-  },
-  {
-    label: "Configuratore",
-    to: "/configuratore",
-    icon: <Icon name="tools" />,
-    routeKey: "configurator",
-    group: "catalog",
-  },
-  {
-    label: "Pacchetti Social",
-    to: "/social-packages",
-    icon: <Icon name="star" />,
-    routeKey: "social",
-    group: "catalog",
-  },
-  {
-    label: "Presentazione Social",
-    to: "/social-packages-presentation",
-    icon: <Icon name="eye" />,
-    routeKey: "social",
-    group: "catalog",
-  },
-  {
-    label: "Profilo",
-    to: "/profile",
-    icon: <Icon name="user-circle" />,
-    routeKey: "profile",
-    group: "account",
-  },
-  {
-    label: "Utenti",
-    to: "/users",
-    icon: <Icon name="shield-check" />,
-    routeKey: "admin",
-    group: "admin",
-  },
-  {
-    label: "Aziende",
-    to: "/companies",
-    icon: <Icon name="building" />,
-    routeKey: "admin",
-    group: "admin",
-  },
-];
+// Le voci vengono dal catalogo condiviso (`utils/appSections.ts`), lo stesso che alimenta
+// il widget "Scorciatoie": qui si aggiunge solo l'icona come nodo React.
+const allNavItems: NavItem[] = APP_SECTIONS.map((s) => ({
+  label: s.label,
+  to: s.to,
+  icon: <Icon name={s.icon} />,
+  routeKey: s.routeKey,
+  group: s.group,
+}));
 
-const NAV_GROUP_LABELS: Record<NavItem["group"], string> = {
+const NAV_GROUP_LABELS: Record<AppSectionGroup, string> = {
   overview: "Overview",
   operations: "Operativo",
   commercial: "Commerciale",
@@ -257,7 +142,11 @@ export function DashboardLayout() {
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
-  const notifications = useNotifications();
+  // Operatore = non admin e non project manager. Per lui il centro notifiche
+  // nasconde la scheda "Contratti" (e il relativo conteggio dal badge).
+  const isOperator = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
+  const hiddenNotifTabs = isOperator ? OPERATOR_HIDDEN_NOTIF_TABS : NO_HIDDEN_NOTIF_TABS;
+  const notifications = useNotifications(hiddenNotifTabs);
   // Contatore incrementato a ogni notifica in arrivo (via stream SSE): usato come
   // `key` per rilanciare l'animazione della campanella. Parte da 0 = nessuna animazione
   // al primo mount.
@@ -279,8 +168,8 @@ export function DashboardLayout() {
   const isAdmin = !!user?.is_admin;
 
   const companyOptions = useMemo(
-    () => myCompanies.map((company) => ({ id: company.id, name: company.name })),
-    [myCompanies]
+    () => myCompanies.map((company) => ({ id: company.id, name: company.name, logo: getCompanyLogoUrl(company, theme) })),
+    [myCompanies, theme]
   );
 
   const currentCompanyId = selectedCompanyId ?? activeCompanyId ?? user?.company_id ?? null;
@@ -288,7 +177,7 @@ export function DashboardLayout() {
     companyOptions.length > 0
       ? companyOptions
       : currentCompanyId != null
-        ? [{ id: currentCompanyId, name: `Company #${currentCompanyId}` }]
+        ? [{ id: currentCompanyId, name: `Company #${currentCompanyId}`, logo: null }]
         : [];
   const companySelectOptions = useMemo(
     () =>
@@ -296,6 +185,7 @@ export function DashboardLayout() {
         value: String(company.id),
         label: company.name,
         keywords: company.name,
+        avatarUrl: company.logo,
       })),
     [effectiveCompanyOptions]
   );
@@ -704,7 +594,7 @@ export function DashboardLayout() {
   };
 
   return (
-    <div className="flex h-screen h-dvh bg-paper dark:bg-ink overflow-hidden">
+    <div className="flex h-dvh bg-paper dark:bg-ink overflow-hidden">
       {/* ── Mobile sidebar overlay ─────────────────────────── */}
       {sidebarOpen && (
         <div
@@ -794,6 +684,7 @@ export function DashboardLayout() {
                 searchPlaceholder="Cerca azienda..."
                 emptyMessage="Nessuna azienda trovata"
                 menuLayer="portal"
+                avatarShape="logo"
                 className="w-full"
                 triggerClassName="border-white/20 bg-white/10 px-2.5 py-2 text-[12px] font-semibold text-white focus:border-white/40"
               />
@@ -926,13 +817,17 @@ export function DashboardLayout() {
             <Icon name="menu" />
           </button>
 
-          {/* Spacer */}
-          <div className="flex-1" />
+          {/* Spacer + barra collegamenti rapidi (centro). Su schermi stretti la barra
+              si nasconde (hidden md:flex nel componente) e questo div resta solo spacer. */}
+          <div className="flex flex-1 min-w-0 justify-center px-2">
+            <QuickLinksBar />
+          </div>
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
             <button
               type="button"
+              id={NOTIF_BELL_ID}
               onClick={() => setNotifOpen((prev) => { const next = !prev; if (next) void notifications.reload(); return next; })}
               aria-label="Centro notifiche"
               title="Centro notifiche"
@@ -1086,11 +981,24 @@ export function DashboardLayout() {
           open={notifOpen}
           onClose={() => setNotifOpen(false)}
           notifications={notifications}
+          hiddenTabs={hiddenNotifTabs}
           onOpenPreferences={() => {
             setNotifOpen(false);
             setNotifPrefsOpen(true);
           }}
         />
+
+        {/* Toast in-app degli arrivi realtime: dopo pochi secondi si ripiegano
+            in un aeroplanino che vola dentro la campanella. */}
+        <NotificationToastLayer />
+
+        {/* Clic su una notifica push con la dashboard già aperta: chiede dove
+            aprire la pagina (o applica la scelta ricordata). */}
+        <PushOpenPrompt />
+
+        {/* Comunicazione aperta per esteso da `?comunicazione=<id>`: sta qui e non
+            nella pagina /comunicazioni, che agli operatori non è accessibile. */}
+        <CommunicationModal />
 
         <NotificationPreferencesModal
           open={notifPrefsOpen}

@@ -1,5 +1,6 @@
 import type { CSSProperties, DragEvent } from "react";
 import { Icon } from "../ui/Icon";
+import { Avatar } from "../ui/Avatar";
 import { reworkSeverityClass } from "../../utils/rework";
 
 /**
@@ -14,10 +15,19 @@ export interface AccLaneTaskCardProps {
   /** Pill orario di inizio (colorata con l'area). */
   timeLabel?: string | null;
   clientName?: string | null;
+  /** Testo piccolo accanto al cliente: in "Attività del giorno" è la percentuale svolta. */
   status?: string | null;
+  /**
+   * Etichette di STATO (colorate): "In corso", "In revisione", "Al cliente",
+   * "In pubblicazione"… Ricavale con `taskStatusBadges` da utils/taskStatus, così la
+   * stessa lavorazione si legge uguale nell'accordion Workload e in Attività del giorno.
+   */
+  statusBadges?: Array<{ key: string; label: string; color: string; title?: string }>;
   /** Colore area di lavoro per la striscia/pill (`--wl-area`). */
   areaColor?: string | null;
   isPed?: boolean;
+  /** Manutenzione sito programmata: badge verde acqua accanto al titolo. */
+  isMaintenance?: boolean;
   priority?: boolean;
   completed?: boolean;
   leftBehind?: boolean;
@@ -27,6 +37,8 @@ export interface AccLaneTaskCardProps {
   overdueDays?: number;
   /** Numero di rimandi da revisione: 1 → card gialla, 2+ → card rossa. */
   reworkCount?: number;
+  /** Operatori assegnati: mostrati come stack di avatar dentro la card. */
+  assignees?: Array<{ name: string; avatarUrl?: string | null }>;
   unassigned?: boolean;
   onClick?: () => void;
   draggable?: boolean;
@@ -40,14 +52,17 @@ export function AccLaneTaskCard({
   timeLabel,
   clientName,
   status,
+  statusBadges,
   areaColor,
   isPed = false,
+  isMaintenance = false,
   priority = false,
   completed = false,
   leftBehind = false,
   overdue = false,
   overdueDays,
   reworkCount,
+  assignees,
   unassigned = false,
   onClick,
   draggable,
@@ -73,6 +88,14 @@ export function AccLaneTaskCard({
               PED
             </span>
           )}
+          {isMaintenance && (
+            <span
+              className="ml-1.5 inline-flex rounded-pill border border-[#0d9488]/35 bg-[#0d9488]/10 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-[#0f766e] dark:text-[#5eead4]"
+              title="Manutenzione programmata di un sito web"
+            >
+              Manutenzione
+            </span>
+          )}
           {priority && (
             <Icon name="star" className="ml-1 inline-block h-3.5 w-3.5 align-middle text-warning" />
           )}
@@ -83,6 +106,16 @@ export function AccLaneTaskCard({
         {timeLabel ? <span className="wl-acc-task__time">{timeLabel}</span> : null}
         <span className="wl-acc-task__client">{clientName || "Senza cliente"}</span>
         {status ? <span className="wl-acc-task__status">{status}</span> : null}
+        {statusBadges?.map((b) => (
+          <span
+            key={b.key}
+            className="inline-flex rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider"
+            style={{ color: b.color, backgroundColor: `${b.color}22` }}
+            title={b.title}
+          >
+            {b.label}
+          </span>
+        ))}
         {leftBehind && (
           <span className="inline-flex rounded-pill border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
             Arretrata
@@ -96,6 +129,24 @@ export function AccLaneTaskCard({
         {completed && (
           <span className="inline-flex rounded-pill border border-success/30 bg-success/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success">
             Completata
+          </span>
+        )}
+        {assignees && assignees.length > 0 && (
+          <span className="ml-auto flex flex-none -space-x-1.5" title={assignees.map((a) => a.name).join(", ")}>
+            {assignees.slice(0, 4).map((a, i) => (
+              <Avatar
+                key={`${a.name}-${i}`}
+                name={a.name}
+                src={a.avatarUrl ?? undefined}
+                size="sm"
+                className="h-5 w-5 text-[8px] ring-2 ring-paper dark:ring-[#1f211f]"
+              />
+            ))}
+            {assignees.length > 4 && (
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-cream text-[8px] font-bold text-muted ring-2 ring-paper dark:bg-[#2a2a2e] dark:text-muted-dark dark:ring-[#1f211f]">
+                +{assignees.length - 4}
+              </span>
+            )}
           </span>
         )}
       </div>

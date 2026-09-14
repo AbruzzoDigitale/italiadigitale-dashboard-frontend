@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useWorkItems } from "../hooks/useWorkItems";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
 import { useToast } from "../context/ToastContext";
 import { useUndo } from "../context/UndoContext";
 import {
@@ -36,6 +37,7 @@ import type { WorkTag } from "../api/workItems";
 import type { QuoteLineItem } from "../api/quotes";
 import { Button } from "../components/ui/Button";
 import { DropdownMenu } from "../components/ui/DropdownMenu";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -54,6 +56,15 @@ import { WorkItemCard } from "../components/work-items/WorkItemCard";
 import { ContractDetailModal } from "../components/contracts/ContractDetailModal";
 import { ContractAiWorkItemsSliderModal, type ContractQuoteLinePrecompile } from "../components/work-items/ContractAiWorkItemsSliderModal";
 import { getCommercialStageTone } from "../utils/commercialStageTone";
+import {
+  getWorkboardPreferencesApi,
+  updateWorkboardPreferencesApi,
+  type BoardSortMode,
+  type ColumnSort,
+} from "../api/workboardPreferences";
+import { sortColumnItems, DEFAULT_SORT_MODE } from "../utils/workboardSort";
+import { formatDurationHuman } from "../utils/duration";
+import type { IconName } from "../components/ui/Icon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +74,22 @@ const KANBAN_COLUMNS: { id: WorkItemStatus; label: string; color: string }[] = [
   { id: "review", label: "Revisione", color: "#EF9F27" },
   { id: "completed", label: "Completato", color: "#639922" },
 ];
+
+// Modalità di ordinamento colonna (etichette + icone per il menu in testata).
+const SORT_MODE_META: { mode: BoardSortMode; label: string; icon: IconName }[] = [
+  { mode: "recent", label: "Ultima aggiunta (più recenti)", icon: "clock" },
+  { mode: "deadline_asc", label: "Scadenza ↑ (prima le vicine)", icon: "calendar" },
+  { mode: "deadline_desc", label: "Scadenza ↓ (prima le lontane)", icon: "calendar" },
+  { mode: "urgency", label: "Per urgenza", icon: "alert-triangle" },
+  { mode: "custom", label: "Manuale (trascina)", icon: "arrows-v" },
+];
+const SORT_MODE_SHORT: Record<BoardSortMode, string> = {
+  recent: "Recenti",
+  deadline_asc: "Scadenza ↑",
+  deadline_desc: "Scadenza ↓",
+  urgency: "Urgenza",
+  custom: "Manuale",
+};
 
 const STATUS_OPTIONS: { value: WorkItemStatus; label: string }[] = [
   { value: "planned", label: "Da fare" },
@@ -82,11 +109,11 @@ const LEFT_BEHIND_REASON_OPTIONS: { value: LeftBehindReason; label: string }[] =
 
 function fmtHours(n: number | null): string {
   if (n == null) return "—";
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
 }
 
 function effectiveHoursLabel(item: WorkItem): string {
-  if (!item.affects_daily_load) return "0h effettive";
+  if (!item.affects_daily_load) return "0min effettive";
   return `${fmtHours(item.effective_load_hours)} effettive`;
 }
 
@@ -122,12 +149,16 @@ function isWorkItemError(err: unknown, code: number): boolean {
 }
 
 function taskTypeLabel(taskType?: WorkItem["task_type"]): string {
+  if (taskType === "website_maintenance") return "Manutenzione";
   return taskType === "quick" ? "Quick" : "Standard";
 }
 
 function taskTypeBadgeClass(taskType?: WorkItem["task_type"]): string {
   if (taskType === "quick") {
-    return "bg-[#E91E8A]/12 text-[#E91E8A] border border-[#E91E8A]/35";
+    return "bg-[#E91E8A]/10 text-[#E91E8A] border border-[#E91E8A]/35";
+  }
+  if (taskType === "website_maintenance") {
+    return "bg-[#0d9488]/10 text-[#0f766e] border border-[#0d9488]/35 dark:text-[#5eead4]";
   }
   return "bg-info/10 text-info border border-info/25";
 }
@@ -160,6 +191,14 @@ interface KanbanColumnProps {
   onInstantiateFromTemplate: (item: WorkItem) => void;
   onOpenAiSourceContract: (contractId: number) => void;
   onDrop: (status: WorkItemStatus) => void;
+  // Ordinamento colonna (mostrato solo in vista globale).
+  sortMode?: BoardSortMode;
+  showSortControl?: boolean;
+  onSetSortMode?: (status: WorkItemStatus, mode: BoardSortMode) => void;
+  /** Status della card attualmente trascinata (per abilitare il riordino intra-colonna). */
+  draggingStatus?: WorkItemStatus | null;
+  /** Riordino manuale: inserisce i trascinati prima di `beforeId` (null = in coda). */
+  onReorderCustom?: (status: WorkItemStatus, beforeId: number | null) => void;
 }
 
 interface TemplateSidebarCardProps {
@@ -322,8 +361,21 @@ function KanbanColumn({
   onInstantiateFromTemplate,
   onOpenAiSourceContract,
   onDrop,
+  sortMode = DEFAULT_SORT_MODE,
+  showSortControl = false,
+  onSetSortMode,
+  draggingStatus = null,
+  onReorderCustom,
 }: KanbanColumnProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
+  // Indice di inserimento durante il riordino manuale (custom).
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // Riordino intra-colonna abilitato solo quando: modalità manuale, il controllo
+  // è visibile (vista globale) e si sta trascinando una card DELLA STESSA colonna.
+  const canReorder = showSortControl && sortMode === "custom" && draggingStatus === column.id && !!onReorderCustom;
+
+  const clearReorder = () => setDropIndex(null);
 
   return (
     <div
@@ -332,11 +384,13 @@ function KanbanColumn({
       onDragOver={(e) => {
         if (!hasWorkItemDragType(e.dataTransfer?.types)) return;
         e.preventDefault();
+        if (canReorder) return; // durante il riordino non evidenziare il drop di stato
         setIsDropTarget(true);
       }}
       onDragLeave={() => setIsDropTarget(false)}
       onDrop={() => {
         setIsDropTarget(false);
+        if (canReorder) return; // il drop di riordino è gestito nel body
         onDrop(column.id);
       }}
     >
@@ -344,27 +398,64 @@ function KanbanColumn({
         <span className="lv-col-dot" style={{ background: column.color }} />
         <span className="lv-col-name">{column.label}</span>
         <span className="lv-col-count">{items.length}</span>
-      </div>
-      <div className="lv-col-body">
-        {items.map((item) => (
-          <WorkItemCard
-            key={item.id}
-            item={item}
-            clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
-            users={users}
-            workAreas={workAreas}
-            workTags={workTags}
-            isAdmin={isAdmin}
-            isSelected={selectedItemIds.includes(item.id)}
-            onToggleSelect={onToggleSelect}
-            onDragStartItem={onDragStartItem}
-            onDragEndItem={onDragEndItem}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onRegenerateRecurrences={onRegenerateRecurrences}
-            onInstantiateFromTemplate={onInstantiateFromTemplate}
-            onOpenAiSourceContract={onOpenAiSourceContract}
+        {showSortControl && onSetSortMode && (
+          <DropdownMenu
+            label={`Ordina: ${SORT_MODE_SHORT[sortMode]}`}
+            icon="arrows-v"
+            variant="ghost"
+            size="sm"
+            align="right"
+            className="lv-col-sort"
+            items={SORT_MODE_META.map((m) => ({
+              key: m.mode,
+              label: m.label,
+              icon: m.icon,
+              active: sortMode === m.mode,
+              onClick: () => onSetSortMode(column.id, m.mode),
+            }))}
           />
+        )}
+      </div>
+      <div
+        className="lv-col-body"
+        onDragOver={canReorder ? (e) => { e.preventDefault(); e.stopPropagation(); setDropIndex(items.length); } : undefined}
+        onDrop={canReorder ? (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const idx = dropIndex ?? items.length;
+          onReorderCustom?.(column.id, idx < items.length ? items[idx].id : null);
+          clearReorder();
+        } : undefined}
+      >
+        {items.map((item, idx) => (
+          <div
+            key={item.id}
+            className={`lv-reorder-slot${canReorder && dropIndex === idx ? " insert-before" : ""}${canReorder && dropIndex === items.length && idx === items.length - 1 ? " insert-after" : ""}`}
+            onDragOver={canReorder ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              setDropIndex(e.clientY > r.top + r.height / 2 ? idx + 1 : idx);
+            } : undefined}
+          >
+            <WorkItemCard
+              item={item}
+              clientName={item.client_id != null ? (clientsById.get(item.client_id)?.commercial_name ?? clientsById.get(item.client_id)?.name) : undefined}
+              users={users}
+              workAreas={workAreas}
+              workTags={workTags}
+              isAdmin={isAdmin}
+              isSelected={selectedItemIds.includes(item.id)}
+              onToggleSelect={onToggleSelect}
+              onDragStartItem={onDragStartItem}
+              onDragEndItem={(e) => { onDragEndItem(e); clearReorder(); }}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onRegenerateRecurrences={onRegenerateRecurrences}
+              onInstantiateFromTemplate={onInstantiateFromTemplate}
+              onOpenAiSourceContract={onOpenAiSourceContract}
+            />
+          </div>
         ))}
         {items.length === 0 && <div className="lv-col-empty">Nessuna lavorazione</div>}
       </div>
@@ -380,6 +471,8 @@ export function WorkItemsPage() {
   const isAdmin = !!permissions?.is_admin;
   // Archiviazione (soft-delete) e selezione multipla: admin e Project Manager (non operatori).
   const canManageWorkItems = isAdmin || !!permissions?.is_project_manager;
+  // Invio/annullo invio al cliente: admin/PM sempre, oppure operatore abilitato per-utente.
+  const canSendToClient = canManageWorkItems || !!permissions?.can_send_to_client;
   const canUseAiTasks = isAdmin || !!permissions?.can_use_llm;
   const canUseManualTasks = isAdmin || !!permissions?.can_generate_manual_tasks;
   const canOpenTaskGenerator = canUseAiTasks || canUseManualTasks;
@@ -429,6 +522,10 @@ export function WorkItemsPage() {
   const [archivedItems, setArchivedItems] = useState<WorkItem[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedError, setArchivedError] = useState<string | null>(null);
+  // Ricerca dentro l'archivio (pannello) e corrispondenze archiviate per la
+  // ricerca generale della pagina.
+  const [archiveQuery, setArchiveQuery] = useState("");
+  const [archivedMatches, setArchivedMatches] = useState<WorkItem[]>([]);
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<number[]>([]);
   const [restoringArchive, setRestoringArchive] = useState(false);
 
@@ -443,6 +540,26 @@ export function WorkItemsPage() {
   // ── Work items data
   const effectiveFromDate = singleDateFilter || fromDateFilter;
   const effectiveToDate = singleDateFilter || toDateFilter;
+  // Vista d'area: l'operatore allarga l'elenco alle lavorazioni pubbliche delle sue aree,
+  // per vedere dove serve una mano quando è scarico. Per PM e admin non ha senso — vedono
+  // già tutto — quindi lo switch non compare nemmeno. La scelta resta fra una visita e
+  // l'altra: è una modalità di lavoro, non un filtro estemporaneo.
+  const [showAreaTasks, setShowAreaTasks] = useState(() => {
+    try {
+      return localStorage.getItem("wi_area_view") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleAreaTasks = (on: boolean) => {
+    setShowAreaTasks(on);
+    try {
+      localStorage.setItem("wi_area_view", on ? "1" : "0");
+    } catch {
+      /* storage negato: la scelta vale per questa sessione */
+    }
+  };
+
   const filterParams = useMemo(
     () => ({
       ...(companyId != null ? { company_id: companyId } : {}),
@@ -454,11 +571,18 @@ export function WorkItemsPage() {
       ...(affectsDailyLoadFilter !== "" ? { affects_daily_load: affectsDailyLoadFilter === "true" } : {}),
       ...(leftBehindFilter !== "" ? { is_left_behind: leftBehindFilter === "true" } : {}),
       ...(leftBehindReasonFilter ? { left_behind_reason: leftBehindReasonFilter } : {}),
+      ...(showAreaTasks && !canManageWorkItems ? { include_area: true } : {}),
     }),
-    [companyId, assigneeFilter, effectiveFromDate, effectiveToDate, statusFilter, isCompletedFilter, affectsDailyLoadFilter, leftBehindFilter, leftBehindReasonFilter]
+    [companyId, assigneeFilter, effectiveFromDate, effectiveToDate, statusFilter, isCompletedFilter, affectsDailyLoadFilter, leftBehindFilter, leftBehindReasonFilter, showAreaTasks, canManageWorkItems]
   );
   const { workItems, isLoading, error, refetch } = useWorkItems(filterParams);
+  // Realtime: quando lo stream SSE spinge un evento (task modificata/cambio stato/commento),
+  // ricarica in silenzio le lavorazioni senza refresh di pagina.
+  useEffect(() => subscribeRealtime(() => { void refetch(true); }), [refetch]);
   const [displayedWorkItems, setDisplayedWorkItems] = useState<WorkItem[]>([]);
+  // Ordinamento delle colonne (per operatore × azienda) + status della card trascinata.
+  const [boardSort, setBoardSort] = useState<Record<string, ColumnSort>>({});
+  const [draggingStatus, setDraggingStatus] = useState<WorkItemStatus | null>(null);
   const [focusContracts, setFocusContracts] = useState<ContractListItemResponse[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
   const [contractsError, setContractsError] = useState<string | null>(null);
@@ -696,44 +820,91 @@ export function WorkItemsPage() {
     ? "w-full max-w-none h-full max-h-none rounded-2xl"
     : "pt-16 sm:pt-20 xl:pt-0";
 
+  // Deep-link condivisibile: `?task=<id>` apre (e mantiene in URL) il modal della
+  // lavorazione, così copiando il link chi lo apre vede subito la task aperta.
+  // Retrocompatibilità: `?open=create` (nuova) e il vecchio `?open=<id>` → `?task`.
+  const deepLinkedRef = useRef<number | null>(null);
+  // `?review=1` (notifiche di revisione): il modal si apre sulla scheda Revisione
+  // invece che su Dettagli, così il commento che ha generato l'avviso è subito lì.
+  const [deepLinkReview, setDeepLinkReview] = useState(false);
+
+  const clearTaskParam = () => {
+    deepLinkedRef.current = null;
+    setDeepLinkReview(false);
+    const next = new URLSearchParams(searchParams);
+    if (!next.has("task") && !next.has("review")) return;
+    next.delete("task");
+    next.delete("review");
+    setSearchParams(next, { replace: true });
+  };
+
   useEffect(() => {
     const openParam = searchParams.get("open");
-    if (!openParam) return;
-
-    // Consuma subito il parametro per evitare riaperture ai render successivi.
-    const next = new URLSearchParams(searchParams);
-    next.delete("open");
-    setSearchParams(next, { replace: true });
-
     if (openParam === "create") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
       setEditingItem(null);
       setInstantiateTemplateItem(null);
       setModalOpen(true);
       return;
     }
+    // Normalizza il vecchio ?open=<id> nel nuovo link condivisibile ?task=<id>.
+    if (openParam && !Number.isNaN(Number(openParam))) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      next.set("task", openParam);
+      setSearchParams(next, { replace: true });
+      return;
+    }
 
-    // ?open=<id> — apre il modal della lavorazione (es. dal click su una notifica).
-    const id = Number(openParam);
-    if (Number.isNaN(id)) return;
+    const taskParam = searchParams.get("task");
+    if (!taskParam) {
+      deepLinkedRef.current = null;
+      return;
+    }
+    const id = Number(taskParam);
+    if (Number.isNaN(id) || deepLinkedRef.current === id) return;
+
+    // Evita di riscaricare se la task è già quella aperta (es. apertura dalla board).
+    deepLinkedRef.current = id;
+    setDeepLinkReview(searchParams.get("review") === "1");
     getWorkItemApi(id)
       .then((item) => {
         setEditingItem(item);
         setInstantiateTemplateItem(null);
         setModalOpen(true);
+        // Allinea il company_id per caricare il contesto board giusto.
+        if (item.company_id != null && searchParams.get("company_id") !== String(item.company_id)) {
+          const next = new URLSearchParams(searchParams);
+          next.set("company_id", String(item.company_id));
+          setSearchParams(next, { replace: true });
+        }
       })
-      .catch(() => toast.error("Lavorazione non trovata o non accessibile"));
+      .catch(() => {
+        deepLinkedRef.current = null;
+        clearTaskParam();
+        toast.error("Lavorazione non trovata o non accessibile");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setSearchParams, toast]);
 
   const openEdit = (item: WorkItem) => {
+    deepLinkedRef.current = item.id; // già "gestita": l'effetto non riscaricherà
+    setDeepLinkReview(false); // apertura manuale: decide lo stato della task
     setEditingItem(item);
     setInstantiateTemplateItem(null);
     setModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.set("task", String(item.id));
+    setSearchParams(next, { replace: true });
   };
 
   const closeModal = () => {
     setModalOpen(false);
     setEditingItem(null);
     setInstantiateTemplateItem(null);
+    clearTaskParam();
     // Le azioni della scheda Revisione (consegna al cliente, peso, scadenza) salvano
     // fuori dal "Salva" del modale: rinfresca la board alla chiusura per rifletterle.
     void refetch(true);
@@ -795,8 +966,8 @@ export function WorkItemsPage() {
     }
   };
 
-  // ── Archivio: carica le task archiviate dell'azienda
-  const loadArchived = async () => {
+  // ── Archivio: carica le task archiviate dell'azienda (con ricerca opzionale)
+  const loadArchived = async (q?: string) => {
     if (companyId == null) {
       setArchivedItems([]);
       return;
@@ -804,7 +975,8 @@ export function WorkItemsPage() {
     setArchivedLoading(true);
     setArchivedError(null);
     try {
-      const items = await listArchivedWorkItemsApi({ company_id: companyId });
+      const term = (q ?? "").trim();
+      const items = await listArchivedWorkItemsApi({ company_id: companyId, ...(term ? { q: term } : {}) });
       setArchivedItems(items);
     } catch (err) {
       setArchivedError(err instanceof Error ? err.message : "Impossibile recuperare l'archivio");
@@ -814,11 +986,37 @@ export function WorkItemsPage() {
     }
   };
 
-  const openArchive = () => {
+  const openArchive = (initialQuery = "") => {
     setSelectedArchivedIds([]);
+    setArchiveQuery(initialQuery);
     setArchivePanelOpen(true);
-    void loadArchived();
+    void loadArchived(initialQuery);
   };
+
+  // Ricerca dentro il pannello archivio (debounce).
+  useEffect(() => {
+    if (!archivePanelOpen) return;
+    const t = window.setTimeout(() => void loadArchived(archiveQuery), 350);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archiveQuery, archivePanelOpen, companyId]);
+
+  // Ricerca GENERALE della pagina: cerca anche tra le archiviate, così i
+  // risultati non "spariscono" quando una task viene archiviata.
+  useEffect(() => {
+    const term = search.trim();
+    if (!term || companyId == null) {
+      setArchivedMatches([]);
+      return;
+    }
+    let alive = true;
+    const t = window.setTimeout(() => {
+      listArchivedWorkItemsApi({ company_id: companyId, q: term })
+        .then((items) => { if (alive) setArchivedMatches(items); })
+        .catch(() => { if (alive) setArchivedMatches([]); });
+    }, 350);
+    return () => { alive = false; window.clearTimeout(t); };
+  }, [search, companyId]);
 
   const toggleArchivedSelection = (itemId: number, checked: boolean) => {
     setSelectedArchivedIds((current) => {
@@ -949,7 +1147,11 @@ export function WorkItemsPage() {
     // Per più task insieme resta il modale rapido con il motivo condiviso.
     const sendBacks = items.filter((it) => isReviewSendBack(it.status, newStatus));
     if (sendBacks.length > 0) {
-      if (items.length === 1) {
+      // Rimando indietro da REVISIONE di una singola task → scheda Revisione
+      // (logica corretta: contatori/peso + thread commenti).
+      // Riapertura da COMPLETATO (o rimando multiplo) → modale rapido con commento
+      // OPZIONALE: la scheda Revisione non offre azioni per una task già completata.
+      if (items.length === 1 && items[0].status === "review") {
         setReviewItem(items[0]);
         return;
       }
@@ -976,6 +1178,7 @@ export function WorkItemsPage() {
     // Se la card trascinata è nella selezione multipla, sposta tutta la selezione.
     const ids = selectedItemIds.includes(itemId) && selectedItemIds.length > 1 ? [...selectedItemIds] : [itemId];
     dragIdsRef.current = ids;
+    setDraggingStatus(displayedWorkItems.find((w) => w.id === itemId)?.status ?? null);
     if (event.dataTransfer) {
       event.dataTransfer.setData("application/work-item-id", String(itemId));
       event.dataTransfer.setData("text/plain", String(itemId));
@@ -997,7 +1200,66 @@ export function WorkItemsPage() {
   const handleDragEndItem = (event: React.DragEvent<HTMLDivElement>) => {
     dragIdsRef.current = [];
     setDragCount(0);
+    setDraggingStatus(null);
     event.currentTarget.style.opacity = "";
+  };
+
+  // ── Ordinamento board (per operatore × azienda) ──────────────────────────────
+  useEffect(() => {
+    if (companyId == null) return;
+    let alive = true;
+    getWorkboardPreferencesApi(companyId)
+      .then((p) => { if (alive) setBoardSort(p.column_sort ?? {}); })
+      .catch(() => { if (alive) setBoardSort({}); });
+    return () => { alive = false; };
+  }, [companyId]);
+
+  const persistBoardSort = (next: Record<string, ColumnSort>) => {
+    setBoardSort(next);
+    if (companyId == null) return;
+    void updateWorkboardPreferencesApi({ company_id: companyId, column_sort: next }).catch((e: Error) =>
+      toast.error(e.message),
+    );
+  };
+
+  const setColumnSortMode = (status: WorkItemStatus, mode: BoardSortMode) => {
+    const prevConf = boardSort[status] ?? { mode: DEFAULT_SORT_MODE, order: [] };
+    let order = prevConf.order ?? [];
+    if (mode === "custom") {
+      // Alla prima attivazione del manuale, "congela" l'ordine attualmente mostrato.
+      order = sortColumnItems(
+        displayedWorkItems.filter((w) => w.status === status && !w.is_template),
+        prevConf,
+      ).map((w) => w.id);
+    }
+    persistBoardSort({ ...boardSort, [status]: { mode, order } });
+  };
+
+  const reorderColumnCustom = (status: WorkItemStatus, beforeId: number | null) => {
+    const dragged = dragIdsRef.current.length ? [...dragIdsRef.current] : [];
+    if (!dragged.length) return;
+    const conf = boardSort[status] ?? { mode: "custom" as BoardSortMode, order: [] };
+    // Ordine completo (non filtrato) della colonna, così i filtri non perdono posizioni.
+    const fullOrder = sortColumnItems(
+      displayedWorkItems.filter((w) => w.status === status && !w.is_template),
+      conf,
+    ).map((w) => w.id);
+    const draggingSet = new Set(dragged);
+    const draggedOrdered = fullOrder.filter((id) => draggingSet.has(id));
+    const without = fullOrder.filter((id) => !draggingSet.has(id));
+    // Àncora = primo id NON trascinato a partire da beforeId (se beforeId è a sua
+    // volta trascinato, scorri avanti fino al prossimo stabile).
+    let anchorId: number | null = beforeId;
+    if (anchorId != null && draggingSet.has(anchorId)) {
+      anchorId = null;
+      for (let i = fullOrder.indexOf(beforeId as number); i < fullOrder.length; i++) {
+        if (!draggingSet.has(fullOrder[i])) { anchorId = fullOrder[i]; break; }
+      }
+    }
+    const anchor = anchorId != null ? without.indexOf(anchorId) : -1;
+    const insertPos = anchor === -1 ? without.length : anchor;
+    const newOrder = [...without.slice(0, insertPos), ...draggedOrdered, ...without.slice(insertPos)];
+    persistBoardSort({ ...boardSort, [status]: { mode: "custom", order: newOrder } });
   };
 
   // ── Filtered items
@@ -1072,8 +1334,7 @@ export function WorkItemsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-6 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Operazioni"
-        eyebrowIcon={<Icon name="list" className="w-3.5 h-3.5" />}
+        icon={<Icon name="list" className="w-6 h-6" />}
         title="Lavorazioni"
         lead={isLoading ? "Caricamento…" : `${filteredItems.length} lavorazion${filteredItems.length === 1 ? "e" : "i"}${search ? " trovate" : " totali"}`}
       />
@@ -1116,24 +1377,33 @@ export function WorkItemsPage() {
           placeholder="Tutti i clienti"
           searchPlaceholder="Cerca cliente…"
         />
-        <div className="seg-switch">
-          <button
-            type="button"
-            onClick={() => setViewMode("global")}
-            className={viewMode === "global" ? "is-active" : ""}
+        <SegmentedSwitch
+          value={viewMode}
+          onChange={setViewMode}
+          ariaLabel="Vista lavorazioni"
+          options={[
+            { value: "global", label: <><Icon name="list" className="h-3.5 w-3.5" />Globale</> },
+            { value: "by_client", label: <><Icon name="building" className="h-3.5 w-3.5" />Per cliente</> },
+          ]}
+        />
+        {/* Vista d'area: solo per gli operatori — PM e admin vedono già tutto. Attivandola
+            l'elenco si allarga alle lavorazioni pubbliche delle proprie aree, per capire
+            dove serve una mano. */}
+        {!canManageWorkItems && (
+          <Button
+            variant={showAreaTasks ? "secondary" : "ghost"}
+            onClick={() => toggleAreaTasks(!showAreaTasks)}
+            title={
+              showAreaTasks
+                ? "Torna alle sole lavorazioni assegnate a te"
+                : "Mostra anche le lavorazioni pubbliche della tua area"
+            }
+            aria-pressed={showAreaTasks}
+            leftIcon={<Icon name="users" className="h-4 w-4" />}
           >
-            <Icon name="list" className="h-3.5 w-3.5" />
-            Globale
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("by_client")}
-            className={viewMode === "by_client" ? "is-active" : ""}
-          >
-            <Icon name="building" className="h-3.5 w-3.5" />
-            Per cliente
-          </button>
-        </div>
+            La mia area
+          </Button>
+        )}
         {/* Filtri secondari: sola icona; variante "secondary" quando ce ne sono di attivi. */}
         <Button
           variant={secondaryFiltersCount > 0 ? "secondary" : "ghost"}
@@ -1141,7 +1411,7 @@ export function WorkItemsPage() {
           onClick={() => setFiltersPanelOpen(true)}
           title={secondaryFiltersCount > 0 ? `Filtri (${secondaryFiltersCount})` : "Filtri"}
           aria-label="Filtri"
-          leftIcon={<Icon name="tools" className="w-4 h-4" />}
+          leftIcon={<Icon name="filter" className="w-4 h-4" />}
         />
         {/* Azioni secondarie accorpate: evita righe di bottoni in testata. */}
         <DropdownMenu
@@ -1161,14 +1431,16 @@ export function WorkItemsPage() {
               onClick: openTemplatePanel,
               disabled: companyId == null,
             },
-            isAdmin && {
+            canManageWorkItems && {
               key: "trello-import",
               label: "Importa da Trello",
               icon: "trello",
               onClick: () => setTrelloImportOpen(true),
               disabled: companyId == null,
             },
-            canManageWorkItems && {
+            {
+              // Archivio consultabile da tutti: ognuno vede solo le task che
+              // vedrebbe comunque (gli operatori le proprie).
               key: "archive",
               label: "Archivio",
               icon: "trash",
@@ -1198,6 +1470,22 @@ export function WorkItemsPage() {
         )}
       </div>
 
+      {/* La ricerca generale trova anche tra le ARCHIVIATE: qui la scorciatoia. */}
+      {search.trim() && archivedMatches.length > 0 && (
+        <button
+          type="button"
+          onClick={() => openArchive(search)}
+          className="mb-3 flex w-full items-center gap-2 rounded-md border border-line bg-cream/60 px-3 py-2 text-left text-[13px] text-ink transition-colors hover:border-brand-magenta dark:border-line-dark dark:bg-[#1c1c20] dark:text-paper"
+        >
+          <Icon name="trash" className="h-4 w-4 flex-none text-muted dark:text-muted-dark" />
+          <span className="min-w-0 flex-1">
+            <b>{archivedMatches.length}</b> lavorazion{archivedMatches.length === 1 ? "e" : "i"} archiviat
+            {archivedMatches.length === 1 ? "a" : "e"} corrispond{archivedMatches.length === 1 ? "e" : "ono"} a “{search.trim()}”
+          </span>
+          <span className="flex-none text-[12px] font-semibold text-brand-magenta">Apri archivio →</span>
+        </button>
+      )}
+
       {/* Error */}
       {error && (
         <div className="mb-4 rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
@@ -1208,7 +1496,7 @@ export function WorkItemsPage() {
       <div className="wi-page flex min-h-0 flex-1 items-stretch gap-3">
         {canManageWorkItems && (
         <aside
-          className={`shrink-0 ${contractsPanelCollapsed ? "ct-rail" : "ct-panel"}`}
+          className={`shrink-0 ct-side ${contractsPanelCollapsed ? "ct-rail" : "ct-panel"}`}
           onClick={contractsPanelCollapsed ? () => setContractsPanelCollapsed(false) : undefined}
           role={contractsPanelCollapsed ? "button" : undefined}
           tabIndex={contractsPanelCollapsed ? 0 : undefined}
@@ -1563,7 +1851,8 @@ export function WorkItemsPage() {
                             key={`${group.label}-${col.id}`}
                             column={col}
                             compact
-                            items={group.items.filter((w) => w.status === col.id)}
+                            items={sortColumnItems(group.items.filter((w) => w.status === col.id), boardSort[col.id])}
+                            sortMode={boardSort[col.id]?.mode ?? DEFAULT_SORT_MODE}
                             users={users}
                             workAreas={workAreas}
                             workTags={workTags}
@@ -1592,12 +1881,17 @@ export function WorkItemsPage() {
             <div ref={boardRef} className="wi-board">
               <div className="wi-board-inner">
                 {KANBAN_COLUMNS.map((col) => {
-                  const colItems = filteredItems.filter((w) => w.status === col.id);
+                  const colItems = sortColumnItems(filteredItems.filter((w) => w.status === col.id), boardSort[col.id]);
                   return (
                     <KanbanColumn
                       key={col.id}
                       column={col}
                       items={colItems}
+                      sortMode={boardSort[col.id]?.mode ?? DEFAULT_SORT_MODE}
+                      showSortControl
+                      onSetSortMode={setColumnSortMode}
+                      draggingStatus={draggingStatus}
+                      onReorderCustom={reorderColumnCustom}
                       users={users}
                       workAreas={workAreas}
                       workTags={workTags}
@@ -1840,13 +2134,23 @@ export function WorkItemsPage() {
         ) : undefined}
       >
         <div className="flex flex-col gap-2">
+          {/* Ricerca dentro l'archivio (titolo, descrizione, cliente) */}
+          <div className="relative mb-1">
+            <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input
+              value={archiveQuery}
+              onChange={(e) => setArchiveQuery(e.target.value)}
+              placeholder="Cerca nelle archiviate…"
+              className="w-full rounded-md border border-line bg-paper py-2.5 pl-9 pr-3 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+            />
+          </div>
           {archivedLoading ? (
             <div className="flex justify-center py-10"><Spinner size="md" /></div>
           ) : archivedError ? (
             <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{archivedError}</div>
           ) : archivedItems.length === 0 ? (
             <div className="rounded-md border border-dashed border-line dark:border-line-dark px-4 py-10 text-center text-sm text-muted dark:text-muted-dark">
-              Nessuna task archiviata.
+              {archiveQuery.trim() ? "Nessun risultato in archivio." : "Nessuna task archiviata."}
             </div>
           ) : (
             archivedItems.map((item) => {
@@ -2021,13 +2325,13 @@ export function WorkItemsPage() {
           editingItem={editingItem}
           instantiateTemplate={instantiateTemplateItem}
           companyId={formCompanyId}
-          isAdmin={isAdmin}
-          canManageReviewer={canManageWorkItems}
+          openOnReview={deepLinkReview}
           onSaved={(savedItem) => {
             const prev = editingItem; // snapshot pre-modifica (null in creazione)
             setModalOpen(false);
             setEditingItem(null);
             setInstantiateTemplateItem(null);
+            clearTaskParam();
             void refetch(true);
             if (prev) {
               // MODIFICA → undo = rimetti i valori precedenti (best-effort sui campi principali).
@@ -2197,6 +2501,8 @@ export function WorkItemsPage() {
           <ReviewTab
             workItemId={reviewItem.id}
             canManage={canManageWorkItems}
+            canSendToClient={canSendToClient}
+            companyId={companyId ?? undefined}
             onChanged={() => void refetch(true)}
             onSentBack={() => { setReviewItem(null); void refetch(true); }}
           />

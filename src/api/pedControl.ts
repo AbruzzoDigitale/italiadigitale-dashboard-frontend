@@ -28,6 +28,8 @@ export interface PedControlCell {
   status_slug: string | null;
   /** Stato workflow della task (planned/in_progress/review/completed), informativo. */
   work_status: string | null;
+  /** Link al PED (URL al piano editoriale): mostrato cliccabile nella cella. */
+  link_ped: string | null;
 }
 
 export interface PedControlRow {

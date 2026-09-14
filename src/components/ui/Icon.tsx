@@ -20,6 +20,7 @@ export type IconName =
   | "plus"
   | "pencil"
   | "trash"
+  | "archive"
   | "search"
   | "upload"
   | "check"
@@ -33,6 +34,7 @@ export type IconName =
   | "grid"
   | "grid-compact"
   | "list"
+  | "filter"
   | "star"
   | "alert-triangle"
   | "info"
@@ -40,6 +42,7 @@ export type IconName =
   | "map-pin"
   | "credit-card"
   | "document-text"
+  | "paperclip"
   | "annotation"
   | "information-circle"
   | "check-circle"
@@ -58,9 +61,15 @@ export type IconName =
   | "dots-horizontal"
   | "dots-vertical"
   | "link"
+  | "unlink"
   | "canva"
   | "drive"
-  | "nas";
+  | "nas"
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "linkedin"
+  | "youtube";
 
 interface IconProps {
   name: IconName;
@@ -169,6 +178,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
     </>
   ),
+  archive: (
+    <>
+      <rect x="2" y="3" width="20" height="5" rx="1" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 12h4" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="8" />
@@ -267,6 +283,11 @@ const paths: Record<IconName, React.ReactNode> = {
       <line x1="3" y1="18" x2="3.01" y2="18" />
     </>
   ),
+  filter: (
+    <>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </>
+  ),
   star: (
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   ),
@@ -309,6 +330,11 @@ const paths: Record<IconName, React.ReactNode> = {
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
       <polyline points="10 9 9 9 8 9" />
+    </>
+  ),
+  paperclip: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </>
   ),
   annotation: (
@@ -421,6 +447,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </>
   ),
+  unlink: (
+    <>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m5.17 11.75-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 2v3M2 8h3M16 19v3M19 16h3" />
+    </>
+  ),
   // Canva: badge circolare con una "C" stilizzata (monocromatico, non il logo a colori).
   canva: (
     <>
@@ -442,6 +475,42 @@ const paths: Record<IconName, React.ReactNode> = {
       <rect x="3" y="13" width="18" height="7" rx="2" />
       <line x1="7" y1="7.5" x2="7.01" y2="7.5" />
       <line x1="7" y1="16.5" x2="7.01" y2="16.5" />
+    </>
+  ),
+  // Loghi social riadattati a tratto monocromatico (come canva/drive).
+  facebook: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"
+    />
+  ),
+  instagram: (
+    <>
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <line x1="17.2" y1="6.8" x2="17.21" y2="6.8" />
+    </>
+  ),
+  tiktok: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M15 3v9.5a4.5 4.5 0 1 1-4.5-4.5M15 3a6 6 0 0 0 6 6"
+    />
+  ),
+  linkedin: (
+    <>
+      <rect x="2.5" y="2.5" width="19" height="19" rx="3" />
+      <line x1="7" y1="10.5" x2="7" y2="17" />
+      <line x1="7" y1="7.2" x2="7.01" y2="7.2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 17v-4a2.6 2.6 0 0 1 5.2 0v4M11 10.5V17" />
+    </>
+  ),
+  youtube: (
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m10 9.3 5 2.7-5 2.7z" />
     </>
   ),
 };

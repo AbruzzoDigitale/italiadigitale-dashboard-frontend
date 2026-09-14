@@ -1,13 +1,81 @@
-import { useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { AssignmentChips } from "../features/profile/AssignmentChips";
+import { MyClientsCard } from "../features/profile/MyClientsCard";
 import { EmailAccountsSection } from "../components/email/EmailAccountsSection";
+import { SecuritySection } from "../components/auth/SecuritySection";
 import { SignatureFromTemplate } from "../components/email/SignatureFromTemplate";
-import { updateMeApi, uploadUserFileApi, type UpdateUserPayload } from "../api/users";
+import { CanvaConnectSection } from "../components/canva/CanvaConnectSection";
+import { GoogleConnectSection } from "../components/google/GoogleConnectSection";
+import { QuickLinksSection } from "../components/quicklinks/QuickLinksSection";
+import { MobileDashboardEditor } from "../components/dashboard/MobileDashboardEditor";
+import { MailTemplatesManager } from "../features/email/MailTemplatesManager";
+import {
+  getMyAssignmentsApi,
+  updateMeApi,
+  uploadUserFileApi,
+  type MyAssignments,
+  type UpdateUserPayload,
+} from "../api/users";
 import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Badge } from "../components/ui/Badge";
+
+function ProfileNavButton({
+  active,
+  onClick,
+  icon,
+  title,
+  subtitle,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: IconName;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2.5 rounded-lg border px-4 py-3 text-left transition-colors ${
+        active
+          ? "border-brand-magenta/50 bg-brand-magenta/5"
+          : "border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316] hover:bg-cream dark:hover:bg-[#1c1c20]"
+      }`}
+    >
+      <span
+        className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-md ${
+          active ? "bg-brand-magenta/15 text-brand-magenta" : "bg-cream text-muted dark:bg-[#1c1c20] dark:text-[#9999a0]"
+        }`}
+      >
+        <Icon name={icon} className="h-[18px] w-[18px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block text-[13px] font-bold ${active ? "text-brand-magenta" : "text-ink dark:text-[#f4f4f7]"}`}>
+          {title}
+        </span>
+        <span className="block text-[11px] text-muted dark:text-[#9999a0]">{subtitle}</span>
+      </span>
+    </button>
+  );
+}
+
+const LIVELLI: Record<string, string> = {
+  admin: "Amministratore",
+  project_manager: "Project manager",
+  operator: "Operatore",
+};
+
+const GENERI = [
+  { value: "", label: "Non dichiarato" },
+  { value: "femminile", label: "Femminile" },
+  { value: "maschile", label: "Maschile" },
+  { value: "altro", label: "Altro" },
+];
 
 export function ProfilePage() {
   const { user, myCompanies, activeCompanyId, login: _login } = useAuth();
@@ -16,13 +84,28 @@ export function ProfilePage() {
   const [form, setForm] = useState<UpdateUserPayload>({
     full_name: user?.full_name ?? "",
     phone: user?.phone ?? "",
-    role_label: user?.role_label ?? "",
+    vat_number: user?.vat_number ?? "",
+    legal_name: user?.legal_name ?? "",
+    gender: user?.gender ?? "",
     signature: user?.signature ?? "",
   });
   const [saving, setSaving] = useState(false);
+  const [assignments, setAssignments] = useState<MyAssignments | null>(null);
   const [avatarSrc, setAvatarSrc] = useState(user?.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
+  const [section, setSection] = useState<"profile" | "mobile" | "mail">("profile");
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Ruoli, aree e clienti: li assegna un admin, qui si mostrano soltanto.
+  useEffect(() => {
+    let alive = true;
+    getMyAssignmentsApi()
+      .then((res) => alive && setAssignments(res))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const set = (k: keyof UpdateUserPayload, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -92,23 +175,18 @@ export function ProfilePage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="user-circle" className="w-3.5 h-3.5" />
-          Account
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="user-circle" className="w-6 h-6" />
           Profilo
         </h1>
-        <p className="section-lead">
-          Gestisci le tue informazioni personali
-        </p>
       </div>
 
       {/* ── Two-column layout (profile-layout in CSS prototipo) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
 
-        {/* ── Left: profile card ── */}
-        <div className="bg-cream dark:bg-[#1c1c20] rounded-lg p-6 text-center lg:sticky lg:top-5">
+        {/* ── Left: profile card + azioni ── */}
+        <div className="flex flex-col gap-3 lg:sticky lg:top-5">
+          <div className="bg-cream dark:bg-[#1c1c20] rounded-lg p-6 text-center">
           {/* Avatar large */}
           <div className="relative w-[120px] h-[120px] mx-auto mb-4">
             <div className="w-full h-full rounded-full bg-ink dark:bg-[#f4f4f7] text-paper dark:text-ink flex items-center justify-center font-display font-bold overflow-hidden"
@@ -144,12 +222,17 @@ export function ProfilePage() {
           <p className="font-display font-bold text-[20px] tracking-tight text-ink dark:text-[#f4f4f7] mb-1">
             {user.full_name || user.username}
           </p>
-          <p className="font-body text-[13px] text-muted dark:text-[#9999a0] uppercase tracking-wider font-semibold mb-3">
-            {user.role_label || (user.is_admin ? "Amministratore" : "Operatore")}
+          <p className="mb-2 font-body text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+            Livello di accesso
           </p>
-          <div className="flex flex-wrap gap-2 justify-center">
+          <div className="flex flex-wrap justify-center gap-2">
+            {/* Il livello è l'unica cosa che descrive la persona qui dentro:
+                l'etichetta sopra dice di che si tratta, così "Operatore" non si
+                confonde con una qualifica scelta da lei. Distingue anche il PM,
+                che prima finiva insieme agli operatori. */}
             <Badge variant={user.is_admin ? "admin" : "user"}>
-              {user.is_admin ? "Admin" : "Operatore"}
+              {LIVELLI[user.access_level ?? (user.is_admin ? "admin" : "operator")] ??
+                (user.is_admin ? "Admin" : "Operatore")}
             </Badge>
             <Badge variant={user.is_active ? "success" : "default"}>
               {user.is_active ? "Attivo" : "Disabilitato"}
@@ -202,9 +285,103 @@ export function ProfilePage() {
               </div>
             </div>
           )}
+
+          {assignments && (
+            <div className="mt-4 border-t border-line pt-4 text-left dark:border-[#2a2a2e]">
+              <AssignmentChips
+                etichetta="Ruoli"
+                voci={assignments.roles}
+                vuoto="Nessun ruolo assegnato"
+              />
+              <AssignmentChips
+                etichetta="Aree di lavoro"
+                voci={assignments.work_areas}
+                vuoto="Nessuna area assegnata"
+              />
+            </div>
+          )}
+          </div>
+
+          {/* Schede: navigazione tra impostazioni profilo e dashboard mobile */}
+          <nav className="flex flex-col gap-2">
+            <ProfileNavButton
+              active={section === "profile"}
+              onClick={() => setSection("profile")}
+              icon="user-circle"
+              title="Impostazioni profilo"
+              subtitle="Dati, sicurezza, account"
+            />
+            <ProfileNavButton
+              active={section === "mobile"}
+              onClick={() => setSection("mobile")}
+              icon="grid"
+              title="Dashboard mobile"
+              subtitle="Widget e note del telefono"
+            />
+            <ProfileNavButton
+              active={section === "mail"}
+              onClick={() => setSection("mail")}
+              icon="mail"
+              title="Modelli email"
+              subtitle="I tuoi template personali"
+            />
+          </nav>
         </div>
 
-        {/* ── Right: form ── */}
+        {/* ── Right: impostazioni profilo OPPURE dashboard mobile ── */}
+        {section === "mobile" ? (
+        <div className="flex flex-col gap-5">
+          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+            <h2
+              className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+              style={{ fontSize: "17px" }}
+            >
+              Dashboard mobile
+            </h2>
+            <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+              Widget e note della dashboard del telefono, indipendenti dal desktop, per l'azienda
+              attiva
+              {myCompanies.find((c) => c.id === activeCompanyId)?.name
+                ? ` (${myCompanies.find((c) => c.id === activeCompanyId)?.name})`
+                : ""}
+              .
+            </p>
+            {activeCompanyId != null ? (
+              <MobileDashboardEditor companyId={activeCompanyId} />
+            ) : (
+              <p className="text-[13px] text-muted dark:text-[#9999a0]">
+                Seleziona un'azienda attiva per personalizzare la dashboard mobile.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : section === "mail" ? (
+        <div className="flex flex-col gap-5">
+          <div className="bg-paper dark:bg-[#131316] rounded-lg border border-line dark:border-[#2a2a2e] p-6">
+            <h2
+              className="font-display font-bold tracking-tight text-ink dark:text-[#f4f4f7] mb-1"
+              style={{ fontSize: "17px" }}
+            >
+              Modelli email
+            </h2>
+            <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
+              I tuoi modelli email personali, riutilizzabili quando scrivi ai clienti. La firma email
+              viene sempre aggiunta in coda e non è rimovibile
+              {myCompanies.find((c) => c.id === activeCompanyId)?.name
+                ? ` (azienda: ${myCompanies.find((c) => c.id === activeCompanyId)?.name})`
+                : ""}
+              .
+            </p>
+            {activeCompanyId != null ? (
+              <MailTemplatesManager companyId={activeCompanyId} scope="personal" canEdit />
+            ) : (
+              <p className="text-[13px] text-muted dark:text-[#9999a0]">
+                Seleziona un'azienda attiva per gestire i tuoi modelli email.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : (
         <div className="flex flex-col gap-5">
 
           {/* Info personali */}
@@ -218,31 +395,61 @@ export function ProfilePage() {
             <p className="font-body text-[13px] text-muted dark:text-[#9999a0] mb-5">
               Nome visualizzato, contatto e ruolo nella piattaforma
             </p>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  label="Nome completo"
-                  value={form.full_name as string}
-                  onChange={(e) => set("full_name", e.target.value)}
-                  placeholder="Mario Rossi"
-                />
-                <Input
-                  label="Telefono"
-                  value={form.phone as string ?? ""}
-                  onChange={(e) => set("phone", e.target.value)}
-                  placeholder="+39 333 000 0000"
-                  type="tel"
-                />
-              </div>
+            {/* Una griglia sola a due colonne per tutti i campi: quelli brevi e
+                spesso vuoti (genere, ragione sociale, qualifica) starebbero
+                larghi una riga intera, e il blocco sembrerebbe pieno di buchi.
+                I due campi fiscali stanno insieme, con la loro spiegazione. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Input
-                label="Ruolo / Qualifica"
-                value={form.role_label as string ?? ""}
-                onChange={(e) => set("role_label", e.target.value)}
-                placeholder="es. Senior Consultant"
-                hint="Viene mostrato nel profilo e nelle presentazioni"
+                className="sm:col-span-2"
+                label="Nome completo"
+                value={form.full_name as string}
+                onChange={(e) => set("full_name", e.target.value)}
+                placeholder="Mario Rossi"
               />
+              <Input
+                label="Telefono"
+                value={form.phone as string ?? ""}
+                onChange={(e) => set("phone", e.target.value)}
+                placeholder="+39 333 000 0000"
+                type="tel"
+              />
+              <label className="block">
+                <span className="mb-1.5 block text-[11px] font-semibold text-muted dark:text-muted-dark">
+                  Genere
+                </span>
+                <SearchableSelect
+                  value={(form.gender as string) ?? ""}
+                  onChange={(v) => set("gender", v)}
+                  options={GENERI}
+                  placeholder="Non dichiarato"
+                />
+                <span className="mt-1 block text-[11px] text-muted dark:text-muted-dark">
+                  Serve dove il testo va concordato
+                </span>
+              </label>
+              <Input
+                label="Ragione sociale"
+                value={form.legal_name as string ?? ""}
+                onChange={(e) => set("legal_name", e.target.value)}
+                placeholder="Mucci Giustino"
+              />
+              <Input
+                label="Partita IVA"
+                value={form.vat_number as string ?? ""}
+                onChange={(e) => set("vat_number", e.target.value)}
+                placeholder="01234567890"
+              />
+              <p className="text-[11px] leading-relaxed text-muted dark:text-muted-dark sm:col-span-2">
+                Ragione sociale e partita IVA servono solo se collabori con la tua: finiscono nella dichiarazione
+                della tua nota spese trasferte. Lasciale vuote se rendiconti per l'azienda.
+              </p>
             </div>
           </div>
+
+          {/* I clienti seguiti: schede scorrevoli, non chip — su un cliente
+              servono più informazioni del solo nome. */}
+          <MyClientsCard />
 
           {/* Firma email — compilazione dal template aziendale (definito dall'admin) */}
           <SignatureFromTemplate companies={myCompanies} defaultCompanyId={activeCompanyId} />
@@ -278,8 +485,20 @@ export function ProfilePage() {
             </div>
           </div>
 
+          {/* Sicurezza: cambio password + passkey */}
+          <SecuritySection />
+
           {/* Email di invio (per organizzazione) */}
           <EmailAccountsSection companies={myCompanies} defaultCompanyId={activeCompanyId} />
+
+          {/* Collegamento account Canva */}
+          <CanvaConnectSection />
+
+          {/* Collegamento account Google (Drive/Calendar/Docs) */}
+          <GoogleConnectSection />
+
+          {/* Collegamenti rapidi (barra preferiti + browser interno) */}
+          <QuickLinksSection />
 
           {/* Save bar */}
           <div className="flex justify-end">
@@ -288,6 +507,7 @@ export function ProfilePage() {
             </Button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

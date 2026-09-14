@@ -25,21 +25,42 @@ import { Input } from "../components/ui/Input";
 import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+
+const GENERI = [
+  { value: "", label: "Non dichiarato" },
+  { value: "femminile", label: "Femminile" },
+  { value: "maschile", label: "Maschile" },
+  { value: "altro", label: "Altro" },
+];
 import { MultiSelect } from "../components/ui/MultiSelect";
 import { WorkAreaBadge } from "../components/work-areas/WorkAreaBadge";
 import { WorkAreaMultiSelect } from "../components/work-areas/WorkAreaMultiSelect";
 import { Checkbox } from "../components/ui/Checkbox";
+import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl, type CompanyLogoFields } from "../utils/companyLogo";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-interface CompanyNode {
+interface CompanyNode extends CompanyLogoFields {
   id: number;
   name: string;
   children: CompanyNode[];
 }
 
-function flattenCompanies(list: CompanyNode[]): { id: number; name: string }[] {
-  return list.flatMap((c) => [{ id: c.id, name: c.name }, ...flattenCompanies(c.children)]);
+type CompanyListItem = CompanyLogoFields & { id: number; name: string };
+
+function flattenCompanies(list: CompanyNode[]): CompanyListItem[] {
+  return list.flatMap((c) => [
+    {
+      id: c.id,
+      name: c.name,
+      logo_light: c.logo_light,
+      logo_dark: c.logo_dark,
+      logo_horizontal_light: c.logo_horizontal_light,
+      logo_horizontal_dark: c.logo_horizontal_dark,
+    },
+    ...flattenCompanies(c.children),
+  ]);
 }
 
 // ── User modal (create + edit) ───────────────────────────────────────────────
@@ -50,13 +71,14 @@ interface UserModalProps {
   onSaved: () => void;
   user?: User | null;
   defaultCompanyId?: number | null;
-  companiesList: { id: number; name: string }[];
+  companiesList: CompanyListItem[];
   workAreasList: WorkArea[];
   canAssignRoles: boolean;
 }
 
 function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesList, workAreasList, canAssignRoles }: UserModalProps) {
   const toast = useToast();
+  const { theme } = useTheme();
   const isEdit = !!user;
   const [roles, setRoles] = useState<Role[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -64,6 +86,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
 
   const [form, setForm] = useState({
     full_name: user?.full_name ?? "",
+    vat_number: user?.vat_number ?? "",
+    legal_name: user?.legal_name ?? "",
+    gender: user?.gender ?? "",
     username: user?.username ?? "",
     email: user?.email ?? "",
     password: "",
@@ -75,6 +100,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     work_area_ids: (user?.work_area_ids ?? []).map(String),
     assigned_client_ids: (user?.assigned_client_ids ?? []).map(String),
     can_use_llm: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("llm"),
+    can_send_to_client: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("send_to_client"),
   });
   const [companySearch, setCompanySearch] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -87,6 +113,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     if (user) {
       setForm({
         full_name: user.full_name ?? "",
+        vat_number: user.vat_number ?? "",
+        legal_name: user.legal_name ?? "",
+        gender: user.gender ?? "",
         username: user.username ?? "",
         email: user.email ?? "",
         password: "",
@@ -98,6 +127,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         work_area_ids: (user.work_area_ids ?? []).map(String),
         assigned_client_ids: (user.assigned_client_ids ?? []).map(String),
         can_use_llm: user.is_admin ? true : (user.operator_permissions ?? []).includes("llm"),
+        can_send_to_client: user.is_admin ? true : (user.operator_permissions ?? []).includes("send_to_client"),
       });
       return;
     }
@@ -105,6 +135,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     const fallbackCompanyId = defaultCompanyId ? String(defaultCompanyId) : "";
     setForm({
       full_name: "",
+      vat_number: "",
+      legal_name: "",
+      gender: "",
       username: "",
       email: "",
       password: "",
@@ -116,6 +149,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
       work_area_ids: [],
       assigned_client_ids: [],
       can_use_llm: false,
+      can_send_to_client: false,
     });
     setErrors({});
     setCompanySearch("");
@@ -282,15 +316,23 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     setSaving(true);
     try {
       if (isEdit && user) {
-        const currentOperatorPermissions = (user.operator_permissions ?? []).filter((permission) => permission !== "llm");
-        // Le viste operatore (incl. LLM) si gestiscono solo per l'operatore; admin e PM hanno viste fisse lato backend.
+        const currentOperatorPermissions = (user.operator_permissions ?? []).filter(
+          (permission) => permission !== "llm" && permission !== "send_to_client"
+        );
+        // Le viste/permessi operatore (incl. LLM e invio al cliente) si gestiscono solo per
+        // l'operatore; admin e PM hanno viste/permessi fissi lato backend.
         const nextOperatorPermissions = form.access_level !== "operator"
           ? null
-          : form.can_use_llm
-            ? Array.from(new Set([...currentOperatorPermissions, "llm"]))
-            : currentOperatorPermissions;
+          : Array.from(new Set([
+              ...currentOperatorPermissions,
+              ...(form.can_use_llm ? ["llm"] : []),
+              ...(form.can_send_to_client ? ["send_to_client"] : []),
+            ]));
         const payload: UpdateUserPayload = {
           full_name: form.full_name,
+          vat_number: form.vat_number.trim() || null,
+          legal_name: form.legal_name.trim() || null,
+          gender: form.gender || null,
           username: form.username,
           email: form.email,
           access_level: form.access_level,
@@ -305,12 +347,19 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         await updateUserApi(user.id, payload);
         toast.success("Utente aggiornato");
       } else {
+        const createPerms = [
+          ...(form.can_use_llm ? ["llm"] : []),
+          ...(form.can_send_to_client ? ["send_to_client"] : []),
+        ];
         const nextOperatorPermissions = form.access_level !== "operator"
           ? null
-          : form.can_use_llm
-            ? ["llm"]
+          : createPerms.length
+            ? createPerms
             : null;
         const payload: CreateUserPayload = {
+          vat_number: form.vat_number.trim() || null,
+          legal_name: form.legal_name.trim() || null,
+          gender: form.gender || null,
           full_name: form.full_name,
           username: form.username,
           email: form.email,
@@ -375,6 +424,34 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
           error={errors.email}
           placeholder="mario@example.com"
         />
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Ragione sociale"
+            value={form.legal_name}
+            onChange={(e) => set("legal_name", e.target.value)}
+            placeholder="Mucci Giustino"
+          />
+          <Input
+            label="Partita IVA"
+            value={form.vat_number}
+            onChange={(e) => set("vat_number", e.target.value)}
+            placeholder="01234567890"
+          />
+        </div>
+        <p className="-mt-2 text-[11px] text-muted dark:text-muted-dark">
+          Servono solo a chi collabora con la propria partita IVA: finiscono nella dichiarazione della sua nota
+          spese trasferte.
+        </p>
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-semibold text-muted dark:text-muted-dark">Genere</span>
+          <SearchableSelect
+            menuLayer="portal"
+            value={form.gender}
+            onChange={(v) => set("gender", v)}
+            options={GENERI}
+            placeholder="Non dichiarato"
+          />
+        </label>
         {!isEdit && (
           <div className="relative">
             <Input
@@ -408,10 +485,12 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               ...companiesList.map((company) => ({
                 value: String(company.id),
                 label: company.name,
+                avatarUrl: getCompanyLogoUrl(company, theme),
               })),
             ]}
             placeholder="Nessuna azienda"
             searchPlaceholder="Cerca azienda..."
+            avatarShape="logo"
           />
         </div>
 
@@ -440,12 +519,14 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               filteredCompanies.map((company) => {
                 const value = String(company.id);
                 const checked = form.company_ids.includes(value);
+                const logo = getCompanyLogoUrl(company, theme);
                 return (
                   <label key={company.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-cream dark:hover:bg-[#1c1c20] cursor-pointer">
                     <Checkbox
                       checked={checked}
                       onChange={() => toggleCompany(value)}
                     />
+                    {logo && <img src={logo} alt="" loading="lazy" className="h-4 w-4 rounded object-contain flex-shrink-0" />}
                     <span className="text-sm font-body text-ink dark:text-[#f4f4f7]">{company.name}</span>
                   </label>
                 );
@@ -544,6 +625,20 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               </span>
             </label>
           )}
+
+          {/* Invio al cliente: permesso per-utente (admin/PM ce l'hanno sempre). Configurabile
+              solo per l'operatore, per darlo a uno specifico operatore. */}
+          {form.access_level === "operator" && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Checkbox
+                checked={form.can_send_to_client}
+                onChange={(v) => set("can_send_to_client", v)}
+              />
+              <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
+                Può inviare al cliente
+              </span>
+            </label>
+          )}
         </div>
       </div>
     </Modal>
@@ -633,11 +728,8 @@ export function UsersPage() {
 
       {/* ── Header ── */}
       <div className="mb-8">
-        <div className="section-eyebrow">
-          <Icon name="users" className="w-3.5 h-3.5" />
-          Gestione
-        </div>
-        <h1 className="section-title">
+        <h1 className="section-title flex items-center gap-2.5">
+          <Icon name="users" className="w-6 h-6" />
           Utenti
         </h1>
         <p className="section-lead">

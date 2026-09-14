@@ -198,9 +198,46 @@
 .fb-cancel { border: 1px solid var(--line-2); background: none; border-radius: 8px; height: 34px; padding: 0 13px; font-size: 12px; font-weight: 600; color: var(--tx-2); transition: all .14s var(--ease); cursor: pointer; }
 .fb-cancel:hover { border-color: var(--magenta); color: var(--magenta); }
 
+/* "Archivia": azione secondaria accanto a "Emetti ora" — voce che non va fatturata. */
+.fb-archive { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 13px; border: 1px solid var(--line-2);
+  background: none; border-radius: 9px; font-size: 12px; font-weight: 600; color: var(--tx-2); white-space: nowrap;
+  transition: all .14s var(--ease); cursor: pointer; }
+.fb-archive:hover { border-color: var(--magenta); color: var(--magenta); }
+.fb-archive:disabled { opacity: .5; cursor: default; }
+
+/* Uscita della riga archiviata: scivola via e collassa, così l'elenco si richiude
+   da solo senza ricaricare la pagina. Le misure verticali (padding/margin/bordo)
+   vanno azzerate insieme all'altezza, altrimenti resta un vuoto. */
+@keyframes fb-row-out {
+  0%   { opacity: 1; transform: none; max-height: 240px; }
+  45%  { opacity: 0; transform: translateX(26px); max-height: 240px; }
+  100% { opacity: 0; transform: translateX(26px); max-height: 0;
+         padding-top: 0; padding-bottom: 0; border-width: 0; margin-bottom: 0; }
+}
+/* variante per il pannello "Da recuperare": lì le righe hanno un gap di 9px,
+   che va riassorbito a fine corsa o resterebbe uno spazio vuoto */
+@keyframes fb-forgot-row-out {
+  0%   { opacity: 1; transform: none; max-height: 240px; }
+  45%  { opacity: 0; transform: translateX(26px); max-height: 240px; }
+  100% { opacity: 0; transform: translateX(26px); max-height: 0;
+         padding-top: 0; padding-bottom: 0; border-width: 0; margin-bottom: -9px; }
+}
+.fb-row.is-exiting,
+.fb-forgot-row.is-exiting {
+  animation: fb-row-out .38s var(--ease) forwards;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fb-forgot-row.is-exiting { animation-name: fb-forgot-row-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fb-row.is-exiting,
+  .fb-forgot-row.is-exiting { animation-duration: .01s; }
+}
+
 @media (max-width: 920px) {
   .fb-row { flex-direction: column; align-items: stretch; }
-  .fb-row-right { justify-content: space-between; }
+  .fb-row-right { justify-content: space-between; flex-wrap: wrap; gap: 10px; }
   .fb-forgot-row { flex-wrap: wrap; }
 }
 

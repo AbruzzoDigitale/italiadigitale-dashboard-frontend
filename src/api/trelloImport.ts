@@ -19,6 +19,7 @@ export interface TrelloPreviewCard {
   name: string;
   desc: string | null;
   list_name: string | null;
+  is_workflow: boolean;
   status: string;
   deadline_date: string | null;
   due_complete: boolean;
@@ -32,6 +33,7 @@ export interface TrelloPreviewCard {
 
 export interface TrelloImportResult {
   created: number;
+  updated: number;
   skipped: number;
   work_item_ids: number[];
   client_id: number | null;
@@ -68,7 +70,7 @@ export async function saveMemberMapApi(companyId: number, items: TrelloMemberMap
 export async function previewTrelloCardsApi(
   companyId: number,
   boardId: string,
-  workflowOnly = true
+  workflowOnly = false
 ): Promise<{ cards: TrelloPreviewCard[]; board_id: string }> {
   return jsonOrThrow(
     await authFetch(`${BASE}/cards?company_id=${companyId}&board_id=${boardId}&workflow_only=${workflowOnly}`)
@@ -77,7 +79,7 @@ export async function previewTrelloCardsApi(
 
 export async function importTrelloCardsApi(
   companyId: number,
-  body: { board_id: string; client_id?: number | null; card_ids: string[] }
+  body: { board_id: string; client_id?: number | null; card_ids: string[]; ped_card_ids?: string[] }
 ): Promise<TrelloImportResult> {
   return jsonOrThrow(
     await authFetch(`${BASE}/import?company_id=${companyId}`, {

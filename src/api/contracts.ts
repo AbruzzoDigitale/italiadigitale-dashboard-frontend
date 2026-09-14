@@ -153,6 +153,15 @@ export interface ContractWorkAreaRef {
   color?: string | null;
 }
 
+/** Profilo social collegato al contratto (dal registro profili dell'azienda). */
+export interface ContractSocialProfileRef {
+  id: number;
+  client_id: number | null;
+  platform: string;
+  name: string;
+  url: string;
+}
+
 export interface ContractHistoryEvent {
   id?: number;
   event_type:
@@ -210,6 +219,7 @@ export interface ContractListItemResponse {
 export interface ContractDetailResponse extends ContractListItemResponse {
   quote_links: ContractQuoteLink[];
   history: ContractHistoryEvent[];
+  social_profiles?: ContractSocialProfileRef[];
 }
 
 export type ContractWorkItemCompletionState = "not_started" | "in_progress" | "completed";
@@ -270,6 +280,8 @@ export interface CreateContractPayload {
   quote_links?: ContractQuoteLink[];
   tag_ids?: number[];
   work_area_ids?: number[];
+  /** Profili social del cliente da collegare al contratto (sostituisce l'insieme). */
+  social_profile_ids?: number[];
 }
 
 export type UpdateContractPayload = Partial<

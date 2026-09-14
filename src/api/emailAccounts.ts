@@ -81,13 +81,24 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function listEmailAccountsApi(companyId?: number): Promise<EmailAccount[]> {
-  const suffix = companyId != null ? `?company_id=${companyId}` : "";
-  return jsonOrThrow(await authFetch(`${BASE}${suffix}`));
+/** Ambito dei mittenti: "mine" = personali dell'utente, "company" = aziendali condivisi (solo admin). */
+export type EmailAccountScope = "mine" | "company";
+
+export async function listEmailAccountsApi(companyId?: number, scope: EmailAccountScope = "mine"): Promise<EmailAccount[]> {
+  const params = new URLSearchParams();
+  if (companyId != null) params.set("company_id", String(companyId));
+  if (scope !== "mine") params.set("scope", scope);
+  const qs = params.toString();
+  return jsonOrThrow(await authFetch(`${BASE}${qs ? `?${qs}` : ""}`));
 }
 
-export async function createEmailAccountApi(companyId: number, body: EmailAccountCreate): Promise<EmailAccount> {
-  const res = await authFetch(`${BASE}?company_id=${companyId}`, {
+export async function createEmailAccountApi(
+  companyId: number,
+  body: EmailAccountCreate,
+  scope: EmailAccountScope = "mine"
+): Promise<EmailAccount> {
+  const scopeQs = scope !== "mine" ? `&scope=${scope}` : "";
+  const res = await authFetch(`${BASE}?company_id=${companyId}${scopeQs}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -120,8 +131,18 @@ export async function testEmailAccountApi(id: number): Promise<EmailAccountTestR
   return jsonOrThrow(await authFetch(`${BASE}/${id}/test`, { method: "POST" }));
 }
 
+/** Invia un'email di prova all'indirizzo indicato usando questo mittente. */
+export async function sendTestEmailApi(id: number, to: string): Promise<EmailAccountTestResult> {
+  return jsonOrThrow(await authFetch(`${BASE}/${id}/send-test`, { method: "POST", body: JSON.stringify({ to }) }));
+}
+
 /** Ritorna l'URL di consenso Google da aprire; al ritorno il backend reindirizza a `returnUrl`. */
-export async function googleAuthorizeApi(companyId: number, returnUrl: string): Promise<{ authorize_url: string }> {
-  const qs = `?company_id=${companyId}&return_url=${encodeURIComponent(returnUrl)}`;
+export async function googleAuthorizeApi(
+  companyId: number,
+  returnUrl: string,
+  scope: EmailAccountScope = "mine"
+): Promise<{ authorize_url: string }> {
+  const scopeQs = scope !== "mine" ? `&scope=${scope}` : "";
+  const qs = `?company_id=${companyId}&return_url=${encodeURIComponent(returnUrl)}${scopeQs}`;
   return jsonOrThrow(await authFetch(`${BASE}/google/authorize${qs}`));
 }

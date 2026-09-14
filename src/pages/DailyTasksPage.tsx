@@ -1,22 +1,59 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
 import { getDailyTasksSelfApi, getDailyTasksAdminAccordionApi } from "../api/workload";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
 import { Accordion, type AccordionItem } from "../components/ui/Accordion";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { QuickTaskModal } from "../components/work-items/QuickTaskModal";
 import { WorkItemFormModal } from "../components/work-items/WorkItemFormModal";
 import { getWorkItemApi, type WorkItem } from "../api/workItems";
 import { AccLaneTaskCard } from "../components/workload/AccLaneTaskCard";
+import { taskStatusBadges } from "../utils/taskStatus";
+import { formatDurationHuman } from "../utils/duration";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
+import { subscribeRealtime } from "../features/realtime/realtimeBus";
+import { getRecapTemplateApi } from "../api/dailyRecap";
+import {
+  defaultRecapTemplate,
+  renderRecapFromTemplate,
+  type RecapTemplate,
+} from "../features/daily-recap/recapTemplate";
+import { WhatsAppPreview } from "../features/daily-recap/WhatsAppPreview";
+import { useTheme } from "../context/ThemeContext";
+import { getCompanyLogoUrl } from "../utils/companyLogo";
 import "./workload-page.css";
 import "./daily-tasks-page.css";
 
-type ViewMode = "self" | "admin";
+type ViewMode = "list" | "admin" | "self";
+type ListGroupBy = "operator" | "client" | "none";
+type GroupSort = "count" | "name";
+type DeadlineDir = "asc" | "desc";
+
+function cmpTaskTitle(a: any, b: any): number {
+  return String(a?.title || "").localeCompare(String(b?.title || ""), "it");
+}
+
+// Ordina per scadenza (le task senza scadenza sempre in fondo). `getTask` estrae
+// l'oggetto task dall'elemento (che può essere la task stessa o { task, ... }).
+function sortByDeadline<T>(items: T[], getTask: (x: T) => any, dir: DeadlineDir): T[] {
+  return [...items].sort((x, y) => {
+    const a = getTask(x);
+    const b = getTask(y);
+    const da = a?.deadline_date;
+    const db = b?.deadline_date;
+    if (da && db) {
+      if (da === db) return cmpTaskTitle(a, b);
+      return dir === "asc" ? (da < db ? -1 : 1) : da < db ? 1 : -1;
+    }
+    if (da) return -1;
+    if (db) return 1;
+    return cmpTaskTitle(a, b);
+  });
+}
 
 function getTodayDate(): string {
   const today = new Date();
@@ -72,65 +109,9 @@ function fmtRecapHours(value: number | null | undefined): string {
   return v % 1 === 0 ? String(v) : v.toFixed(1);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function recapTaskLine(task: any): string {
-  const client = task?.client_name ? `[${task.client_name}] ` : "";
-  const hours = typeof task?.effective_load_hours === "number" ? task.effective_load_hours : (task?.estimated_hours ?? 0);
-  let line = `  - ${client}${task?.title ?? "Senza titolo"} (${fmtRecapHours(hours)}h)`;
-  const note = task?.left_behind_note || task?.left_behind_reason;
-  if (note) line += ` — ${note}`;
-  return line;
-}
-
-// Costruisce il testo del recap dal payload self (usa `recap` se presente, altrimenti i KPI/tasks).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildDailyRecapText(selfData: any, dateIso: string): string {
-  const displayName = selfData?.full_name || selfData?.username || "Utente";
-  const dateLabel = dateFromIso(dateIso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const lines: string[] = [`RECAP — ${displayName} — ${dateLabel}`, ""];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const section = (title: string, items: any[] | undefined) => {
-    if (!items || items.length === 0) return;
-    lines.push(`${title} (${items.length}):`);
-    items.forEach((task) => lines.push(recapTaskLine(task)));
-    lines.push("");
-  };
-
-  const recap = selfData?.recap;
-  if (recap) {
-    lines.push(`Task di oggi: ${recap.today_total} (completate ${recap.done_count} · in corso ${recap.in_progress_count} · da fare ${recap.todo_count})`);
-    if (recap.overdue_count > 0) lines.push(`Arretrate: ${recap.overdue_count}`);
-    lines.push(`Carico oggi: ${fmtRecapHours(recap.estimated_hours_today)}h / ${fmtRecapHours(recap.capacity_hours)}h · Tracciate: ${fmtRecapHours(recap.actual_hours_today)}h`);
-    if (recap.overdue_hours > 0) lines.push(`Da recuperare (arretrato): ${fmtRecapHours(recap.overdue_hours)}h`);
-    lines.push("");
-    section("COMPLETATE", recap.done);
-    section("IN CORSO", recap.in_progress);
-    section("DA FARE", recap.todo);
-    section("ARRETRATE", recap.overdue);
-  } else {
-    // Fallback: il backend non espone ancora il recap → ricostruisco da tasks/KPI.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tasks: any[] = selfData?.tasks ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isDone = (t: any) => t.is_completed || t.status === "completed" || t.status === "done";
-    const done = tasks.filter(isDone);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const inProgress = tasks.filter((t: any) => !isDone(t) && (t.status === "in_progress" || t.status === "review"));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const todo = tasks.filter((t: any) => !isDone(t) && t.status !== "in_progress" && t.status !== "review");
-    const cap = selfData?.max_capacity_hours_day;
-    lines.push(`Task totali: ${selfData?.tasks_total ?? tasks.length}`);
-    lines.push(`Completate: ${selfData?.tasks_completed ?? done.length} · In corso: ${inProgress.length} · Da fare: ${todo.length}`);
-    lines.push(`Carico stimato: ${fmtRecapHours(selfData?.estimated_hours_total)}h${typeof cap === "number" ? ` / ${fmtRecapHours(cap)}h` : ""} · Tracciate: ${fmtRecapHours(selfData?.actual_hours_total)}h`);
-    lines.push("");
-    section("COMPLETATE", done);
-    section("IN CORSO", inProgress);
-    section("DA FARE", todo);
-  }
-
-  return lines.join("\n").trimEnd();
-}
+// Il testo del recap è generato dal TEMPLATE aziendale (personalizzabile in
+// Impostazioni azienda → Recap); senza personalizzazione si usa il default di
+// serie. Vedi src/features/daily-recap/recapTemplate.ts.
 
 function loadClass(loadPercent: number): "wl-acc-load--ok" | "wl-acc-load--warning" | "wl-acc-load--overload" {
   if (loadPercent >= 100) return "wl-acc-load--overload";
@@ -142,6 +123,56 @@ function barClass(loadPercent: number): "wl-acc-bar--ok" | "wl-acc-bar--warning"
   if (loadPercent >= 100) return "wl-acc-bar--overload";
   if (loadPercent >= 80) return "wl-acc-bar--warning";
   return "wl-acc-bar--ok";
+}
+
+// Sezione "marcata" del prototipo: badge numerato, icona magenta, titolo maiuscolo,
+// sottotitolo e azioni nell'header; corpo con padding uniforme.
+function AgSection({
+  n,
+  icon,
+  title,
+  sub,
+  actions,
+  children,
+}: {
+  n?: string;
+  icon: IconName;
+  title: string;
+  sub?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="ag-sec">
+      <header className="ag-sec-h">
+        {n && <span className="ag-sec-n">{n}</span>}
+        <span className="ag-sec-ic">
+          <Icon name={icon} className="w-4 h-4" />
+        </span>
+        <span className="ag-sec-tt">
+          <b>{title}</b>
+          {sub && <span>{sub}</span>}
+        </span>
+        {actions && <span className="ag-sec-act">{actions}</span>}
+      </header>
+      <div className="ag-sec-b">{children}</div>
+    </section>
+  );
+}
+
+function AgKpi({ label, value, tone }: { label: string; value: string; tone?: "mint" | "warn" | "over" }) {
+  return (
+    <div className="ag-kpi">
+      <span className="ag-kpi-l">{label}</span>
+      <b className={`ag-kpi-v${tone ? ` ${tone}` : ""}`}>{value}</b>
+    </div>
+  );
+}
+
+function loadTone(loadPercent: number): "mint" | "warn" | "over" {
+  if (loadPercent >= 100) return "over";
+  if (loadPercent >= 80) return "warn";
+  return "mint";
 }
 
 function renderLoadLegend() {
@@ -167,7 +198,8 @@ function renderLoadLegend() {
 }
 
 export function DailyTasksPage() {
-  const { user, permissions } = useAuth();
+  const { user, permissions, myCompanies } = useAuth();
+  const { theme } = useTheme();
   const isAdmin = !!permissions?.is_admin;
   // Visibilità team: admin e Project Manager (scoped alla propria azienda dal backend).
   const canSeeTeam = isAdmin || !!permissions?.is_project_manager;
@@ -175,7 +207,14 @@ export function DailyTasksPage() {
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
 
-  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "admin" : "self");
+  // Admin e PM aprono sull'elenco esteso di tutte le lavorazioni del giorno.
+  const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "list" : "self");
+  const [listGroupBy, setListGroupBy] = useState<ListGroupBy>("operator");
+  // Ordinamento dei GRUPPI (per operatore/cliente): numero di task o alfabetico.
+  const [groupSort, setGroupSort] = useState<GroupSort>("count");
+  // Ordinamento delle TASK per scadenza (crescente/decrescente): vale in TUTTE le
+  // modalità e riordina le task dentro ogni operatore/cliente e nell'elenco unico.
+  const [deadlineDir, setDeadlineDir] = useState<DeadlineDir>("asc");
   const [targetDate, setTargetDate] = useState(getTodayDate());
 
   const [selfData, setSelfData] = useState<any>(null);
@@ -186,7 +225,39 @@ export function DailyTasksPage() {
   const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
   const [workItemModalOpen, setWorkItemModalOpen] = useState(false);
 
+  // Bozza del recap modificabile prima della condivisione; si azzera al cambio
+  // giorno. NON si azzera sui refresh realtime: una modifica manuale in corso
+  // non deve sparire perché è arrivato un aggiornamento dati.
+  const [recapDraft, setRecapDraft] = useState<string | null>(null);
+  // false = anteprima formattata stile WhatsApp; true = textarea per ritocchi.
+  const [recapEditing, setRecapEditing] = useState(false);
+  useEffect(() => {
+    setRecapDraft(null);
+    setRecapEditing(false);
+  }, [targetDate]);
+
+  // Logo dell'azienda selezionata: immagine del "gruppo" nella chat finta del recap.
+  const companyLogoUrl = useMemo(() => {
+    const company = myCompanies.find((c) => c.id === companyId);
+    return company ? getCompanyLogoUrl(company, theme) : null;
+  }, [myCompanies, companyId, theme]);
+
+  // Template aziendale del recap (null = default di serie).
+  const [recapTemplate, setRecapTemplate] = useState<RecapTemplate | null>(null);
+  useEffect(() => {
+    if (companyId == null) return;
+    getRecapTemplateApi(companyId)
+      .then(setRecapTemplate)
+      .catch(() => setRecapTemplate(null));
+  }, [companyId]);
+
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+  // Apertura dei gruppi della vista elenco (per operatore / per cliente): aperti di
+  // default, si memorizza solo la chiusura esplicita.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const isGroupOpen = (id: string | number) => !collapsedGroups[String(id)];
+  const toggleGroup = (id: string | number) =>
+    setCollapsedGroups((cur) => ({ ...cur, [String(id)]: !cur[String(id)] }));
 
   const openTask = async (workItemId: number) => {
     if (companyId == null) {
@@ -202,8 +273,9 @@ export function DailyTasksPage() {
     }
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       if (viewMode === "self") {
@@ -220,11 +292,15 @@ export function DailyTasksPage() {
         setAdminData(data);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Errore caricamento attività";
-      setError(message);
-      toast.error(message);
+      // In un refresh silenzioso (realtime) un errore transitorio non deve
+      // disturbare: la vista resta sull'ultimo dato buono.
+      if (!silent) {
+        const message = err instanceof Error ? err.message : "Errore caricamento attività";
+        setError(message);
+        toast.error(message);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -232,11 +308,18 @@ export function DailyTasksPage() {
     void loadData();
   }, [viewMode, targetDate]);
 
-  const getLoadPercentColor = (pct: number) => {
-    if (pct >= 100) return "danger";
-    if (pct >= 80) return "warning";
-    return "success";
-  };
+  // Realtime: lo stream SSE (canale azienda work_item_changed + notifiche personali,
+  // instradato sul bus) ricarica in silenzio la vista attiva — vale per operatore,
+  // PM e admin su tutte e tre le viste (Elenco/Team/Mie task).
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+  useEffect(
+    () =>
+      subscribeRealtime(() => {
+        void loadDataRef.current({ silent: true });
+      }),
+    []
+  );
 
   const renderSelfView = () => {
     if (!selfData) return null;
@@ -250,7 +333,7 @@ export function DailyTasksPage() {
       .join("");
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-[18px]">
         <div className="flex items-center gap-3">
           {avatar_url ? (
             <img
@@ -269,82 +352,63 @@ export function DailyTasksPage() {
         </div>
 
         {/* KPI Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Task totali
-            </div>
-            <div className="text-2xl font-bold text-ink dark:text-paper">{tasks_total}</div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Completate
-            </div>
-            <div className="text-2xl font-bold text-success">{tasks_completed}</div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Completamento
-            </div>
-            <div className="text-2xl font-bold text-ink dark:text-paper">
-              {completion_rate_percent.toFixed(0)}%
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-muted-dark mb-1">
-              Carico orario
-            </div>
-            <div className={`text-2xl font-bold ${getLoadPercentColor(load_percent) === "danger" ? "text-danger" : getLoadPercentColor(load_percent) === "warning" ? "text-warning" : "text-success"}`}>
-              {load_percent.toFixed(0)}%
-            </div>
-          </div>
+        <div className="ag-kpis">
+          <AgKpi label="Task totali" value={String(tasks_total)} />
+          <AgKpi label="Completate" value={String(tasks_completed)} tone="mint" />
+          <AgKpi label="Completamento" value={`${completion_rate_percent.toFixed(0)}%`} />
+          <AgKpi label="Carico orario" value={`${load_percent.toFixed(0)}%`} tone={loadTone(load_percent)} />
         </div>
 
-        {/* Next Task */}
-        {next_task ? (
-          <div className={`rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4 ${Boolean(next_task.is_PED ?? next_task.is_ped) ? "ring-1 ring-info/35 bg-info/5 dark:bg-info/10" : ""}`}>
-            <h3 className="font-bold text-sm text-ink dark:text-paper mb-3">Prossima task</h3>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <div className="font-semibold text-ink dark:text-paper">{next_task.title}</div>
+        {/* Prossima task */}
+        <AgSection n="1" icon="target" title="Prossima task" sub="La prima in coda per oggi">
+          {next_task ? (
+            <div className="ag-next">
+              <div className="ag-next-t">
+                {next_task.title}
                 {Boolean(next_task.is_PED ?? next_task.is_ped) && (
-                  <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
+                  <span className="ml-2 inline-flex align-middle rounded-pill border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-info">
                     PED
                   </span>
                 )}
               </div>
-              <div className="text-sm text-muted dark:text-muted-dark">
-                {next_task.client_name || "Senza cliente"} · {next_task.status}
+              <div className="ag-next-m flex flex-wrap items-center gap-1.5">
+                <span>{next_task.client_name || "Senza cliente"}</span>
+                {/* Prima qui usciva lo stato grezzo ("in_progress"): illeggibile e senza
+                    colore. Stesse etichette dell'accordion Workload. */}
+                {taskStatusBadges(next_task).map((b) => (
+                  <span
+                    key={b.key}
+                    className="inline-flex rounded-pill px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider"
+                    style={{ color: b.color, backgroundColor: `${b.color}22` }}
+                    title={b.title}
+                  >
+                    {b.label}
+                  </span>
+                ))}
               </div>
-              {next_task.start_time && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Inizio: {next_task.start_time}
-                </div>
-              )}
-              {next_task.estimated_hours && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Stimate: {next_task.estimated_hours}h
-                </div>
-              )}
-              {typeof next_task.effective_load_hours === "number" && (
-                <div className="text-xs text-muted dark:text-muted-dark">
-                  Effettive: {next_task.effective_load_hours}h
-                </div>
-              )}
+              <div className="ag-next-h">
+                {[
+                  next_task.start_time ? `Inizio: ${next_task.start_time}` : null,
+                  next_task.estimated_hours ? `Stimate: ${next_task.estimated_hours}h` : null,
+                  typeof next_task.effective_load_hours === "number"
+                    ? `Effettive: ${next_task.effective_load_hours}h`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-line dark:border-line-dark bg-cream dark:bg-ink-2 p-4 text-center text-sm text-muted dark:text-muted-dark">
-            Nessuna prossima task.
-          </div>
-        )}
+          ) : (
+            <div className="rounded-lg border border-dashed border-line dark:border-line-dark bg-cream dark:bg-ink-2 p-4 text-center text-sm text-muted dark:text-muted-dark">
+              Nessuna prossima task.
+            </div>
+          )}
+        </AgSection>
 
-        {/* Recap giornaliero (testo copia & incolla) */}
+        {/* Recap giornaliero */}
         {(() => {
-          const recapText = buildDailyRecapText(selfData, targetDate);
+          const recapText =
+            recapDraft ?? renderRecapFromTemplate(recapTemplate ?? defaultRecapTemplate(), selfData, targetDate);
           const copyRecap = async () => {
             try {
               await navigator.clipboard.writeText(recapText);
@@ -358,65 +422,394 @@ export function DailyTasksPage() {
             window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recapText)}`);
           };
           return (
-            <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-bold text-ink dark:text-paper">Recap giornaliero</h3>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void copyRecap()} leftIcon={<Icon name="document-text" className="w-3.5 h-3.5" />}>Copia</Button>
-                  <Button size="sm" variant="ghost" onClick={emailRecap} leftIcon={<Icon name="mail" className="w-3.5 h-3.5" />}>Email</Button>
-                </div>
+            <AgSection
+              n="2"
+              icon="annotation"
+              title="Recap giornaliero"
+              sub="Pronto da condividere su WhatsApp o via email"
+              actions={
+                <>
+                  <button type="button" className="ag-abtn" onClick={() => setRecapEditing((v) => !v)}>
+                    <Icon name={recapEditing ? "eye" : "pencil"} className="w-3.5 h-3.5" />
+                    {recapEditing ? "Anteprima" : "Modifica"}
+                  </button>
+                  <button type="button" className="ag-abtn" onClick={() => void copyRecap()}>
+                    <Icon name="copy" className="w-3.5 h-3.5" /> Copia
+                  </button>
+                  <button type="button" className="ag-abtn" onClick={emailRecap}>
+                    <Icon name="mail" className="w-3.5 h-3.5" /> Email
+                  </button>
+                </>
+              }
+            >
+              {recapEditing ? (
+                <textarea
+                  className="ag-recap"
+                  value={recapText}
+                  onChange={(event) => setRecapDraft(event.target.value)}
+                  rows={Math.min(16, recapText.split("\n").length + 1)}
+                />
+              ) : (
+                <WhatsAppPreview text={recapText} avatarUrl={companyLogoUrl} />
+              )}
+              <div className="ag-share">
+                <button
+                  type="button"
+                  className="ag-wa"
+                  onClick={() => {
+                    // Il testo NON passa più nell'URL: il ponte wa.me → app desktop
+                    // corrompe le emoji (→ "�"). Copiamo il recap negli appunti e
+                    // apriamo l'app sul selettore chat: si incolla e le emoji sono
+                    // perfette (il copia-incolla è l'unico canale affidabile).
+                    void navigator.clipboard
+                      ?.writeText(recapText)
+                      .then(() => toast.success("Recap copiato: scegli la chat e incolla (Ctrl+V)."))
+                      .catch(() => toast.error("Copia non riuscita: usa il pulsante Copia."));
+                    window.location.href = "whatsapp://send";
+                  }}
+                >
+                  <span className="ag-wa-ic">
+                    <Icon name="annotation" className="w-4 h-4" />
+                  </span>
+                  Condividi su WhatsApp
+                </button>
+                <span className="ag-share-hint">
+                  Copia il recap e apre WhatsApp: scegli la chat e incolla (Ctrl+V) — così emoji e
+                  formattazione restano perfette. Se l'app non si apre, apri WhatsApp e incolla.
+                </span>
               </div>
-              <textarea
-                readOnly
-                value={recapText}
-                rows={Math.min(24, recapText.split("\n").length + 1)}
-                onFocus={(event) => event.currentTarget.select()}
-                className="w-full resize-y rounded-md border border-line dark:border-line-dark bg-cream dark:bg-ink-2 px-3 py-2 font-mono text-[12px] leading-5 text-ink dark:text-paper focus:outline-none"
-              />
-            </div>
+            </AgSection>
           );
         })()}
 
         {/* Task List */}
-        <div className="rounded-lg border border-line dark:border-line-dark bg-paper dark:bg-ink-soft overflow-hidden">
-          <div className="px-4 py-3 border-b border-line dark:border-line-dark bg-cream dark:bg-ink-2">
-            <h3 className="font-bold text-sm text-ink dark:text-paper">Task del giorno ({tasks.length})</h3>
-          </div>
+        <AgSection n="3" icon="list" title={`Task del giorno (${tasks.length})`} sub="Le tue lavorazioni di oggi">
           {tasks.length === 0 ? (
-            <div className="p-6 text-center text-sm text-muted dark:text-muted-dark">
+            <div className="p-4 text-center text-sm text-muted dark:text-muted-dark">
               Nessuna task per oggi.
             </div>
           ) : (
-            <div className="pt-3">
-              <div className="wl-acc-tasks">
-                {tasks.map((task: any) => {
-                  // Workload endpoints can expose PED with either is_ped or is_PED.
-                  const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
-                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
-                  return (
-                    <AccLaneTaskCard
-                      key={task.work_item_id}
-                      title={task.title}
-                      hoursLabel={hoursLabel}
-                      timeLabel={task.start_time || null}
-                      clientName={task.client_name}
-                      status={`${Math.round(task.progress_percent ?? 0)}%`}
-                      areaColor={task.work_areas?.[0]?.color ?? null}
-                      isPed={Boolean(task.is_PED ?? task.is_ped)}
-                      priority={Boolean(task.is_priority)}
-                      completed={Boolean(task.is_completed)}
-                      leftBehind={Boolean(task.is_left_behind)}
-                      overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
-                      overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
-                      reworkCount={task.rework_count}
-                      onClick={() => void openTask(task.work_item_id)}
-                    />
-                  );
-                })}
-              </div>
+            <div className="wl-acc-tasks">
+              {tasks.map((task: any) => {
+                // Workload endpoints can expose PED with either is_ped or is_PED.
+                const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+                const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
+                return (
+                  <AccLaneTaskCard
+                    key={task.work_item_id}
+                    title={task.title}
+                    hoursLabel={hoursLabel}
+                    timeLabel={task.start_time || null}
+                    clientName={task.client_name}
+                    status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
+                    areaColor={task.work_areas?.[0]?.color ?? null}
+                    isPed={Boolean(task.is_PED ?? task.is_ped)}
+                    isMaintenance={task.task_type === "website_maintenance"}
+                    priority={Boolean(task.is_priority)}
+                    completed={Boolean(task.is_completed)}
+                    leftBehind={Boolean(task.is_left_behind)}
+                    overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+                    overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+                    reworkCount={task.rework_count}
+                    onClick={() => void openTask(task.work_item_id)}
+                  />
+                );
+              })}
             </div>
           )}
+        </AgSection>
+      </div>
+    );
+  };
+
+  // Riga task "estesa" riusata nell'elenco. `metaLabel` mostra il cliente (per
+  // operatore) o gli operatori (per cliente); `assignees` mostra gli avatar degli
+  // operatori dentro la card (usato nell'elenco unico, non raggruppato).
+  const renderExtendedTaskRow = (
+    task: any,
+    metaLabel: string | null,
+    assignees?: Array<{ name: string; avatarUrl?: string | null }>,
+  ) => {
+    const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
+    const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+    return (
+      <AccLaneTaskCard
+        key={task.work_item_id}
+        title={task.title}
+        hoursLabel={hoursLabel}
+        timeLabel={task.start_time || null}
+        clientName={metaLabel}
+        status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
+        areaColor={task.work_areas?.[0]?.color ?? null}
+        isPed={Boolean(task.is_PED ?? task.is_ped)}
+        isMaintenance={task.task_type === "website_maintenance"}
+        priority={Boolean(task.is_priority)}
+        completed={Boolean(task.is_completed)}
+        leftBehind={Boolean(task.is_left_behind)}
+        overdue={Boolean(task.schedule_state?.is_overdue ?? task.is_overdue)}
+        overdueDays={task.schedule_state?.overdue_days ?? task.overdue_days}
+        reworkCount={task.rework_count}
+        assignees={assignees}
+        onClick={() => void openTask(task.work_item_id)}
+      />
+    );
+  };
+
+  // Elenco esteso di TUTTE le lavorazioni del giorno (admin/PM), con due
+  // raggruppamenti: per operatore o per cliente. Deriva dai dati del team.
+  const renderListView = () => {
+    if (!adminData) return null;
+    const usersArr: any[] = adminData.users ?? [];
+
+    // Lavorazioni uniche del giorno (una task con più assegnatari compare in più
+    // operatori: qui la deduplico per conteggi/ore onesti).
+    const dedup = new Map<number, any>();
+    for (const u of usersArr) for (const t of u.tasks ?? []) if (!dedup.has(t.work_item_id)) dedup.set(t.work_item_id, t);
+    const dedupedTasks = [...dedup.values()];
+    const uniqueCount = dedupedTasks.length;
+    const completedCount = dedupedTasks.filter((t) => Boolean(t.is_completed)).length;
+    const uniqueHours = dedupedTasks.reduce((sum, t) => sum + (t.effective_load_hours ?? 0), 0);
+
+    if (uniqueCount === 0) {
+      return (
+        <div className="rounded-lg border border-dashed border-line dark:border-line-dark p-6 text-center text-sm text-muted dark:text-muted-dark">
+          Nessuna lavorazione per questo giorno.
         </div>
+      );
+    }
+
+    const kpi = (
+      <div className="ag-kpis">
+        <AgKpi label="Lavorazioni" value={String(uniqueCount)} />
+        <AgKpi label="Completate" value={String(completedCount)} tone="mint" />
+        <AgKpi label="Operatori" value={String(usersArr.length)} />
+        <AgKpi label="Ore stimate" value={`${fmtRecapHours(uniqueHours)}h`} />
+      </div>
+    );
+
+    const groupToggle = (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedSwitch
+          value={listGroupBy}
+          onChange={setListGroupBy}
+          ariaLabel="Raggruppa elenco"
+          buttonClassName="wl-segmented-btn--view"
+          options={[
+            { value: "operator", label: <><Icon name="users" className="w-3.5 h-3.5" />Per operatore</> },
+            { value: "client", label: <><Icon name="building" className="w-3.5 h-3.5" />Per cliente</> },
+            { value: "none", label: <><Icon name="list" className="w-3.5 h-3.5" />Elenco unico</> },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {listGroupBy !== "none" && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Gruppi</span>
+              <SegmentedSwitch
+                value={groupSort}
+                onChange={setGroupSort}
+                ariaLabel="Ordina gruppi"
+                buttonClassName="wl-segmented-btn--view"
+                options={[
+                  {
+                    value: "count",
+                    title: `${listGroupBy === "operator" ? "Operatori" : "Clienti"} con più task in alto`,
+                    label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Più task</>,
+                  },
+                  { value: "name", title: "Ordine alfabetico", label: <><Icon name="list" className="w-3.5 h-3.5" />A–Z</> },
+                ]}
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">Scadenza</span>
+            <SegmentedSwitch
+              value={deadlineDir}
+              onChange={setDeadlineDir}
+              ariaLabel="Ordina per scadenza"
+              buttonClassName="wl-segmented-btn--view"
+              options={[
+                { value: "asc", title: "Crescente: prima le scadenze più vicine", label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Crescente</> },
+                { value: "desc", title: "Decrescente: prima le scadenze più lontane", label: <><Icon name="arrows-v" className="w-3.5 h-3.5" />Decrescente</> },
+              ]}
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    let body: ReactNode;
+    let sectionIcon: IconName = "users";
+    let sectionTitle = "Lavorazioni per operatore";
+    let sectionSub = `${usersArr.length} operatori · ${formatDayLabel(targetDate)}`;
+
+    const opName = (op: any) => (op.full_name || op.username || "").toString();
+
+    if (listGroupBy === "operator") {
+      const sortedUsers = [...usersArr].sort((a, b) =>
+        groupSort === "count"
+          ? (b.tasks?.length ?? 0) - (a.tasks?.length ?? 0) || opName(a).localeCompare(opName(b), "it")
+          : opName(a).localeCompare(opName(b), "it"),
+      );
+      const opItems: AccordionItem[] = sortedUsers.map((op: any) => ({ id: `op-${op.user_id}`, data: op }));
+      body = (
+        <Accordion
+          items={opItems}
+          isOpen={Object.fromEntries(opItems.map((i) => [i.id, isGroupOpen(i.id)]))}
+          onToggle={toggleGroup}
+          className="space-y-3"
+          itemClassName="overflow-hidden rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316]"
+          headerClassName="flex items-center gap-3 px-3 py-2.5 hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          contentClassName="border-t border-line dark:border-[#2a2a2e] p-3"
+          chevronClassName="w-4 h-4 flex-shrink-0 text-muted dark:text-muted-dark transition-transform"
+          renderHeader={(op: any) => {
+            // Ore STIMATE delle task = dimensione reale del lavoro. Diverso dal peso sul
+            // carico, che per le task in revisione vale 0 sull'operatore.
+            const estHours = (op.tasks ?? []).reduce((s: number, t: any) => s + (t.estimated_hours ?? 0), 0);
+            return (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {op.avatar_url ? (
+                    <img src={op.avatar_url} alt={op.full_name || op.username} className="h-8 w-8 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-paper dark:bg-paper dark:text-ink text-[11px] font-bold">
+                      {(op.full_name || op.username).split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("")}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-ink dark:text-paper">{op.full_name || op.username}</div>
+                    <div className="text-[11px] text-muted dark:text-muted-dark">
+                      {op.tasks_completed}/{op.tasks_total} completate · {op.completion_rate_percent.toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-none items-center gap-2 text-[11px] text-muted dark:text-muted-dark">
+                  <span>{(op.tasks ?? []).length} task</span>
+                  <span>·</span>
+                  <span title="Somma delle ore stimate delle task">{fmtRecapHours(estHours)}h stimate</span>
+                  <span
+                    className={`wl-acc-load ${loadClass(op.load_percent)}`}
+                    title="Carico giornaliero: ore pianificate oggi ÷ capacità del giorno. Le task in revisione non pesano sull'operatore (pesano 0,25 sul revisore)."
+                  >
+                    Carico {op.load_percent.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            );
+          }}
+          renderContent={(op: any) =>
+            (op.tasks ?? []).length === 0 ? (
+              <div className="wl-acc-empty">Nessuna task</div>
+            ) : (
+              <div className="wl-acc-tasks">
+                {sortByDeadline(op.tasks ?? [], (t: any) => t, deadlineDir).map((t: any) =>
+                  renderExtendedTaskRow(t, t.client_name),
+                )}
+              </div>
+            )
+          }
+        />
+      );
+    } else if (listGroupBy === "client") {
+      // Raggruppa per cliente, deduplicando le task e raccogliendo gli operatori.
+      const byClient = new Map<string, { clientName: string; tasks: Map<number, { task: any; operators: Set<string> }> }>();
+      for (const op of usersArr) {
+        const opName = op.full_name || op.username;
+        for (const t of op.tasks ?? []) {
+          const key = t.client_id != null ? `c${t.client_id}` : `n:${t.client_name ?? ""}`;
+          let g = byClient.get(key);
+          if (!g) { g = { clientName: t.client_name || "Senza cliente", tasks: new Map() }; byClient.set(key, g); }
+          let entry = g.tasks.get(t.work_item_id);
+          if (!entry) { entry = { task: t, operators: new Set() }; g.tasks.set(t.work_item_id, entry); }
+          entry.operators.add(opName);
+        }
+      }
+      const clientGroups = [...byClient.values()]
+        .map((g) => ({ clientName: g.clientName, tasks: [...g.tasks.values()] }))
+        .sort((a, b) =>
+          groupSort === "count"
+            ? b.tasks.length - a.tasks.length || a.clientName.localeCompare(b.clientName, "it")
+            : a.clientName.localeCompare(b.clientName, "it"),
+        );
+
+      sectionIcon = "building";
+      sectionTitle = "Lavorazioni per cliente";
+      sectionSub = `${clientGroups.length} clienti · ${formatDayLabel(targetDate)}`;
+      const clientItems: AccordionItem[] = clientGroups.map((g) => ({ id: `cl-${g.clientName}`, data: g }));
+      body = (
+        <Accordion
+          items={clientItems}
+          isOpen={Object.fromEntries(clientItems.map((i) => [i.id, isGroupOpen(i.id)]))}
+          onToggle={toggleGroup}
+          className="space-y-3"
+          itemClassName="overflow-hidden rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#131316]"
+          headerClassName="flex items-center gap-3 px-3 py-2.5 hover:bg-cream dark:hover:bg-[#1c1c20] transition-colors"
+          contentClassName="border-t border-line dark:border-[#2a2a2e] p-3"
+          chevronClassName="w-4 h-4 flex-shrink-0 text-muted dark:text-muted-dark transition-transform"
+          renderHeader={(g: any) => {
+            const gHours = g.tasks.reduce((s: number, e: any) => s + (e.task.estimated_hours ?? 0), 0);
+            return (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                <div className="inline-flex min-w-0 items-center gap-2 text-sm font-bold text-ink dark:text-paper">
+                  <Icon name="building" className="h-4 w-4 flex-shrink-0 text-muted dark:text-muted-dark" />
+                  <span className="truncate">{g.clientName}</span>
+                </div>
+                <div className="flex flex-none items-center gap-2 text-[11px] text-muted dark:text-muted-dark">
+                  <span className="inline-flex items-center gap-1"><Icon name="list" className="h-3 w-3" /> {g.tasks.length} task</span>
+                  <span>·</span>
+                  <span className="inline-flex items-center gap-1" title="Somma delle ore stimate delle task">
+                    <Icon name="activity" className="h-3 w-3" /> {fmtRecapHours(gHours)}h stimate
+                  </span>
+                </div>
+              </div>
+            );
+          }}
+          renderContent={(g: any) => (
+            <div className="wl-acc-tasks">
+              {sortByDeadline(g.tasks, (e: any) => e.task, deadlineDir).map(({ task, operators }: any) =>
+                renderExtendedTaskRow(task, [...operators].join(", ")),
+              )}
+            </div>
+          )}
+        />
+      );
+    } else {
+      // Elenco UNICO (nessun raggruppamento): task deduplicata + avatar operatori
+      // nella card. Ordinabile per scadenza o per titolo.
+      const flat = new Map<number, { task: any; operators: Array<{ id: number; name: string; avatar_url?: string | null }> }>();
+      for (const op of usersArr) {
+        const info = { id: op.user_id, name: op.full_name || op.username, avatar_url: op.avatar_url };
+        for (const t of op.tasks ?? []) {
+          let e = flat.get(t.work_item_id);
+          if (!e) { e = { task: t, operators: [] }; flat.set(t.work_item_id, e); }
+          if (!e.operators.some((o) => o.id === info.id)) e.operators.push(info);
+        }
+      }
+      const list = sortByDeadline([...flat.values()], (e) => e.task, deadlineDir);
+      sectionIcon = "list";
+      sectionTitle = "Elenco unico";
+      sectionSub = `${uniqueCount} lavorazioni · ${formatDayLabel(targetDate)}`;
+      body = (
+        <div className="wl-acc-tasks">
+          {list.map(({ task, operators }) =>
+            renderExtendedTaskRow(
+              task,
+              task.client_name,
+              operators.map((o) => ({ name: o.name, avatarUrl: o.avatar_url })),
+            ),
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        {kpi}
+        {groupToggle}
+        <AgSection icon={sectionIcon} title={sectionTitle} sub={sectionSub}>
+          {body}
+        </AgSection>
       </div>
     );
   };
@@ -434,12 +827,32 @@ export function DailyTasksPage() {
       );
     }
 
+    // KPI del giorno (lavorazioni deduplicate: una task multi-assegnatario conta una volta).
+    const dedup = new Map<number, any>();
+    for (const u of users) for (const t of u.tasks ?? []) if (!dedup.has(t.work_item_id)) dedup.set(t.work_item_id, t);
+    const dedupedTasks = [...dedup.values()];
+
     const accordionItems: AccordionItem[] = users.map((operatore: any) => ({
       id: operatore.user_id,
       data: operatore,
     }));
 
     return (
+      <div>
+        <div className="ag-kpis">
+          <AgKpi label="Lavorazioni" value={String(dedupedTasks.length)} />
+          <AgKpi
+            label="Completate"
+            value={String(dedupedTasks.filter((t) => Boolean(t.is_completed)).length)}
+            tone="mint"
+          />
+          <AgKpi label="Operatori" value={String(users.length)} />
+          <AgKpi
+            label="Ore stimate"
+            value={`${fmtRecapHours(dedupedTasks.reduce((s, t) => s + (t.effective_load_hours ?? 0), 0))}h`}
+          />
+        </div>
+        <AgSection icon="users" title="Carico del team" sub={`${users.length} operatori · ${formatDayLabel(targetDate)}`}>
       <Accordion
         items={accordionItems}
         isOpen={expandedUsers}
@@ -507,7 +920,7 @@ export function DailyTasksPage() {
                 {operatore.tasks.map((task: any) => {
                   // Workload endpoints can expose PED with either is_ped or is_PED.
                   const effective = typeof task.effective_load_hours === "number" ? task.effective_load_hours : 0;
-                  const hoursLabel = `${effective}h${task.estimated_hours != null ? ` / ${task.estimated_hours}h` : ""}`;
+                  const hoursLabel = `${formatDurationHuman(effective)}${task.estimated_hours != null ? ` / ${formatDurationHuman(task.estimated_hours)}` : ""}`;
                   return (
                     <AccLaneTaskCard
                       key={task.work_item_id}
@@ -516,8 +929,10 @@ export function DailyTasksPage() {
                       timeLabel={task.start_time || null}
                       clientName={task.client_name}
                       status={`${Math.round(task.progress_percent ?? 0)}%`}
+                    statusBadges={taskStatusBadges(task)}
                       areaColor={task.work_areas?.[0]?.color ?? null}
                       isPed={Boolean(task.is_PED ?? task.is_ped)}
+                      isMaintenance={task.task_type === "website_maintenance"}
                       priority={Boolean(task.is_priority)}
                       completed={Boolean(task.is_completed)}
                       leftBehind={Boolean(task.is_left_behind)}
@@ -533,87 +948,80 @@ export function DailyTasksPage() {
           )
         }
       />
+        </AgSection>
+      </div>
     );
   };
 
   return (
     <div className="px-6 py-8 pb-20 mx-auto w-full animate-fadeIn">
       <PageSectionHeader
-        eyebrow="Operazioni"
-        eyebrowIcon={<Icon name="activity" className="w-3.5 h-3.5" />}
+        icon={<Icon name="activity" className="w-6 h-6" />}
         title="Attività del giorno"
-        lead="Panoramica completa delle task per oggi"
       />
 
       <div className="dt-toolbar-shell mb-5">
         <div className="dt-toolbar-row-single">
-          <div className="dt-toolbar-left">
-            <button
-              type="button"
-              onClick={() => setTargetDate((current) => shiftIsoByDays(current, -1))}
-              className="wl-nav-btn"
-              aria-label="Giorno precedente"
-            >
-              <Icon name="chevron-right" className="h-4 w-4 rotate-180" />
+          <div className="dt-toolbar-left gap-2.5">
+            <div className="ag-tgroup">
+              <button
+                type="button"
+                onClick={() => setTargetDate((current) => shiftIsoByDays(current, -1))}
+                className="ag-tbtn ag-tbtn--nav"
+                aria-label="Giorno precedente"
+              >
+                <Icon name="chevron-right" className="rotate-180" />
+              </button>
+
+              <span className="ag-tgroup-lbl">{formatDayLabel(targetDate)}</span>
+
+              <button
+                type="button"
+                onClick={() => setTargetDate((current) => shiftIsoByDays(current, 1))}
+                className="ag-tbtn ag-tbtn--nav"
+                aria-label="Giorno successivo"
+              >
+                <Icon name="chevron-right" />
+              </button>
+            </div>
+
+            <button type="button" className="ag-tbtn" onClick={() => setTargetDate(getTodayDate())}>
+              <Icon name="calendar" /> Oggi
             </button>
 
-            <div className="wl-range-label">{formatDayLabel(targetDate)}</div>
-
             <button
               type="button"
-              onClick={() => setTargetDate((current) => shiftIsoByDays(current, 1))}
-              className="wl-nav-btn"
-              aria-label="Giorno successivo"
-            >
-              <Icon name="chevron-right" className="h-4 w-4" />
-            </button>
-
-            <button type="button" className="wl-today-btn" onClick={() => setTargetDate(getTodayDate())}>
-              Oggi
-            </button>
-
-            <button
-              type="button"
-              className="wl-ghost-btn wl-ghost-btn--icon"
+              className="ag-tbtn ag-tbtn--sq"
               onClick={() => void loadData()}
               title="Aggiorna"
               aria-label="Aggiorna"
             >
-              <Icon name="refresh-cw" className="w-3.5 h-3.5" />
+              <Icon name="refresh-cw" />
             </button>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Icon name="plus" className="w-3.5 h-3.5" />}
+            <button
+              type="button"
+              className="ag-tbtn ag-tbtn--accent"
               onClick={() => setQuickTaskModalOpen(true)}
               disabled={companyId == null}
-              className="!rounded-full"
             >
-              Task rapida
-            </Button>
+              <Icon name="plus" /> Task rapida
+            </button>
           </div>
 
           {canSeeTeam && (
             <div className="dt-toolbar-right">
-              <div className="wl-segmented wl-segmented--view">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("self")}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === "self" ? "is-active" : ""}`}
-                >
-                  <Icon name="user-circle" className="w-3.5 h-3.5" />
-                  Mie task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("admin")}
-                  className={`wl-segmented-btn wl-segmented-btn--view ${viewMode === "admin" ? "is-active" : ""}`}
-                >
-                  <Icon name="users" className="w-3.5 h-3.5" />
-                  Team
-                </button>
-              </div>
+              <SegmentedSwitch
+                value={viewMode}
+                onChange={setViewMode}
+                ariaLabel="Vista attività del giorno"
+                buttonClassName="wl-segmented-btn--view"
+                options={[
+                  { value: "list", label: <><Icon name="list" className="w-3.5 h-3.5" />Elenco</> },
+                  { value: "admin", label: <><Icon name="users" className="w-3.5 h-3.5" />Team</> },
+                  { value: "self", label: <><Icon name="user-circle" className="w-3.5 h-3.5" />Mie task</> },
+                ]}
+              />
             </div>
           )}
         </div>
@@ -625,7 +1033,7 @@ export function DailyTasksPage() {
         </div>
       )}
 
-      {renderLoadLegend()}
+      {viewMode !== "list" && renderLoadLegend()}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -633,6 +1041,8 @@ export function DailyTasksPage() {
         </div>
       ) : viewMode === "self" ? (
         renderSelfView()
+      ) : viewMode === "list" ? (
+        renderListView()
       ) : (
         renderAdminView()
       )}
@@ -654,7 +1064,6 @@ export function DailyTasksPage() {
         }}
         editingItem={editingItem}
         companyId={companyId ?? 0}
-        isAdmin={isAdmin}
         onSaved={() => {
           setWorkItemModalOpen(false);
           setEditingItem(null);

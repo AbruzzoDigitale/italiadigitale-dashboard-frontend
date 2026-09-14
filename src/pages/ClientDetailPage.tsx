@@ -6,6 +6,7 @@ import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { ClientModal } from "../components/clients/ClientModal";
 import { ClientFullDetails } from "../components/clients/ClientFullDetails";
+import { ClientSocialFeed } from "../features/social/ClientSocialFeed";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 
@@ -162,6 +163,8 @@ export function ClientDetailPage() {
       </div>
 
       <ClientFullDetails client={client} />
+
+      <ClientSocialFeed clientId={client.id} />
 
       {/* ── Edit modal ── */}
       <ClientModal

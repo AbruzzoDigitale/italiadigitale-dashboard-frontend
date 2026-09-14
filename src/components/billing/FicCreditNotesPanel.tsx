@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  archiveCreditNoteCheckApi,
   getCreditNoteCheckApi,
   listCreditNoteChecksApi,
   runCreditNoteCheckApi,
@@ -76,16 +77,47 @@ export function FicCreditNotesPanel() {
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<CreditNoteCheck | null>(null);
   const [history, setHistory] = useState<CreditNoteCheck[]>([]);
+  // Storico: vista "archiviate" e voce in uscita (per l'animazione).
+  const [showArchived, setShowArchived] = useState(false);
+  const [exitingCheck, setExitingCheck] = useState<number | null>(null);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
 
-  const reloadHistory = () => {
-    listCreditNoteChecksApi()
-      .then((r) => setHistory(r.runs))
-      .catch(() => setHistory([]));
-  };
+  const reloadHistory = useCallback(() => {
+    listCreditNoteChecksApi(showArchived)
+      .then((r) => {
+        setHistory(r.runs);
+        setHistoryErr(null);
+      })
+      .catch((e: Error) => {
+        // Meglio dire che lo storico non si è caricato: una lista vuota per un
+        // errore del server sembra "non c'è più niente".
+        setHistory([]);
+        setHistoryErr(e.message);
+      });
+  }, [showArchived]);
 
   useEffect(() => {
     reloadHistory();
-  }, []);
+  }, [reloadHistory]);
+
+  /**
+   * Archivia (o ripristina) una verifica dello storico: esce dall'elenco ma
+   * resta consultabile, nulla viene cancellato.
+   */
+  const onArchiveCheck = async (h: CreditNoteCheck, archived: boolean) => {
+    setExitingCheck(h.id);
+    try {
+      await archiveCreditNoteCheckApi(h.id, archived);
+      window.setTimeout(() => {
+        setHistory((prev) => prev.filter((r) => r.id !== h.id));
+        setExitingCheck(null);
+      }, 320);
+      toast.success(archived ? 'Verifica archiviata — la trovi in "Mostra archiviate".' : "Verifica ripristinata.");
+    } catch (err) {
+      setExitingCheck(null);
+      toast.error(err instanceof Error ? err.message : "Impossibile archiviare la verifica");
+    }
+  };
 
   const onRun = async () => {
     setBusy(true);
@@ -150,20 +182,55 @@ export function FicCreditNotesPanel() {
         </div>
       )}
 
-      {history.length > 0 && (
+      {historyErr ? (
         <div className="fr-history">
           <div className="fr-history-label">Verifiche recenti</div>
+          <div className="fr-hist-err">
+            <Icon name="alert-triangle" className="h-[14px] w-[14px]" />
+            Storico non caricato: {historyErr}
+            <button type="button" className="fr-hi-toggle" onClick={reloadHistory}>
+              Riprova
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!historyErr && (history.length > 0 || showArchived) && (
+        <div className="fr-history">
+          <div className="fr-history-label">
+            {showArchived ? "Verifiche archiviate" : "Verifiche recenti"}
+            <button type="button" className="fr-hi-toggle" onClick={() => setShowArchived((v) => !v)}>
+              {showArchived ? "Torna alle recenti" : "Mostra archiviate"}
+            </button>
+          </div>
           <div className="fr-history-list">
             {history.map((h) => (
-              <button key={h.id} className="fr-history-item" onClick={() => openRun(h.id)}>
-                <span className="fr-hi-meta">
-                  {dateIt(h.created_at)} · anni {h.anni ?? "—"}
-                </span>
-                <span className="fr-hi-file">
-                  {h.note_totali} note · {h.note_scollegate} senza collegamento
-                </span>
-              </button>
+              <div key={h.id} className={"fr-history-item" + (exitingCheck === h.id ? " is-exiting" : "")}>
+                <button type="button" className="fr-hi-open" onClick={() => openRun(h.id)} disabled={busy}>
+                  <span className="fr-hi-meta">
+                    {dateIt(h.created_at)} · anni {h.anni ?? "—"}
+                  </span>
+                  <span className="fr-hi-file">
+                    {h.note_totali} note · {h.note_scollegate} senza collegamento
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="fr-hi-archive"
+                  disabled={busy}
+                  onClick={() => void onArchiveCheck(h, !showArchived)}
+                  title={
+                    showArchived
+                      ? "Rimetti questa verifica tra le recenti"
+                      : "Togli dall'elenco (resta archiviata, non viene cancellata)"
+                  }
+                >
+                  <Icon name={showArchived ? "refresh-cw" : "archive"} className="h-3.5 w-3.5" />
+                  {showArchived ? "Ripristina" : "Archivia"}
+                </button>
+              </div>
             ))}
+            {!history.length ? <div className="fr-empty">Nessuna verifica archiviata.</div> : null}
           </div>
         </div>
       )}

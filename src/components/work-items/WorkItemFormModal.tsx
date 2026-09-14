@@ -1,22 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import {
   createWorkItemApi,
+  joinWorkItemApi,
   instantiateWorkItemTemplateApi,
   isWorkItemOverlapApiError,
   listWorkItemsApi,
   rescheduleNextAvailableWorkItemApi,
   updateWorkItemApi,
+  setAwaitingPublishApi,
   listWorkTagsApi,
   createTimeSlotApi,
   updateTimeSlotApi,
   deleteTimeSlotApi,
   isReviewSendBack,
+  uploadWorkItemAttachmentApi,
+  getWorkItemAttachmentDownloadUrlApi,
+  deleteWorkItemAttachmentApi,
+  updateWorkItemAttachmentApi,
+  attachmentDisplayName,
   type WorkItem,
+  type WorkItemVisibility,
+  type WorkItemAttachment,
   type WorkItemStatus,
   type UrgencyLevel,
   type LeftBehindReason,
   type WorkItemRecurrenceType,
+  type WorkItemTaskType,
   type TimeSlot,
   type CreateWorkItemPayload,
   type WorkTag,
@@ -27,30 +37,55 @@ import {
   checkWorkItemOverbookingApi,
   type OverbookingCheckResponse,
 } from "../../api/workload";
+import { getWorkloadWeightsApi } from "../../api/workloadWeights";
 import { listWorkAreasApi, type WorkArea } from "../../api/workAreas";
 import { getUsersApi, type User } from "../../api/users";
 import { getClientsApi, type Client } from "../../api/clients";
+import { findClientMatchInTitle } from "../../utils/clientTitleMatch";
+import { getUiPreferencesApi, saveUiPreferenceApi } from "../../api/preferences";
 import { listPedConfigurationsApi, type PedConfiguration } from "../../api/pedConfigurations";
 import { ClientSelectorWithCreate } from "../clients/ClientSelectorWithCreate";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Modal } from "../ui/Modal";
+import { Modal, clearModalDraft } from "../ui/Modal";
 import { Icon } from "../ui/Icon";
 import { SectionCard } from "../ui/SectionCard";
 import { FieldHelpPopover } from "../ui/FieldHelpPopover";
 import { EstimatedHoursField } from "../ui/EstimatedHoursField";
-import { LoadWeightField } from "../ui/LoadWeightField";
+// Peso della task ora gestito interamente dalle revisioni (macchina a stati): slider nascosto.
+// import { LoadWeightField } from "../ui/LoadWeightField";
+import { formatDurationHuman } from "../../utils/duration";
 import { MultiSelect } from "../ui/MultiSelect";
 import { SearchableSelect } from "../ui/SearchableSelect";
+import { listSocialProfilesApi, socialProfileLabel, type SocialProfile } from "../../api/socialProfiles";
+import { SocialIcon } from "../social/SocialIcon";
 import { Checkbox } from "../ui/Checkbox";
 import { Textarea } from "../ui/Textarea";
+import { Linkify } from "../ui/Linkify";
+import { RichTextEditor, type RichTextEditorHandle } from "../ui/RichTextEditor";
+import { TaskAttachmentsBar } from "./TaskAttachmentsBar";
+import { TaskFormsTab } from "../../features/forms/TaskFormsTab";
+import { listWebsitesApi, websiteLabel, type Website } from "../../api/websites";
+import { ActionButton } from "../../features/button-actions/ActionButton";
+import { useConfigurableButton } from "../../features/button-actions/useConfigurableButton";
+import { toEditorHtml } from "../../utils/descriptionHtml";
+import { MAINTENANCE_TASK_TYPE, isMaintenanceTitle, withMaintenancePrefix } from "../../utils/maintenance";
+import { TaskSettingsModal } from "./TaskSettingsModal";
+import { AWAITING_PUBLISH_BADGE } from "../../utils/taskStatus";
 import { WorkAreaCreateModal } from "../work-taxonomy/WorkAreaCreateModal";
 import { WorkTagCreateModal } from "../work-taxonomy/WorkTagCreateModal";
 import { OverbookingModal } from "./OverbookingModal";
 import { useToast } from "../../context/ToastContext";
 import { useWorkItemDetail } from "../../hooks/useWorkItemDetail";
 import { ReviewTab, type ReviewTabHandle } from "../review/ReviewTab";
-import { detectResourceType } from "../../utils/taskResources";
+import { TaskMonitoringTab } from "../../features/social/TaskMonitoringTab";
+import { getMonitorForWorkItemApi } from "../../api/socialMonitors";
+import {
+  deriveReviewPhase,
+  reviewPhaseButtons,
+  type ReviewActionKey,
+} from "../review/reviewFlow";
+import { detectResourceType, isHttpResourceUrl } from "../../utils/taskResources";
 import { ResourceIcon } from "./ResourceIcon";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -161,6 +196,12 @@ const WORKLOAD_FIELD_HELP = {
     longText:
       "Usato quando una task non è stata svolta nel giorno previsto: permette di indicare la responsabilità e di gestirne il peso residuo.",
   },
+  visibility: {
+    title: "Visibilità",
+    shortText: "Chi trova la lavorazione sfogliando l'elenco.",
+    longText:
+      "Pubblica per l'area: gli operatori delle aree della task la vedono attivando \"Lavorazioni della mia area\" e, se sono scarichi, possono dare una mano. Privata: la trovano solo assegnatari e revisore. In entrambi i casi PM e admin la vedono sempre, perché devono poterla pianificare e revisionare.",
+  },
   is_fractionable: {
     title: "Suddivisione attività",
     shortText: "Se attivo, la task può essere spezzata in più blocchi.",
@@ -229,6 +270,7 @@ interface WorkItemFormState {
   due_time_label: string;
   estimated_hours: string;
   is_fractionable: boolean;
+  visibility: WorkItemVisibility;
   is_deadline_locked: boolean;
   affects_daily_load: boolean;
   load_weight_factor: string;
@@ -243,6 +285,8 @@ interface WorkItemFormState {
   assignee_ids: number[];
   work_area_ids: number[];
   tag_ids: number[];
+  social_profile_ids: number[];
+  website_ids: number[];
   client_id: string;
   is_recurring: boolean;
   recurrence_type: "" | WorkItemRecurrenceType;
@@ -251,7 +295,10 @@ interface WorkItemFormState {
   recurrence_until: string;
   generate_recurrences: boolean;
   generation_end_date: string;
+  /** Tipo della task: "website_maintenance" per le manutenzioni sito. */
+  task_type: WorkItemTaskType;
   is_ped: boolean;
+  link_ped: string;
   ped_mode: "existing" | "new";
   ped_configuration_id: string;
   ped_monthly_publications_total: string;
@@ -302,6 +349,7 @@ const EMPTY_FORM: WorkItemFormState = {
   due_time_label: "",
   estimated_hours: "",
   is_fractionable: true,
+  visibility: "area",
   is_deadline_locked: false,
   affects_daily_load: true,
   load_weight_factor: "1",
@@ -316,6 +364,8 @@ const EMPTY_FORM: WorkItemFormState = {
   assignee_ids: [],
   work_area_ids: [],
   tag_ids: [],
+  social_profile_ids: [],
+  website_ids: [],
   client_id: "",
   is_recurring: false,
   recurrence_type: "",
@@ -324,7 +374,9 @@ const EMPTY_FORM: WorkItemFormState = {
   recurrence_until: "",
   generate_recurrences: false,
   generation_end_date: "",
+  task_type: "standard",
   is_ped: false,
+  link_ped: "",
   ped_mode: "existing",
   ped_configuration_id: "",
   ped_monthly_publications_total: "",
@@ -356,7 +408,14 @@ const EMPTY_SLOT: SlotFormState = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtHours(n: number): string {
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function workItemEventLabel(eventType: string, fieldName?: string | null): string {
@@ -380,6 +439,14 @@ function workItemEventLabel(eventType: string, fieldName?: string | null): strin
       return "Inviata al cliente";
     case "review_unsent_to_client":
       return "Consegna al cliente annullata";
+    case "review_approved_internally":
+      return "Approvata internamente";
+    case "review_approved_by_client":
+      return "Approvata dal cliente";
+    case "review_approved":
+      return "Messa in pubblicazione";
+    case "review_reopened":
+      return "Tornata in revisione";
     case "review_send_back":
       return "Rimandata a correggere";
     case "work_item_date_moved":
@@ -484,10 +551,29 @@ export interface WorkItemFormModalProps {
   onClose: () => void;
   editingItem?: WorkItem | null;
   instantiateTemplate?: WorkItem | null;
+  /**
+   * Azienda con cui popolare le tendine (utenti, aree, tag, clienti, PED).
+   * In modifica vince sempre l'azienda della lavorazione: le opzioni devono essere
+   * quelle a cui la task appartiene, non quelle della pagina da cui la si è aperta.
+   */
   companyId: number;
-  isAdmin: boolean;
+  /**
+   * I tre permessi qui sotto sono facoltativi: se non li passi il modal li ricava
+   * da solo dalla sessione, con le stesse formule ovunque. Passali solo per
+   * RESTRINGERE di proposito. Prima li calcolava ogni pagina e divergevano.
+   */
+  isAdmin?: boolean;
   /** PM/Admin: può nominare/cambiare il revisore. */
   canManageReviewer?: boolean;
+  /** Può inviare/annullare l'invio al cliente (admin/PM o operatore abilitato). */
+  canSendToClient?: boolean;
+  /**
+   * Apre il modal direttamente sulla scheda Revisione, a prescindere dallo stato
+   * della task. Lo usa il deep-link `?review=1` delle notifiche di revisione: il
+   * commento che ha generato l'avviso può stare anche su una task rimandata
+   * indietro o già approvata, dove il solo stato non basterebbe a decidere.
+   */
+  openOnReview?: boolean;
   /** Pre-fill work_date when creating */
   defaultWorkDate?: string;
   /** Pre-fill start_time when creating */
@@ -506,16 +592,117 @@ export interface WorkItemFormModalProps {
   onSaved: (savedItem?: WorkItem) => void;
 }
 
+// ── Schede del modal modifica (layout affiancato personalizzabile) ─────────────
+/**
+ * Sostituisce nei chip della descrizione gli id temporanei dei file in attesa con
+ * quelli veri assegnati dal server dopo l'upload. I chip hanno la forma
+ * `<span class="wi-attach-badge" data-attachment-id="-1" …>`: si tocca solo
+ * l'attributo, il resto del markup resta com'è.
+ */
+function riscriviChipAllegati(html: string, idReali: Map<number, number>): string {
+  if (!html || idReali.size === 0) return html;
+  return html.replace(/data-attachment-id="(-\d+)"/g, (intero, grezzo: string) => {
+    const vero = idReali.get(Number(grezzo));
+    return vero != null ? `data-attachment-id="${vero}"` : intero;
+  });
+}
+
+/** Un file scelto in creazione, in attesa della task a cui appartenere. */
+interface PendingFile {
+  /** Id temporaneo negativo: identifica il chip nella descrizione prima dell'upload. */
+  tempId: number;
+  file: File;
+}
+
+type WiTabId = "dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline" | "monitoraggio" | "moduli";
+const WI_TAB_LABEL: Record<WiTabId, string> = {
+  dettagli: "Dettagli",
+  assegnazioni: "Assegnazioni & Tag",
+  checklist: "Checklist & PED",
+  revisione: "Revisione",
+  timeline: "Timeline eventi",
+  monitoraggio: "Monitoraggio",
+  moduli: "Moduli",
+};
+const WI_TAB_ORDER: WiTabId[] = ["dettagli", "assegnazioni", "checklist", "revisione", "timeline", "monitoraggio", "moduli"];
+const DEFAULT_WI_LAYOUT: { left: WiTabId[]; right: WiTabId[] } = {
+  left: ["dettagli", "assegnazioni", "checklist"],
+  right: ["revisione", "timeline"],
+};
+// Sanifica il layout salvato: solo id validi, nessun duplicato, tutte le schede
+// presenti (le mancanti finiscono a sinistra).
+function normalizeWiLayout(raw: unknown): { left: WiTabId[]; right: WiTabId[] } {
+  const valid = new Set(WI_TAB_ORDER);
+  const seen = new Set<WiTabId>();
+  const clean = (arr: unknown): WiTabId[] => {
+    if (!Array.isArray(arr)) return [];
+    const out: WiTabId[] = [];
+    for (const x of arr) {
+      if (typeof x === "string" && valid.has(x as WiTabId) && !seen.has(x as WiTabId)) {
+        seen.add(x as WiTabId);
+        out.push(x as WiTabId);
+      }
+    }
+    return out;
+  };
+  const obj = raw && typeof raw === "object" ? (raw as { left?: unknown; right?: unknown }) : {};
+  const left = clean(obj.left);
+  const right = clean(obj.right);
+  for (const t of WI_TAB_ORDER) if (!seen.has(t)) left.push(t);
+  return { left, right };
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
+
+/**
+ * Tinte dei suggerimenti di collegamento, una per tipo. Classi scritte per
+ * intero perché Tailwind le cerca nel sorgente: comporle a runtime non funziona.
+ */
+const SUGGEST_TONES = {
+  cliente: {
+    box: "border-brand-magenta/40 bg-brand-magenta/5",
+    pastiglia: "bg-brand-magenta/15 text-brand-magenta",
+    pulsante: "bg-brand-magenta",
+    hover: "hover:bg-brand-magenta/10",
+    pallino: "bg-brand-magenta",
+  },
+  social: {
+    box: "border-brand-cyan/40 bg-brand-cyan/5",
+    pastiglia: "bg-brand-cyan/15 text-brand-cyan",
+    pulsante: "bg-brand-cyan",
+    hover: "hover:bg-brand-cyan/10",
+    pallino: "bg-brand-cyan",
+  },
+  sito: {
+    box: "border-[#0d9488]/45 bg-[#0d9488]/[0.07] dark:bg-[#0d9488]/[0.14]",
+    pastiglia: "bg-[#0d9488]/20 text-[#0f766e] dark:text-[#5eead4]",
+    pulsante: "bg-[#0f766e]",
+    hover: "hover:bg-[#0d9488]/10",
+    pallino: "bg-[#0d9488]",
+  },
+} as const;
+
+interface SuggestSlide {
+  key: string;
+  tone: keyof typeof SUGGEST_TONES;
+  icon: ReactNode;
+  /** Etichetta per il pallino e per gli screen reader. */
+  label: string;
+  body: ReactNode;
+  onLink: () => void;
+  onDismiss: () => void;
+}
 
 export function WorkItemFormModal({
   open,
   onClose,
   editingItem = null,
   instantiateTemplate = null,
-  companyId,
-  isAdmin,
-  canManageReviewer = false,
+  companyId: companyIdProp,
+  isAdmin: isAdminProp,
+  canManageReviewer: canManageReviewerProp,
+  canSendToClient: canSendToClientProp,
+  openOnReview = false,
   defaultWorkDate,
   defaultStartTime,
   defaultEstimatedHours,
@@ -525,6 +712,19 @@ export function WorkItemFormModal({
 }: WorkItemFormModalProps) {
   const toast = useToast();
   const hydratedFormKeyRef = useRef<string | null>(null);
+  // Tipo con cui la task è stata aperta: ci torniamo togliendo la manutenzione.
+  const baseTaskTypeRef = useRef<WorkItemTaskType>("standard");
+  // Allegati (file su cloud storage). In modifica si caricano subito; in creazione
+  // restano "in attesa" e vengono caricati dopo il salvataggio della task.
+  const [attachments, setAttachments] = useState<WorkItemAttachment[]>([]);
+  // File scelti prima che la task esista. Ognuno riceve un id NEGATIVO stabile:
+  // serve a poterlo già inserire come chip nella descrizione, dove il chip è
+  // identificato da un id. Gli id veri sono positivi, quindi non collidono mai, e
+  // al salvataggio i negativi vengono riscritti con quelli assegnati dal server.
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const pendingIdRef = useRef(-1);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   // Traccia per quale task è già stata applicata l'apertura automatica sulla scheda Revisione.
   const reviewTabAppliedForRef = useRef<number | null>(null);
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(editingItem?.id ?? null);
@@ -559,8 +759,54 @@ export function WorkItemFormModal({
 
   // ── Scheda attiva nel layout di creazione singola
   const [createTab, setCreateTab] = useState<"dettagli" | "tag" | "template">("dettagli");
-  // ── Scheda attiva nel layout di modifica (mostra tutto, diviso in schede)
-  const [editTab, setEditTab] = useState<"dettagli" | "assegnazioni" | "checklist" | "revisione" | "timeline">("dettagli");
+  // ── Scheda attiva nel layout di modifica singola (una scheda alla volta)
+  const [editTab, setEditTab] = useState<WiTabId>("dettagli");
+  // ── Vista affiancata (split) personalizzabile: le schede si assegnano alla
+  //    colonna sinistra o destra (con ordine) via drag&drop. Preferenze per-utente
+  //    in ui_preferences: work_item_modal_split (bool) + work_item_modal_layout.
+  const [splitView, setSplitView] = useState(false);
+  const [layout, setLayout] = useState<{ left: WiTabId[]; right: WiTabId[] }>(DEFAULT_WI_LAYOUT);
+  const [leftTab, setLeftTab] = useState<WiTabId | null>("dettagli");
+  const [rightTab, setRightTab] = useState<WiTabId | null>("revisione");
+  const [dragTab, setDragTab] = useState<WiTabId | null>(null);
+  // Impostazioni per-task (ingranaggio nell'header, es. sincronizzazione Trello).
+  const [taskSettingsOpen, setTaskSettingsOpen] = useState(false);
+  useEffect(() => {
+    getUiPreferencesApi()
+      .then((p) => {
+        setSplitView(!!p.work_item_modal_split);
+        setLayout(normalizeWiLayout(p.work_item_modal_layout));
+      })
+      .catch(() => {});
+  }, []);
+  // Mantiene valide le schede attive di colonna quando il layout cambia.
+  useEffect(() => {
+    setLeftTab((t) => (t && layout.left.includes(t) ? t : layout.left[0] ?? null));
+    setRightTab((t) => (t && layout.right.includes(t) ? t : layout.right[0] ?? null));
+  }, [layout]);
+  const toggleSplitView = () => {
+    setSplitView((v) => {
+      const next = !v;
+      void saveUiPreferenceApi({ work_item_modal_split: next }).catch(() => {});
+      return next;
+    });
+  };
+  const persistLayout = (next: { left: WiTabId[]; right: WiTabId[] }) => {
+    setLayout(next);
+    void saveUiPreferenceApi({ work_item_modal_layout: next }).catch(() => {});
+  };
+  // Sposta una scheda in una colonna (side) davanti a `beforeId`, o in fondo.
+  const moveTab = (tab: WiTabId, side: "left" | "right", beforeId?: WiTabId | null) => {
+    const left = layout.left.filter((t) => t !== tab);
+    const right = layout.right.filter((t) => t !== tab);
+    const target = side === "left" ? left : right;
+    const idx = beforeId ? target.indexOf(beforeId) : -1;
+    if (idx >= 0) target.splice(idx, 0, tab);
+    else target.push(tab);
+    persistLayout({ left, right });
+    if (side === "left") setLeftTab(tab);
+    else setRightTab(tab);
+  };
   // ── Commento opzionale per il cambio stato (salvato come nota nella timeline)
   const [statusComment, setStatusComment] = useState("");
   // ── Revisore selezionato (PM/Admin). Inizializzato dal dettaglio task.
@@ -568,12 +814,21 @@ export function WorkItemFormModal({
   // ── Scheda Revisione: le azioni ("Rimanda indietro e correggi" / "Salva e concludi")
   //    vivono nel footer del modale e pilotano la ReviewTab via ref imperativo.
   const reviewRef = useRef<ReviewTabHandle>(null);
-  const [reviewAction, setReviewAction] = useState<null | "sendback" | "conclude">(null);
-  const runReviewAction = async (action: "sendback" | "conclude") => {
-    setReviewAction(action);
+  const [reviewAction, setReviewAction] = useState<null | ReviewActionKey>(null);
+  const [statusNavBusy, setStatusNavBusy] = useState(false);
+  const runReviewAction = async (key: ReviewActionKey) => {
+    setReviewAction(key);
     try {
-      if (action === "sendback") await reviewRef.current?.sendBack();
-      else await reviewRef.current?.saveConclude();
+      switch (key) {
+        case "sendToReview": await reviewRef.current?.sendToReview(); break;
+        case "approveInternally": await reviewRef.current?.approveInternally(); break;
+        case "sendToClient": await reviewRef.current?.sendToClient(); break;
+        case "approveClient": await reviewRef.current?.approveClient(); break;
+        case "publish": reviewRef.current?.openPublish(); break;
+        case "complete": await reviewRef.current?.complete(); break;
+        case "reopen": await reviewRef.current?.reopen(); break;
+        case "sendBack": reviewRef.current?.openSendBack(); break;
+      }
     } finally {
       setReviewAction(null);
     }
@@ -586,18 +841,97 @@ export function WorkItemFormModal({
   const [templates, setTemplates] = useState<WorkItem[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [clients, setClients] = useState<Client[]>([]);
+  // Id del cliente suggerito che l'utente ha scartato (per non ri-proporlo).
+  const [clientSuggestDismissed, setClientSuggestDismissed] = useState<number | null>(null);
+  // Id del cliente per cui l'utente ha scartato il suggerimento "collega social".
+  const [socialSuggestDismissed, setSocialSuggestDismissed] = useState<number | null>(null);
+  const [websiteSuggestDismissed, setWebsiteSuggestDismissed] = useState<number | null>(null);
+  // Slide mostrata nel carosello dei suggerimenti di collegamento.
+  const [suggestIndex, setSuggestIndex] = useState(0);
   const [pedConfigs, setPedConfigs] = useState<PedConfiguration[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
 
   // Utente corrente: in creazione la task viene preassegnata a lui con le sue aree.
   // Ref per leggerlo nell'effetto di init senza farlo rientrare nelle dipendenze.
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, permissions } = useAuth();
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
+
+  // ── Azienda e permessi: decisi QUI, non dalla pagina che apre il modal ────────
+  // Ogni pagina se li calcolava per conto suo e il risultato divergeva: da
+  // "Attività del giorno" e "Situazione clienti" revisore e invio al cliente non
+  // arrivavano affatto, e dal Workload l'invio al cliente guardava solo il flag
+  // esplicito, togliendolo ad admin e PM che da Lavorazioni ce l'hanno. Ricavarli
+  // qui è l'unico modo perché il modal si comporti allo stesso modo ovunque.
+  // I prop restano come override, per restringere di proposito.
+  const isAdmin = isAdminProp ?? !!permissions?.is_admin;
+  const canManageReviewer = canManageReviewerProp ?? (isAdmin || !!permissions?.is_project_manager);
+  const canSendToClient = canSendToClientProp ?? (canManageReviewer || !!permissions?.can_send_to_client);
+
+  // In modifica le tendine devono essere quelle dell'azienda della lavorazione:
+  // aprendo una task da una pagina impostata su un'altra azienda, assegnatari,
+  // aree, tag e clienti non contenevano i valori della task.
+  const companyId = editingItem?.company_id ?? companyIdProp;
+
+  // Chiave della bozza: una sola definizione, usata sia dal Modal sia dalla cancellazione
+  // dopo il salvataggio. Legata all'id, cosi' ogni lavorazione ha la sua.
+  const modalDraftId = `work-item:${sourceItem?.id ?? (isInstantiateMode ? `template-${instantiateTemplate?.id ?? "x"}` : "new")}`;
+
+  // "Prendi in carico": l'operatore si aggiunge a una lavorazione pubblica della sua
+  // area che sta guardando dalla vista d'area. Compare solo se non è già dentro e se
+  // può davvero farlo, così non si offre un pulsante che darebbe 403.
+  const [joining, setJoining] = useState(false);
+  const canJoinTask =
+    !!sourceItem &&
+    !canManageReviewer &&
+    (sourceItem.visibility ?? "area") === "area" &&
+    currentUser != null &&
+    !(sourceItem.assignee_ids ?? []).includes(currentUser.id);
+
+  const handleJoin = async () => {
+    if (!sourceItem) return;
+    setJoining(true);
+    try {
+      await joinWorkItemApi(sourceItem.id);
+      toast.success("Ti sei aggiunto alla lavorazione");
+      await refetchDetail();
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile prendere in carico la lavorazione");
+    } finally {
+      setJoining(false);
+    }
+  };
+
+
+  // Scheda Monitoraggio: admin/PM la vedono sempre (in modifica); gli operatori
+  // solo se un monitor è collegato e reso visibile (l'endpoint filtra lato server).
+  const isMonitorManager = !!permissions?.is_admin || !!permissions?.is_project_manager;
+  const [taskMonitorLinked, setTaskMonitorLinked] = useState(false);
+  useEffect(() => {
+    if (!open || !sourceItem || isMonitorManager) {
+      setTaskMonitorLinked(false);
+      return;
+    }
+    let cancelled = false;
+    getMonitorForWorkItemApi(sourceItem.id)
+      .then((m) => !cancelled && setTaskMonitorLinked(!!m))
+      .catch(() => !cancelled && setTaskMonitorLinked(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sourceItem?.id, isMonitorManager]); // eslint-disable-line react-hooks/exhaustive-deps
+  const canSeeMonitorTab = !!sourceItem && (isMonitorManager || taskMonitorLinked);
   const autofilledRef = useRef(false);
 
   // ── Form
   const [form, setForm] = useState<WorkItemFormState>(EMPTY_FORM);
+  // Anteprima → click per modificare (stile Trello) per descrizione, titolo e
+  // cliente: di default in lettura quando la task esiste già, in modifica quando è
+  // nuova/vuota. Impostati all'hydration del form.
+  const [descEditing, setDescEditing] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(true);
+  const [clientEditing, setClientEditing] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -633,14 +967,18 @@ export function WorkItemFormModal({
     }
   }, [open]);
 
-  // Se la task è in revisione, apri direttamente sulla scheda Revisione (una sola
-  // volta per task, quando il dettaglio è arrivato: non forza se poi l'utente cambia tab).
+  // Apri direttamente sulla scheda Revisione se la task è in revisione, oppure se
+  // chi ha aperto il modal lo chiede esplicitamente (`openOnReview`: deep-link di
+  // una notifica di revisione — lì il commento può stare anche su una task
+  // rimandata indietro o già approvata, dove lo stato non basterebbe).
+  // Una sola volta per task, quando il dettaglio è arrivato: non forza se poi
+  // l'utente cambia tab.
   useEffect(() => {
     if (!open || !sourceItem) return;
     if (reviewTabAppliedForRef.current === sourceItem.id) return;
     reviewTabAppliedForRef.current = sourceItem.id;
-    if (sourceItem.status === "review") setEditTab("revisione");
-  }, [open, sourceItem]);
+    if (openOnReview || sourceItem.status === "review") setEditTab("revisione");
+  }, [open, sourceItem, openOnReview]);
 
   // ── Load options when modal opens
   useEffect(() => {
@@ -656,6 +994,76 @@ export function WorkItemFormModal({
     ]).finally(() => setOptionsLoading(false));
   }, [open, companyId]);
 
+  // ── Profili social del cliente selezionato: le opzioni seguono il cliente della
+  // task; al cambio cliente le selezioni non più valide vengono scartate.
+  const [clientSocialProfiles, setClientSocialProfiles] = useState<SocialProfile[]>([]);
+  useEffect(() => {
+    if (!open || !form.client_id) {
+      setClientSocialProfiles([]);
+      return;
+    }
+    let cancelled = false;
+    listSocialProfilesApi({ clientId: Number(form.client_id) })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientSocialProfiles(rows);
+        const validIds = new Set(rows.map((p) => p.id));
+        setForm((current) =>
+          current.social_profile_ids.every((id) => validIds.has(id))
+            ? current
+            : { ...current, social_profile_ids: current.social_profile_ids.filter((id) => validIds.has(id)) }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientSocialProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.client_id]);
+
+  // ── Siti web del cliente selezionato: stesso meccanismo dei profili social.
+  const [clientWebsites, setClientWebsites] = useState<Website[]>([]);
+  useEffect(() => {
+    if (!open) {
+      setClientWebsites([]);
+      return;
+    }
+    let cancelled = false;
+    // Senza cliente carichiamo tutti i siti dell'azienda invece di niente: quasi
+    // nessun sito ha un cliente collegato, e con il selettore nascosto il sito
+    // agganciato alla task (le manutenzioni generate, per dire) sparirebbe.
+    listWebsitesApi(form.client_id ? { clientId: Number(form.client_id) } : { companyId })
+      .then((rows) => {
+        if (cancelled) return;
+        setClientWebsites(rows);
+        const validIds = new Set(rows.map((w) => w.id));
+        setForm((current) =>
+          current.website_ids.every((id) => validIds.has(id))
+            ? current
+            : { ...current, website_ids: current.website_ids.filter((id) => validIds.has(id)) }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClientWebsites([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.client_id, companyId]);
+
+  const websiteOptions = clientWebsites.map((w) => ({
+    id: w.id,
+    label: websiteLabel(w),
+    color: w.website_type_color,
+  }));
+
+  const socialProfileOptions = clientSocialProfiles.map((p) => ({
+    id: p.id,
+    label: `${p.platform_label} · ${socialProfileLabel(p)}`,
+    icon: <SocialIcon platform={p.platform} label={p.platform_label} color={p.platform_color} className="h-5 w-5" />,
+  }));
+
   // Il commento del cambio stato è transitorio: si azzera ad ogni apertura/cambio task.
   useEffect(() => {
     setStatusComment("");
@@ -665,6 +1073,91 @@ export function WorkItemFormModal({
   useEffect(() => {
     setReviewerUserId(sourceItem?.reviewer_user_id ?? null);
   }, [open, activeWorkItemId, sourceItem?.reviewer_user_id]);
+
+  // "In pubblicazione": spunta generica (azione immediata, non parte del salvataggio form).
+  const [awaitingPublish, setAwaitingPublish] = useState(false);
+  const [awaitingPublishBusy, setAwaitingPublishBusy] = useState(false);
+  // Config aziendale del peso "In pubblicazione": default % + se bloccato (permanente).
+  const [awaitingPublishLocked, setAwaitingPublishLocked] = useState(false);
+  const [awaitingPublishDefaultPct, setAwaitingPublishDefaultPct] = useState(10);
+  const [awaitingPublishPct, setAwaitingPublishPct] = useState("10");
+  useEffect(() => {
+    const on = !!sourceItem?.client_approved_at;
+    setAwaitingPublish(on);
+    if (on && sourceItem?.load_weight_factor != null) {
+      setAwaitingPublishPct(String(Math.round(sourceItem.load_weight_factor * 100)));
+    }
+  }, [open, activeWorkItemId, sourceItem?.client_approved_at, sourceItem?.load_weight_factor]);
+  useEffect(() => {
+    if (!open || !companyId) return;
+    let cancelled = false;
+    getWorkloadWeightsApi(companyId)
+      .then((cfg) => {
+        if (cancelled) return;
+        const s = cfg.situations.find((x) => x.key === "awaiting_publish");
+        if (!s) return;
+        setAwaitingPublishLocked(s.locked);
+        setAwaitingPublishDefaultPct(Math.round(s.default_factor * 100));
+        // Se la task non è ancora in pubblicazione, precompila con il default aziendale.
+        if (!sourceItem?.client_approved_at) {
+          setAwaitingPublishPct(String(Math.round(s.factor * 100)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, companyId, sourceItem?.client_approved_at]);
+
+  const pctToFactor = (pct: string): number => {
+    const n = Number(pct);
+    if (!Number.isFinite(n)) return awaitingPublishDefaultPct / 100;
+    return Math.max(0, Math.min(3, n / 100));
+  };
+
+  const toggleAwaitingPublish = async (on: boolean) => {
+    if (!sourceItem) return;
+    setAwaitingPublish(on); // ottimistico
+    setAwaitingPublishBusy(true);
+    try {
+      // Se bloccato (permanente) il backend forza il default: non inviare il fattore.
+      const factor = on && !awaitingPublishLocked ? pctToFactor(awaitingPublishPct) : undefined;
+      const updated = await setAwaitingPublishApi(sourceItem.id, on, factor);
+      setAwaitingPublish(!!updated.client_approved_at);
+      if (updated.load_weight_factor != null) {
+        setAwaitingPublishPct(String(Math.round(updated.load_weight_factor * 100)));
+      }
+      toast.success(
+        on
+          ? `Messa in pubblicazione · torna in corso al ${Math.round((updated.load_weight_factor ?? 0.1) * 100)}%.`
+          : "Rimossa da 'In pubblicazione'.",
+      );
+      onSaved?.(updated);
+    } catch (e) {
+      setAwaitingPublish(!on); // rollback
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setAwaitingPublishBusy(false);
+    }
+  };
+
+  // Applica un peso personalizzato (override PM) mentre è già "In pubblicazione".
+  const commitAwaitingPublishPct = async () => {
+    if (!sourceItem || !awaitingPublish || awaitingPublishLocked) return;
+    setAwaitingPublishBusy(true);
+    try {
+      const updated = await setAwaitingPublishApi(sourceItem.id, true, pctToFactor(awaitingPublishPct));
+      if (updated.load_weight_factor != null) {
+        setAwaitingPublishPct(String(Math.round(updated.load_weight_factor * 100)));
+      }
+      toast.success(`Peso aggiornato · ${Math.round((updated.load_weight_factor ?? 0.1) * 100)}% del carico.`);
+      onSaved?.(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setAwaitingPublishBusy(false);
+    }
+  };
 
   // Preselezione in CREAZIONE: operatore corrente + sue aree di lavoro, ma:
   // - solo se l'operatore appartiene all'azienda visualizzata (è tra gli utenti caricati);
@@ -713,16 +1206,19 @@ export function WorkItemFormModal({
     if (sourceItem || templateSeedItem) {
       const baseItem = sourceItem ?? templateSeedItem;
       if (!baseItem) return;
+      baseTaskTypeRef.current = baseItem.task_type ?? "standard";
       setForm({
         is_template: isInstantiateMode ? false : (baseItem.is_template ?? false),
         title: baseItem.title,
-        description: baseItem.description ?? "",
+        // Descrizione normalizzata in HTML pulito per l'editor rich-text (link cliccabili).
+        description: toEditorHtml(baseItem.description ?? ""),
         work_date: isInstantiateMode ? "" : (baseItem.work_date ?? ""),
         start_time: isInstantiateMode ? "" : (baseItem.start_time ?? ""),
         deadline_date: isInstantiateMode ? "" : (baseItem.deadline_date ?? ""),
         due_time_label: isInstantiateMode ? "" : (baseItem.due_time_label ?? ""),
         estimated_hours: baseItem.estimated_hours != null ? String(baseItem.estimated_hours) : "",
         is_fractionable: baseItem.is_fractionable ?? true,
+        visibility: baseItem.visibility ?? "area",
         is_deadline_locked: baseItem.is_deadline_locked ?? false,
         affects_daily_load: baseItem.affects_daily_load,
         load_weight_factor: String(baseItem.load_weight_factor),
@@ -737,6 +1233,8 @@ export function WorkItemFormModal({
         assignee_ids: baseItem.assignee_ids ?? [],
         work_area_ids: baseItem.work_area_ids ?? [],
         tag_ids: baseItem.tag_ids ?? [],
+        social_profile_ids: baseItem.social_profile_ids ?? [],
+        website_ids: baseItem.website_ids ?? [],
         client_id: baseItem.client_id != null ? String(baseItem.client_id) : "",
         is_recurring: baseItem.is_recurring,
         recurrence_type: baseItem.recurrence_type ?? "",
@@ -745,7 +1243,9 @@ export function WorkItemFormModal({
         recurrence_until: baseItem.recurrence_until ?? "",
         generate_recurrences: false,
         generation_end_date: "",
+        task_type: baseItem.task_type ?? "standard",
         is_ped: baseItem.is_PED ?? false,
+        link_ped: baseItem.link_ped ?? "",
         ped_mode: baseItem.ped_configuration_id != null ? "existing" : "new",
         ped_configuration_id: baseItem.ped_configuration_id != null ? String(baseItem.ped_configuration_id) : "",
         ped_monthly_publications_total: baseItem.ped_configuration?.monthly_publications_total != null ? String(baseItem.ped_configuration.monthly_publications_total) : "",
@@ -776,6 +1276,13 @@ export function WorkItemFormModal({
           .map((resource) => ({ type: resource.type, title: resource.title, url: resource.url })),
       });
       setSlots(isInstantiateMode ? [] : (baseItem.time_slots ?? []));
+      // Allegati: gli istanziati/da-modello partono senza (il file è della task sorgente).
+      setAttachments(sourceItem && !isInstantiateMode ? (baseItem.attachments ?? []) : []);
+      setPendingFiles([]);
+      // task esistente → parti in anteprima (lettura); i campi vuoti restano in modifica
+      setDescEditing(!(baseItem.description ?? "").trim());
+      setTitleEditing(!(baseItem.title ?? "").trim());
+      setClientEditing(false);
     } else {
       setForm({
         ...EMPTY_FORM,
@@ -784,19 +1291,62 @@ export function WorkItemFormModal({
         estimated_hours: defaultEstimatedHours != null ? String(defaultEstimatedHours) : "",
         assignee_ids: defaultAssigneeIds ?? [],
         is_fractionable: true,
+        visibility: "area",
         is_deadline_locked: false,
       });
       // La preassegnazione (operatore corrente + sue aree) avviene dopo il caricamento
       // delle opzioni dell'azienda, così le aree sono filtrate su quella visualizzata.
       autofilledRef.current = false;
       setSlots([]);
+      setAttachments([]);
+      setPendingFiles([]);
+      setDescEditing(true);
+      setTitleEditing(true);
+      setClientEditing(true);
     }
     hydratedFormKeyRef.current = hydrationKey;
+    setClientSuggestDismissed(null);
+    setSocialSuggestDismissed(null);
     setFormError(null);
     setSlotForm(EMPTY_SLOT);
     setAddingSlot(false);
     setSlotError(null);
   }, [sourceItem, templateSeedItem, open, defaultWorkDate, defaultStartTime, defaultEstimatedHours, defaultAssigneeIds, isInstantiateMode]);
+
+  // Firma degli assegnatari lato server: serve come dipendenza stabile (un array
+  // nuovo a ogni fetch farebbe girare l'effetto all'infinito).
+  const serverAssigneeKey = (sourceItem?.assignee_ids ?? []).join(",");
+
+  // Sincronizza "live" nel form (già idratato) i campi che il flusso di REVISIONE cambia sul
+  // backend — status, peso, scadenza, completata, ASSEGNATARI — così i select dei Dettagli
+  // (anche in vista affiancata) e il footer riflettono lo stato reale e un "Salva" non rimanda
+  // la task in "revisione" (es. dopo "Metti in pubblicazione" lo stato diventa "In corso").
+  //
+  // Gli assegnatari cambiano perché il revisore viene agganciato all'ingresso in revisione e
+  // staccato all'uscita. Senza questa riga il form restava con la lista di quando era in
+  // revisione: il revisore continuava a comparire fra gli intestatari dopo un rimando
+  // indietro, e al primo salvataggio ci tornava per davvero.
+  useEffect(() => {
+    if (!open || !sourceItem) return;
+    if (hydratedFormKeyRef.current == null) return; // solo dopo l'idratazione iniziale
+    setForm((current) => {
+      const next = { ...current };
+      let changed = false;
+      if (current.status !== sourceItem.status) { next.status = sourceItem.status; changed = true; }
+      if (current.is_completed !== sourceItem.is_completed) { next.is_completed = sourceItem.is_completed; changed = true; }
+      const lw = String(sourceItem.load_weight_factor);
+      if (current.load_weight_factor !== lw) { next.load_weight_factor = lw; changed = true; }
+      const dd = sourceItem.deadline_date ?? "";
+      if (current.deadline_date !== dd) { next.deadline_date = dd; changed = true; }
+      const serverAssignees = sourceItem.assignee_ids ?? [];
+      if ([...current.assignee_ids].sort().join(",") !== [...serverAssignees].sort().join(",")) {
+        next.assignee_ids = [...serverAssignees];
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sourceItem?.status, sourceItem?.is_completed, sourceItem?.load_weight_factor, sourceItem?.deadline_date, serverAssigneeKey]);
 
   const updateForm = <K extends keyof WorkItemFormState>(key: K, value: WorkItemFormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -808,7 +1358,10 @@ export function WorkItemFormModal({
   };
 
   // ── Save
-  const handleSave = async (scheduleOverride?: { work_date: string; start_time: string }) => {
+  const handleSave = async (
+    scheduleOverride?: { work_date: string; start_time: string },
+    opts: { keepOpen?: boolean } = {},
+  ) => {
     const isGeneratedRecurringItem = sourceItem?.recurrence_parent_id != null;
     const canEditRecurrence = !isGeneratedRecurringItem;
 
@@ -948,6 +1501,7 @@ export function WorkItemFormModal({
         due_time_label: form.due_time_label.trim(),
         estimated_hours: form.estimated_hours ? parseFloat(form.estimated_hours) : undefined,
         is_fractionable: form.is_fractionable,
+        visibility: form.visibility,
         is_deadline_locked: form.is_deadline_locked,
         affects_daily_load: form.affects_daily_load,
         load_weight_factor: form.load_weight_factor ? parseFloat(form.load_weight_factor) : undefined,
@@ -962,6 +1516,9 @@ export function WorkItemFormModal({
         assignee_ids: form.assignee_ids,
         work_area_ids: form.work_area_ids,
         tag_ids: form.tag_ids,
+        social_profile_ids: form.social_profile_ids,
+        website_ids: form.website_ids,
+        task_type: form.task_type,
         ...(canEditRecurrence
           ? {
               is_recurring: form.is_recurring,
@@ -985,6 +1542,8 @@ export function WorkItemFormModal({
       };
 
       payload.is_PED = form.is_ped;
+      // Link PED: valorizzato solo se è una task PED; svuotato (null) altrimenti.
+      payload.link_ped = form.is_ped ? (form.link_ped.trim() || null) : null;
       if (form.is_ped) {
         if (form.ped_mode === "existing") {
           // Config esistente facoltativa: se non selezionata, resta un PED senza config.
@@ -1075,6 +1634,37 @@ export function WorkItemFormModal({
         toast.success("Lavorazione creata");
       }
 
+      // Allegati messi in attesa durante la creazione: caricali sulla nuova task.
+      if (createdItem && pendingFiles.length) {
+        let failed = 0;
+        const idReali = new Map<number, number>();
+        for (const { tempId, file } of pendingFiles) {
+          try {
+            const caricato = await uploadWorkItemAttachmentApi(createdItem.id, file);
+            idReali.set(tempId, caricato.id);
+          } catch {
+            failed += 1;
+          }
+        }
+        setPendingFiles([]);
+        if (failed) toast.error(`${failed} allegato/i non caricati`);
+        // I chip inseriti nella descrizione puntano ancora agli id temporanei:
+        // ora che il server ha assegnato quelli veri, si riscrivono e si risalva.
+        // Senza questo passaggio i chip resterebbero morti (nessun download).
+        // Si parte da quello che il server ha davvero salvato: la descrizione può
+        // arrivare da `payload` o da `instantiatePayload` a seconda del ramo.
+        const salvata = createdItem.description ?? "";
+        const descrizione = riscriviChipAllegati(salvata, idReali);
+        if (descrizione !== salvata) {
+          try {
+            const aggiornato = await updateWorkItemApi(createdItem.id, { description: descrizione });
+            createdItem = aggiornato ?? createdItem;
+          } catch {
+            toast.error("Allegati caricati, ma i riferimenti nella descrizione non sono stati aggiornati");
+          }
+        }
+      }
+
       // Dopo la creazione, verifica se l'operatore assegnato va in overbooking:
       // in tal caso apri il modal di riassegnazione sopra a quello della task.
       if (createdItem && createdItem.assignee_ids?.length) {
@@ -1092,8 +1682,20 @@ export function WorkItemFormModal({
         }
       }
 
+      // Salvataggio riuscito: la bozza in sessionStorage e' ormai vecchia. Senza
+      // cancellarla, riaprendo la stessa lavorazione verrebbe ripristinata sopra i dati
+      // freschi del server — il Modal la ripristina emettendo eventi `input`, quindi
+      // vincerebbe davvero sullo stato React.
+      clearModalDraft(modalDraftId);
+
+      if (opts.keepOpen && sourceItem) {
+        // Salvato senza chiudere: serve quando "Salva e concludi"/"Rimanda" devono
+        // prima persistere i campi del form (es. assegnatari) e poi agire sulla revisione.
+        return true;
+      }
       onClose();
       onSaved(createdItem ?? undefined);
+      return true;
     } catch (err) {
       if (isWorkItemOverlapApiError(err)) {
         setFormError(err.backendMessage);
@@ -1113,6 +1715,24 @@ export function WorkItemFormModal({
     } finally {
       setSaving(false);
     }
+  };
+
+  // Prima salva i campi del form (senza chiudere), poi esegue l'azione di revisione:
+  // così "Salva e concludi" / "Rimanda" non perdono le modifiche (es. assegnatari),
+  // soprattutto in vista divisa dove Revisione e Assegnazioni sono visibili insieme.
+  const runReviewActionWithSave = async (key: ReviewActionKey) => {
+    // Rimando e pubblicazione aprono un modal dedicato: nessun salvataggio del form.
+    if (key === "sendBack") {
+      reviewRef.current?.openSendBack();
+      return;
+    }
+    if (key === "publish") {
+      reviewRef.current?.openPublish();
+      return;
+    }
+    const ok = await handleSave(undefined, { keepOpen: true });
+    if (ok !== true) return; // validazione/salvataggio fallito: non procedere
+    await runReviewAction(key);
   };
 
   // ── Overbooking: chiusura del flusso (riassegna oppure procedi in overbook) ──
@@ -1368,6 +1988,163 @@ export function WorkItemFormModal({
     }));
   };
 
+  // ── Allegati (file) handlers
+  // Carica (task esistente) o accoda (task nuova) un file; ritorna l'allegato creato o null.
+  // Restituisce id + nome del chip da inserire nel testo: in modifica sono quelli
+  // dell'allegato vero, in creazione quelli temporanei del file in attesa. Chi
+  // chiama non deve sapere in quale dei due casi si trova.
+  const uploadAttachmentFile = async (file: File): Promise<{ id: number; name: string } | null> => {
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("File troppo grande (max 20 MB)");
+      return null;
+    }
+    if (sourceItem) {
+      setAttachmentUploading(true);
+      try {
+        const created = await uploadWorkItemAttachmentApi(sourceItem.id, file);
+        setAttachments((prev) => [...prev, created]);
+        toast.success("Allegato caricato");
+        return { id: created.id, name: attachmentDisplayName(created) };
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Errore caricamento allegato");
+        return null;
+      } finally {
+        setAttachmentUploading(false);
+      }
+    }
+    // Task nuova: file in attesa, caricato dopo il salvataggio.
+    const pending: PendingFile = { tempId: pendingIdRef.current, file };
+    pendingIdRef.current -= 1;
+    setPendingFiles((prev) => [...prev, pending]);
+    return { id: pending.tempId, name: file.name };
+  };
+
+  const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const chip = await uploadAttachmentFile(file);
+    // Scelto dalla graffetta con la descrizione aperta: il file entra subito nel
+    // testo al punto in cui si stava scrivendo, senza doverlo ripescare dal menu.
+    if (chip && descEditing) descEditorRef.current?.insertAttachmentBadge(chip.id, chip.name);
+  };
+
+  // Aggiunge un collegamento (risorsa) da un URL/percorso trascinato o digitato.
+  const addResourceFromUrl = (rawUrl: string) => {
+    const url = (rawUrl ?? "").trim();
+    if (!url) return;
+    setForm((current) => ({
+      ...current,
+      resources: [...current.resources, { type: detectResourceType(url), title: "", url }],
+    }));
+  };
+
+  // Apre un collegamento: http → nuova scheda; percorso NAS/rete → copia negli appunti.
+  const openResource = (url: string) => {
+    const raw = (url ?? "").trim();
+    if (!raw) return;
+    if (isHttpResourceUrl(raw)) {
+      window.open(raw, "_blank", "noopener");
+    } else {
+      navigator.clipboard?.writeText(raw).then(
+        () => toast.success("Percorso copiato negli appunti"),
+        () => {},
+      );
+    }
+  };
+
+  // ── Drag&drop di file/link direttamente sulla descrizione ────────────────────
+  const descEditorRef = useRef<RichTextEditorHandle | null>(null);
+  const descFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [descDragOver, setDescDragOver] = useState(false);
+
+  const descDragHasPayload = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types || []).some(
+      (t) => t === "Files" || t === "text/uri-list" || t === "text/plain",
+    );
+
+  const looksLikeUrl = (s: string) =>
+    /^\S+$/.test(s) && (/:\/\//.test(s) || s.startsWith("\\\\") || /^[^\s]+\.[^\s]{2,}/.test(s));
+
+  const handleDescDragOver = (e: React.DragEvent) => {
+    if (!descDragHasPayload(e)) return;
+    e.preventDefault();
+    if (descEditing) descEditorRef.current?.placeCaretFromPoint(e.clientX, e.clientY);
+    else setDescDragOver(true);
+  };
+
+  const handleDescDrop = async (e: React.DragEvent) => {
+    if (!descDragHasPayload(e)) return;
+    e.preventDefault();
+    setDescDragOver(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    const uri = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain") || "").trim();
+    // URL/percorso trascinato → collegamento
+    if (!files.length && uri && looksLikeUrl(uri)) {
+      addResourceFromUrl(uri);
+      if (descEditing) descEditorRef.current?.insertLink(uri);
+      return;
+    }
+    // File → allegato (in modifica inserisce anche il chip al caret)
+    for (const file of files) {
+      const chip = await uploadAttachmentFile(file);
+      if (descEditing && chip) {
+        descEditorRef.current?.insertAttachmentBadge(chip.id, chip.name);
+      }
+    }
+  };
+
+  const handleAttachmentDownload = async (attachment: WorkItemAttachment) => {
+    if (!sourceItem) return;
+    try {
+      const { url } = await getWorkItemAttachmentDownloadUrlApi(sourceItem.id, attachment.id);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore download allegato");
+    }
+  };
+
+  // Scarica per id: usato dai badge nella descrizione (l'allegato potrebbe
+  // essere stato eliminato → la 404 viene gestita con un toast).
+  const downloadAttachmentById = async (attachmentId: number) => {
+    if (!sourceItem) return;
+    try {
+      const { url } = await getWorkItemAttachmentDownloadUrlApi(sourceItem.id, attachmentId);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Allegato non disponibile");
+    }
+  };
+
+  const handleAttachmentDelete = async (attachment: WorkItemAttachment) => {
+    if (!sourceItem) return;
+    if (!window.confirm(`Eliminare l'allegato "${attachment.original_filename}"?`)) return;
+    try {
+      await deleteWorkItemAttachmentApi(sourceItem.id, attachment.id);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore eliminazione allegato");
+    }
+  };
+
+  const handleAttachmentLabelSave = async (attachment: WorkItemAttachment, rawLabel: string) => {
+    if (!sourceItem) return;
+    const nextLabel = rawLabel.trim() || null;
+    if ((attachment.label ?? null) === nextLabel) return;
+    try {
+      const updated = await updateWorkItemAttachmentApi(sourceItem.id, attachment.id, {
+        label: nextLabel,
+      });
+      setAttachments((prev) => prev.map((a) => (a.id === attachment.id ? updated : a)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore rinomina allegato");
+    }
+  };
+
+  const removePendingFile = (tempId: number) => {
+    setPendingFiles((prev) => prev.filter((p) => p.tempId !== tempId));
+  };
+
   // ── Slot handlers
   const handleAddSlot = async () => {
     if (!sourceItem) return;
@@ -1425,6 +2202,152 @@ export function WorkItemFormModal({
   const isFromTemplate = sourceItem?.template_source_id != null;
   // In creazione singola usiamo un layout a schede con i soli campi essenziali.
   const isSingleCreate = !sourceItem;
+  // Split attivo solo in modifica (in creazione le schede Revisione/Timeline non esistono).
+  const effectiveSplit = splitView && !!sourceItem;
+  // In vista divisa la Revisione può essere visibile ACCANTO ad altre schede editabili
+  // (es. Assegnazioni): in tal caso nel footer servono SIA "Salva" (per i campi del form)
+  // SIA le azioni di revisione — altrimenti le modifiche (es. assegnatari) non si salvano.
+  const splitReviewActions =
+    !!sourceItem && effectiveSplit && (leftTab === "revisione" || rightTab === "revisione") && canManageReviewer;
+
+  // Fase corrente della revisione (macchina a stati) → coppia di pulsanti contestuali.
+  const reviewPhase = sourceItem
+    ? deriveReviewPhase(sourceItem.status, sourceItem.review_stage, sourceItem.client_approved_at)
+    : "none";
+  const reviewBtns = reviewPhaseButtons(reviewPhase);
+  const renderReviewActionButtons = () => (
+    <>
+      {reviewBtns.secondary ? (
+        <Button
+          variant="secondary"
+          onClick={() => void runReviewActionWithSave(reviewBtns.secondary!.key)}
+          loading={reviewAction === reviewBtns.secondary.key}
+          disabled={saving || reviewAction != null}
+        >
+          {reviewBtns.secondary.label}
+        </Button>
+      ) : null}
+      {reviewBtns.primary ? (
+        <Button
+          variant="primary"
+          onClick={() => void runReviewActionWithSave(reviewBtns.primary!.key)}
+          loading={reviewAction === reviewBtns.primary.key}
+          disabled={saving || reviewAction != null}
+        >
+          {reviewBtns.primary.label}
+        </Button>
+      ) : null}
+    </>
+  );
+
+  // Navigatore di stato nel footer: ◄ indietro · [stato] · avanti ►.
+  // Cambiando stato (frecce o dropdown) si SALVA subito via updateWorkItemApi, senza
+  // dover premere "Salva". Pipeline: Da fare → In corso → Revisione → Completato;
+  // il dropdown consente anche il salto manuale. Aggiornamento ottimistico + rollback.
+  const statusOrder = STATUS_OPTIONS.map((o) => o.value);
+  const statusIdx = statusOrder.indexOf(form.status);
+  const changeStatusAndSave = async (newStatus: WorkItemStatus) => {
+    if (!sourceItem || newStatus === form.status || statusNavBusy) return;
+    const prev = form.status;
+    updateForm("status", newStatus); // ottimistico
+    setStatusNavBusy(true);
+    try {
+      const updated = await updateWorkItemApi(sourceItem.id, { status: newStatus });
+      updateForm("status", (updated.status as WorkItemStatus) ?? newStatus);
+      toast.success(`Stato: ${STATUS_OPTIONS.find((o) => o.value === updated.status)?.label ?? updated.status}`);
+      onSaved?.(updated);
+    } catch (e) {
+      updateForm("status", prev); // rollback
+      toast.error(e instanceof Error ? e.message : "Impossibile cambiare stato");
+    } finally {
+      setStatusNavBusy(false);
+    }
+  };
+  const stepStatus = (delta: number) => {
+    const next = statusOrder[statusIdx + delta];
+    if (next) void changeStatusAndSave(next);
+  };
+  const statusNavDisabled = saving || reviewAction != null || statusNavBusy;
+  const renderStatusNavigator = () => (
+    <div className="mr-auto flex items-center gap-1.5">
+      <Button
+        variant="secondary"
+        iconOnly
+        className="!h-[42px] !w-[42px] !rounded-md"
+        title="Stato precedente"
+        aria-label="Stato precedente"
+        disabled={statusIdx <= 0 || statusNavDisabled}
+        onClick={() => stepStatus(-1)}
+        leftIcon={<Icon name="chevron-right" className="h-4 w-4 rotate-180" />}
+      />
+      <div className="w-44">
+        <SearchableSelect
+          menuLayer="portal"
+          value={form.status}
+          onChange={(v) => void changeStatusAndSave(v as WorkItemStatus)}
+          options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          placeholder="Stato"
+          searchPlaceholder="Cerca stato…"
+          disabled={statusNavDisabled}
+        />
+      </div>
+      <Button
+        variant="secondary"
+        iconOnly
+        className="!h-[42px] !w-[42px] !rounded-md"
+        title="Stato successivo"
+        aria-label="Stato successivo"
+        disabled={statusIdx < 0 || statusIdx >= statusOrder.length - 1 || statusNavDisabled}
+        onClick={() => stepStatus(1)}
+        leftIcon={<Icon name="chevron-right" className="h-4 w-4" />}
+      />
+    </div>
+  );
+
+  // Barra schede di una colonna (split) con drag&drop: trascina un chip per
+  // spostarlo tra le colonne o riordinarlo; click per attivarlo.
+  const renderSplitTabBar = (side: "left" | "right") => {
+    const ids = layout[side].filter((id) => id !== "monitoraggio" || canSeeMonitorTab);
+    const active = side === "left" ? leftTab : rightTab;
+    const setActive = side === "left" ? setLeftTab : setRightTab;
+    return (
+      <div
+        onDragOver={(e) => { if (dragTab) e.preventDefault(); }}
+        onDrop={(e) => { e.preventDefault(); if (dragTab) moveTab(dragTab, side); setDragTab(null); }}
+        className="flex min-h-[38px] flex-wrap items-center gap-1 border-b border-line dark:border-line-dark"
+      >
+        {ids.length === 0 && (
+          <span className="px-2 py-2 text-[11px] italic text-muted dark:text-muted-dark">Trascina qui una scheda…</span>
+        )}
+        {ids.map((id) => (
+          <button
+            key={id}
+            type="button"
+            draggable
+            onDragStart={() => setDragTab(id)}
+            onDragEnd={() => setDragTab(null)}
+            onDragOver={(e) => { if (dragTab && dragTab !== id) e.preventDefault(); }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragTab) moveTab(dragTab, side, id); setDragTab(null); }}
+            onClick={() => setActive(id)}
+            title="Trascina per spostare o riordinare"
+            className={`-mb-px inline-flex cursor-grab items-center gap-1 border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors active:cursor-grabbing ${
+              active === id
+                ? "border-ink text-ink dark:border-paper dark:text-paper"
+                : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+            } ${dragTab === id ? "opacity-40" : ""}`}
+          >
+            <Icon name="menu" className="h-3 w-3 opacity-40" /> {WI_TAB_LABEL[id]}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderEmptyPane = () => (
+    <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-line p-6 text-center text-[13px] text-muted dark:border-line-dark dark:text-muted-dark">
+      Nessuna scheda qui. Trascina una scheda dall'altra colonna.
+    </div>
+  );
 
   // ── Sezioni riutilizzabili (usate sia nel layout completo di modifica sia nelle schede di creazione)
   const renderRecurrenceSection = () => (
@@ -1796,21 +2719,38 @@ export function WorkItemFormModal({
     <SectionCard
       icon="link"
       title="Risorse / Collegamenti"
-      count={form.resources.length}
+      count={form.resources.length + attachments.length + pendingFiles.length}
       actions={
-        <button
-          type="button"
-          onClick={addResource}
-          className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted dark:text-paper dark:hover:text-muted-dark"
-        >
-          <Icon name="plus" className="h-3 w-3" />
-          Aggiungi risorsa
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={addResource}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted dark:text-paper dark:hover:text-muted-dark"
+          >
+            <Icon name="plus" className="h-3 w-3" />
+            Aggiungi risorsa
+          </button>
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleAttachmentSelect}
+          />
+          <button
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            disabled={attachmentUploading}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink hover:text-muted disabled:opacity-50 dark:text-paper dark:hover:text-muted-dark"
+          >
+            <Icon name="upload" className="h-3 w-3" />
+            {attachmentUploading ? "Caricamento…" : "Allega file"}
+          </button>
+        </div>
       }
     >
-      {form.resources.length === 0 ? (
+      {form.resources.length === 0 && attachments.length === 0 && pendingFiles.length === 0 ? (
         <p className="text-sm text-muted dark:text-muted-dark">
-          Nessuna risorsa. Aggiungi link a Canva, Google Drive, percorsi NAS o altri collegamenti.
+          Nessuna risorsa. Aggiungi link (Canva, Drive, NAS…) o allega un file.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -1852,6 +2792,77 @@ export function WorkItemFormModal({
               </div>
             </div>
           ))}
+
+          {/* Allegati già caricati (task esistente) */}
+          {attachments.map((attachment) => (
+            <div
+              key={`attachment-${attachment.id}`}
+              className="flex items-center gap-2 rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]"
+            >
+              <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]">
+                <Icon name="document-text" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <input
+                  defaultValue={attachment.label ?? ""}
+                  onBlur={(event) => handleAttachmentLabelSave(attachment, event.target.value)}
+                  placeholder={attachment.original_filename}
+                  aria-label="Etichetta / nome mostrato"
+                  title="Nome mostrato (etichetta). Vuoto = nome del file."
+                  className="w-full rounded-md border border-line bg-paper px-2 py-1 text-sm font-semibold text-ink outline-none focus:border-ink dark:border-line-dark dark:bg-[#131316] dark:text-paper dark:focus:border-paper"
+                />
+                <p className="mt-0.5 truncate text-[11px] text-muted dark:text-muted-dark">
+                  {attachment.original_filename} · {formatAttachmentSize(attachment.size_bytes)}
+                  {attachment.uploaded_by_name ? ` · ${attachment.uploaded_by_name}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleAttachmentDownload(attachment)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink hover:bg-cream dark:border-line-dark dark:text-paper dark:hover:bg-[#131316]"
+                aria-label="Scarica allegato"
+                title="Scarica"
+              >
+                <Icon name="download" className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAttachmentDelete(attachment)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
+                aria-label="Elimina allegato"
+                title="Elimina"
+              >
+                <Icon name="trash" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {/* File in attesa (task nuova, caricati al salvataggio) */}
+          {pendingFiles.map(({ tempId, file }) => (
+            <div
+              key={`pending-${tempId}`}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-line bg-cream/50 p-3 dark:border-line-dark dark:bg-[#1c1c20]/50"
+            >
+              <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md border border-line bg-paper dark:border-line-dark dark:bg-[#131316]">
+                <Icon name="document-text" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">{file.name}</p>
+                <p className="text-[11px] text-muted dark:text-muted-dark">
+                  {formatAttachmentSize(file.size)} · in attesa di salvataggio
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => removePendingFile(tempId)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/10"
+                aria-label="Rimuovi file"
+                title="Rimuovi"
+              >
+                <Icon name="trash" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </SectionCard>
@@ -1860,6 +2871,110 @@ export function WorkItemFormModal({
   // Scorciatoia: se il titolo contiene "PED" (Piano Editoriale Digitale) come parola,
   // portiamo la sezione PED accanto al titolo per impostarla al volo senza cambiare tab.
   const titleSuggestsPed = /\bped\b/i.test(form.title);
+
+  // Se non c'è cliente ma il titolo combacia con una ragione sociale / nome
+  // commerciale, proponiamo di collegare quel cliente (con motion graphic).
+  const suggestedClient = !form.client_id ? findClientMatchInTitle(form.title, clients) : null;
+  const showClientSuggest =
+    !!suggestedClient && clientSuggestDismissed !== suggestedClient.client.id;
+
+  // Se il cliente collegato ha profili social non ancora agganciati alla task,
+  // proponiamo di collegarli (stessa motion graphic, in ciano).
+  const unlinkedClientSocials = form.client_id
+    ? clientSocialProfiles.filter((p) => !form.social_profile_ids.includes(p.id))
+    : [];
+  const showSocialSuggest =
+    unlinkedClientSocials.length > 0 && socialSuggestDismissed !== Number(form.client_id);
+
+  // Stessa cosa per i siti web del cliente: se ne ha di non collegati, lo diciamo.
+  const unlinkedClientWebsites = form.client_id
+    ? clientWebsites.filter((w) => !form.website_ids.includes(w.id))
+    : [];
+  const showWebsiteSuggest =
+    unlinkedClientWebsites.length > 0 && websiteSuggestDismissed !== Number(form.client_id);
+
+  const isMaintenance = form.task_type === MAINTENANCE_TASK_TYPE;
+
+  // ── Avviso di aggiornamento al cliente ──────────────────────────────────────
+  // Stesso bottone della lista siti (stessa chiave, quindi stessa configurazione
+  // e stesso storico). Qui vale la pena averlo perché la data la sappiamo già:
+  // è quella della task, non la prossima manutenzione in calendario.
+  const avviso = useConfigurableButton(
+    companyId,
+    "website.update_notice",
+    // Solo le manutenzioni mostrano l'avviso: per tutte le altre task l'elenco
+    // resta vuoto e l'hook non interroga il server.
+    isMaintenance ? form.website_ids : [],
+  );
+
+  const renderAvvisoSiti = () => {
+    if (!isMaintenance || form.website_ids.length === 0) return null;
+    const collegati = clientWebsites.filter((w) => form.website_ids.includes(w.id));
+    if (collegati.length === 0) return null;
+    // Nessun bottone visibile (non configurato e chi guarda non è admin):
+    // meglio niente che un'intestazione che non introduce nulla.
+    if (!collegati.some((w) => avviso.item(w.id)?.visible)) return null;
+
+    return (
+      <div className="mt-3 border-t border-line pt-3 dark:border-line-dark">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+          Avvisa il cliente
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {collegati.map((w) => {
+            const stato = avviso.item(w.id);
+            if (!stato?.visible) return null;
+            return (
+              <div key={w.id} className="flex items-center gap-2">
+                <ActionButton
+                  state={stato}
+                  label={avviso.label || "Avvisa dell'aggiornamento"}
+                  canConfigure={avviso.canConfigure}
+                  onConfigure={() => avviso.configure(w.id)}
+                  onRun={() =>
+                    avviso.run(
+                      [{ id: w.id, label: websiteLabel(w) }],
+                      // La data della task: è il giorno in cui l'intervento
+                      // viene fatto, l'unico che abbia senso dire al cliente.
+                      form.work_date ? { "aggiornamento.data": form.work_date } : undefined,
+                    )
+                  }
+                />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink dark:text-paper">
+                  {websiteLabel(w)}
+                </span>
+                {stato.last_run && (
+                  <span className="flex-none text-[11px] text-success">
+                    avvisato il{" "}
+                    {new Date(stato.last_run.at).toLocaleDateString("it-IT", {
+                      day: "numeric",
+                      month: "long",
+                    })}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+  const titleSuggestsMaintenance = isMaintenanceTitle(form.title);
+
+  // Come per il PED: attivandola portiamo "Manutenzione sito" nel titolo, se il
+  // titolo non lo dice già. Togliendola torniamo al tipo di partenza — così una
+  // task rapida non diventa standard passando di qui.
+  const handleToggleMaintenance = (value: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      task_type: value
+        ? MAINTENANCE_TASK_TYPE
+        : baseTaskTypeRef.current === MAINTENANCE_TASK_TYPE
+          ? "standard"
+          : baseTaskTypeRef.current,
+      title: value ? withMaintenancePrefix(prev.title) : prev.title,
+    }));
+  };
 
   // Attivando il PED riportiamo "PED" nel titolo (se non c'è già), così è subito
   // evidente che la task è un Piano Editoriale Digitale.
@@ -1876,6 +2991,386 @@ export function WorkItemFormModal({
   };
 
   // Marcatore visibile che la task è un PED, mostrato accanto al titolo.
+  // Piccolo toggle "Modifica / Anteprima" allineato alla label (stile Trello).
+  const renderEditToggle = (editing: boolean, onToggle: () => void) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-magenta hover:underline"
+    >
+      <Icon name={editing ? "eye" : "pencil"} className="h-3 w-3" /> {editing ? "Anteprima" : "Modifica"}
+    </button>
+  );
+
+  // Campo Titolo: anteprima (testo) → click per modificare (input). Il titolo è
+  // obbligatorio, quindi l'anteprima appare solo quando è valorizzato.
+  const renderTitleField = () => {
+    const hasTitle = !!form.title.trim();
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="pencil" className="h-3.5 w-3.5" /> Titolo *
+          </label>
+          {hasTitle && renderEditToggle(titleEditing, () => setTitleEditing((v) => !v))}
+        </div>
+        {!titleEditing && hasTitle ? (
+          <div
+            onClick={() => setTitleEditing(true)}
+            title="Clicca per modificare"
+            className="cursor-text break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm font-semibold text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+          >
+            {form.title}
+          </div>
+        ) : (
+          <Input
+            value={form.title}
+            onChange={(e) => updateForm("title", e.target.value)}
+            placeholder="Titolo della lavorazione"
+            autoFocus={!hasTitle ? undefined : true}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Cliente mostrato nell'intestazione: nome commerciale se c'e', altrimenti ragione
+  // sociale — la stessa cascata usata ovunque nell'interfaccia. L'elenco clienti arriva
+  // in modo asincrono: finche' non c'e' si tace, invece di mostrare "Senza cliente" e
+  // poi correggersi.
+  const headerClientLabel = (() => {
+    if (!form.client_id) return "Senza cliente";
+    const c = clients.find((x) => String(x.id) === form.client_id);
+    if (!c) return "";
+    return c.commercial_name ?? c.name;
+  })();
+
+  // Campo Cliente: anteprima (nome cliente / "Nessun cliente") → click per il
+  // selettore. Condiviso dai due layout del form.
+  const renderClientField = () => {
+    const client = form.client_id ? clients.find((c) => String(c.id) === form.client_id) : undefined;
+    const clientLabel = client ? (client.commercial_name ?? client.name) : "";
+    return (
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="building" className="h-3.5 w-3.5" /> Cliente
+            <FieldHelpPopover {...WORKLOAD_FIELD_HELP.client} />
+          </label>
+          {renderEditToggle(clientEditing, () => setClientEditing((v) => !v))}
+        </div>
+        {!clientEditing ? (
+          <div
+            onClick={() => setClientEditing(true)}
+            title="Clicca per modificare"
+            className="flex cursor-text items-center gap-2 rounded-md border border-line bg-paper px-3 py-2.5 text-sm dark:border-line-dark dark:bg-ink-soft"
+          >
+            <Icon name="building" className="h-4 w-4 flex-none text-muted dark:text-muted-dark" />
+            <span className={`min-w-0 truncate ${client ? "text-ink dark:text-paper" : "text-muted dark:text-muted-dark"}`}>
+              {client ? clientLabel : "Nessun cliente"}
+            </span>
+          </div>
+        ) : (
+          <ClientSelectorWithCreate
+            value={form.client_id}
+            onChange={(v) => updateForm("client_id", v)}
+            clients={clients}
+            companyId={companyId}
+            placeholder="Nessun cliente"
+            includeEmptyOption
+            emptyOptionLabel="Nessun cliente"
+            menuLayer="portal"
+            className="min-w-0 max-w-full"
+          />
+        )}
+        {/* Suggerimenti di collegamento (cliente rilevato, profili social, siti
+            web) in un carosello: uno alla volta per non allungare il form, con i
+            pallini per scorrere. Collegando o ignorando quello a schermo la sua
+            slide sparisce e prende il posto la successiva. */}
+        {(() => {
+          const slides: SuggestSlide[] = [];
+
+          if (showClientSuggest && suggestedClient) {
+            const c = suggestedClient.client;
+            slides.push({
+              key: `cli-${c.id}`,
+              tone: "cliente",
+              label: "Cliente rilevato",
+              icon: <Icon name="link" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="truncate text-[12px] leading-snug text-ink dark:text-paper">
+                    Rilevato dal titolo:{" "}
+                    <span className="font-semibold">{c.commercial_name ?? c.name}</span>
+                  </p>
+                  <p className="text-[11px] leading-tight text-muted dark:text-muted-dark">
+                    Vuoi collegare questo cliente?
+                  </p>
+                </>
+              ),
+              onLink: () => {
+                updateForm("client_id", String(c.id));
+                setClientEditing(false);
+                setClientSuggestDismissed(null);
+              },
+              onDismiss: () => setClientSuggestDismissed(c.id),
+            });
+          }
+
+          if (showSocialSuggest) {
+            slides.push({
+              key: `soc-${form.client_id}`,
+              tone: "social",
+              label: "Profili social da collegare",
+              icon: <Icon name="users" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="text-[12px] leading-snug text-ink dark:text-paper">
+                    Il cliente ha{" "}
+                    <span className="font-semibold">
+                      {unlinkedClientSocials.length}{" "}
+                      {unlinkedClientSocials.length === 1 ? "profilo social" : "profili social"}
+                    </span>{" "}
+                    non collegat{unlinkedClientSocials.length === 1 ? "o" : "i"}.
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {unlinkedClientSocials.slice(0, 6).map((prof) => (
+                      <span
+                        key={prof.id}
+                        title={`${prof.platform_label} · ${socialProfileLabel(prof)}`}
+                        className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+                      >
+                        <SocialIcon
+                          platform={prof.platform}
+                          label={prof.platform_label}
+                          color={prof.platform_color}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className="max-w-[90px] truncate">{socialProfileLabel(prof)}</span>
+                      </span>
+                    ))}
+                    {unlinkedClientSocials.length > 6 && (
+                      <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                        +{unlinkedClientSocials.length - 6}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ),
+              onLink: () => {
+                const ids = unlinkedClientSocials.map((prof) => prof.id);
+                setForm((current) => ({
+                  ...current,
+                  social_profile_ids: Array.from(new Set([...current.social_profile_ids, ...ids])),
+                }));
+              },
+              onDismiss: () => setSocialSuggestDismissed(Number(form.client_id)),
+            });
+          }
+
+          if (showWebsiteSuggest) {
+            slides.push({
+              key: `web-${form.client_id}`,
+              tone: "sito",
+              label: "Siti web da collegare",
+              icon: <Icon name="globe" className="h-3.5 w-3.5" />,
+              body: (
+                <>
+                  <p className="text-[12px] leading-snug text-ink dark:text-paper">
+                    Il cliente ha{" "}
+                    <span className="font-semibold">
+                      {unlinkedClientWebsites.length}{" "}
+                      {unlinkedClientWebsites.length === 1 ? "sito web" : "siti web"}
+                    </span>{" "}
+                    non collegat{unlinkedClientWebsites.length === 1 ? "o" : "i"}.
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {unlinkedClientWebsites.slice(0, 6).map((w) => (
+                      <span
+                        key={w.id}
+                        title={w.url}
+                        className="inline-flex items-center gap-1 rounded-pill border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+                      >
+                        <Icon name="globe" className="h-3 w-3 flex-none opacity-60" />
+                        <span className="max-w-[110px] truncate">{websiteLabel(w)}</span>
+                      </span>
+                    ))}
+                    {unlinkedClientWebsites.length > 6 && (
+                      <span className="text-[10.5px] text-muted dark:text-muted-dark">
+                        +{unlinkedClientWebsites.length - 6}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ),
+              onLink: () => {
+                const ids = unlinkedClientWebsites.map((w) => w.id);
+                setForm((current) => ({
+                  ...current,
+                  website_ids: Array.from(new Set([...current.website_ids, ...ids])),
+                }));
+              },
+              onDismiss: () => setWebsiteSuggestDismissed(Number(form.client_id)),
+            });
+          }
+
+          if (slides.length === 0) return null;
+          // Indice ricavato al volo invece che tenuto in sincronia da un effetto:
+          // quando una slide sparisce, quella dopo scala qui e prende il posto.
+          const indice = Math.min(suggestIndex, slides.length - 1);
+          const slide = slides[indice];
+          const tone = SUGGEST_TONES[slide.tone];
+
+          return (
+            <div
+              key={slide.key}
+              className={`cl-suggest-in relative mt-1.5 overflow-hidden rounded-md border px-2.5 py-2 ${tone.box}`}
+            >
+              <span className="cl-suggest-sheen" />
+              <div className="relative flex items-center gap-2">
+                <span
+                  className={`cl-suggest-link grid h-6 w-6 flex-none place-items-center rounded-full ${tone.pastiglia}`}
+                >
+                  {slide.icon}
+                </span>
+                <div className="min-w-0 flex-1">{slide.body}</div>
+                <button
+                  type="button"
+                  onClick={slide.onLink}
+                  className={`inline-flex h-7 flex-none items-center gap-1 self-start rounded-md px-2.5 text-[11px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95 ${tone.pulsante}`}
+                >
+                  <Icon name="plus" className="h-3.5 w-3.5" /> Collega
+                </button>
+                <button
+                  type="button"
+                  onClick={slide.onDismiss}
+                  aria-label="Ignora suggerimento"
+                  title="Ignora"
+                  className={`grid h-7 w-6 flex-none place-items-center self-start rounded-md text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-paper ${tone.hover}`}
+                >
+                  ✕
+                </button>
+              </div>
+              {slides.length > 1 && (
+                <div className="relative mt-1.5 flex items-center justify-center gap-1.5">
+                  {slides.map((sl, i) => (
+                    <button
+                      key={sl.key}
+                      type="button"
+                      onClick={() => setSuggestIndex(i)}
+                      aria-label={sl.label}
+                      aria-current={i === indice}
+                      title={sl.label}
+                      className={`h-1.5 rounded-pill transition-all ${
+                        i === indice
+                          ? `w-4 ${tone.pallino}`
+                          : "w-1.5 bg-muted/35 hover:bg-muted/60 dark:bg-muted-dark/40"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    );
+  };
+
+  // Campo Descrizione: in lettura mostra i link cliccabili (Linkify), con matita
+  // per passare in modifica (textarea). Condiviso dai due layout del form.
+  const renderDescriptionField = (rows: number) => {
+    const hasDesc = !!form.description.trim();
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
+            <Icon name="annotation" className="h-3.5 w-3.5" /> Descrizione
+          </label>
+          {hasDesc && (
+            <button
+              type="button"
+              onClick={() => setDescEditing((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-magenta hover:underline"
+            >
+              <Icon name={descEditing ? "eye" : "pencil"} className="h-3 w-3" /> {descEditing ? "Anteprima" : "Modifica"}
+            </button>
+          )}
+        </div>
+        <div
+          onDragOver={handleDescDragOver}
+          onDragLeave={() => setDescDragOver(false)}
+          onDrop={(e) => void handleDescDrop(e)}
+          className={
+            "rounded-md transition-shadow" +
+            (descDragOver && !descEditing ? " ring-2 ring-brand-magenta/60" : "")
+          }
+          title={descEditing ? undefined : "Trascina qui file o link per allegarli"}
+        >
+          {!descEditing && hasDesc ? (
+            <div
+              onClick={() => setDescEditing(true)}
+              title="Clicca per modificare"
+              className="min-h-[40px] cursor-text whitespace-pre-line break-words rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink dark:border-line-dark dark:bg-ink-soft dark:text-paper"
+            >
+              <Linkify
+                text={form.description}
+                linkClassName="text-brand-magenta underline underline-offset-2 [overflow-wrap:anywhere]"
+                onAttachmentClick={downloadAttachmentById}
+                attachmentNames={Object.fromEntries(
+                  attachments.map((a) => [a.id, attachmentDisplayName(a)])
+                )}
+              />
+            </div>
+          ) : (
+            <RichTextEditor
+              ref={descEditorRef}
+              value={form.description}
+              onChange={(html) => updateForm("description", html)}
+              placeholder="Descrizione opzionale…"
+              minHeightClassName={rows >= 3 ? "min-h-[132px]" : "min-h-[96px]"}
+              attachmentPicker={{
+                // In creazione compaiono anche i file in attesa, con il loro id
+                // temporaneo: si inseriscono nel testo subito e il salvataggio
+                // sistema i riferimenti. Prima qui non c'era nulla da scegliere e
+                // toccava salvare la task, riaprirla e solo allora inserire il file.
+                options: [
+                  ...attachments.map((a) => ({ id: a.id, name: attachmentDisplayName(a) })),
+                  ...pendingFiles.map(({ tempId, file }) => ({ id: tempId, name: file.name })),
+                ],
+                emptyHint: "Aggiungi un file qui sotto o trascinalo qui per poterlo inserire.",
+                onPickFile: () => descFileInputRef.current?.click(),
+              }}
+            />
+          )}
+        </div>
+
+        <input ref={descFileInputRef} type="file" className="hidden" onChange={handleAttachmentSelect} />
+        <TaskAttachmentsBar
+          attachments={attachments}
+          resources={form.resources}
+          pendingFiles={pendingFiles}
+          socials={clientSocialProfiles}
+          linkedSocialIds={form.social_profile_ids}
+          editing={descEditing}
+          onOpenAttachment={downloadAttachmentById}
+          onOpenResource={openResource}
+          onAddFile={() => descFileInputRef.current?.click()}
+          onAddLink={addResourceFromUrl}
+          onToggleSocial={(id) =>
+            setForm((current) => ({
+              ...current,
+              social_profile_ids: current.social_profile_ids.includes(id)
+                ? current.social_profile_ids.filter((x) => x !== id)
+                : [...current.social_profile_ids, id],
+            }))
+          }
+          onOpenSocial={openResource}
+        />
+      </div>
+    );
+  };
+
   const renderPedTitleBadge = () =>
     form.is_ped ? (
       <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
@@ -1895,6 +3390,34 @@ export function WorkItemFormModal({
       </div>
     ) : null;
 
+  const renderMaintenanceTitleBadge = () =>
+    isMaintenance ? (
+      <span className="inline-flex w-fit items-center gap-1 rounded-pill border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
+        <Icon name="globe" className="h-3 w-3" />
+        Manutenzione sito
+      </span>
+    ) : null;
+
+  const renderMaintenanceShortcut = () =>
+    titleSuggestsMaintenance && !isMaintenance ? (
+      <div className="flex flex-col gap-1.5">
+        <p className="flex items-center gap-1.5 text-xs text-muted dark:text-muted-dark">
+          <Icon name="globe" className="h-3.5 w-3.5 shrink-0" />
+          Il titolo parla di manutenzione o aggiornamento: segnala la task come manutenzione sito.
+        </p>
+        {renderMaintenanceCheckbox()}
+      </div>
+    ) : null;
+
+  /* Spunta sempre disponibile: una task diventa (o smette di essere) una
+     manutenzione sito anche a mano, non solo tramite il generatore. */
+  const renderMaintenanceCheckbox = () => (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+      <Checkbox checked={isMaintenance} onChange={handleToggleMaintenance} />
+      È una task di manutenzione sito
+    </label>
+  );
+
   const renderPedSection = () => (
     <SectionCard icon="grid" title="PED">
       {/* La checkbox è sempre disponibile, anche in modifica: si può rendere una task
@@ -1909,6 +3432,14 @@ export function WorkItemFormModal({
 
       {form.is_ped && (
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-cream p-3 dark:border-line-dark dark:bg-[#1c1c20]">
+          <Input
+            label="Link PED"
+            type="url"
+            value={form.link_ped}
+            onChange={(e) => updateForm("link_ped", e.target.value)}
+            placeholder="https://… (piano editoriale: Sheet, Drive, Trello…)"
+          />
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -1935,6 +3466,7 @@ export function WorkItemFormModal({
                 <p className="text-xs text-muted dark:text-muted-dark">Nessuna configurazione PED disponibile. Crea una nuova configurazione.</p>
               ) : (
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.ped_configuration_id}
                   onChange={(value) => updateForm("ped_configuration_id", value)}
                   options={[
@@ -2029,6 +3561,7 @@ export function WorkItemFormModal({
             Parti da un template
           </label>
           <SearchableSelect
+            menuLayer="portal"
             value={selectedTemplateId}
             onChange={(value) => setSelectedTemplateId(value)}
             options={[
@@ -2065,32 +3598,13 @@ export function WorkItemFormModal({
       {/* — Dettagli — */}
       {createTab === "dettagli" && (
         <div className="flex flex-col gap-3">
-          <Input
-            label="Titolo *"
-            labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
-            value={form.title}
-            onChange={(e) => updateForm("title", e.target.value)}
-            placeholder="Titolo della lavorazione"
-          />
+          {renderTitleField()}
           {renderPedTitleBadge()}
+          {renderMaintenanceTitleBadge()}
           {renderPedShortcut()}
+          {renderMaintenanceShortcut()}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="flex min-w-0 flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Cliente
-              </label>
-              <ClientSelectorWithCreate
-                value={form.client_id}
-                onChange={(v) => updateForm("client_id", v)}
-                clients={clients}
-                companyId={companyId}
-                placeholder="Nessun cliente"
-                includeEmptyOption
-                emptyOptionLabel="Nessun cliente"
-                menuLayer="portal"
-                className="min-w-0 max-w-full"
-              />
-            </div>
+            {renderClientField()}
             <MultiSelect
               label="Area"
               value={form.work_area_ids}
@@ -2108,18 +3622,7 @@ export function WorkItemFormModal({
             options={userOptions}
             placeholder="Seleziona operatori..."
           />
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-              Descrizione
-            </label>
-            <Textarea
-              value={form.description}
-              onChange={(e) => updateForm("description", e.target.value)}
-              placeholder="Descrizione opzionale..."
-              rows={3}
-              className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
-            />
-          </div>
+          {renderDescriptionField(3)}
           <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
             <Checkbox
               checked={form.is_priority}
@@ -2182,6 +3685,47 @@ export function WorkItemFormModal({
             <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_deadline_locked} />
           </label>
 
+          {sourceItem && (
+            <div className="flex flex-col gap-1.5">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+                <Checkbox
+                  checked={awaitingPublish}
+                  disabled={awaitingPublishBusy}
+                  onChange={(v) => void toggleAwaitingPublish(v)}
+                />
+                In pubblicazione
+                <span className="text-xs text-muted dark:text-muted-dark">
+                  (approvata/pronta ma non ancora pubblicata: torna in corso a peso ridotto, così non ci si scorda di pubblicarla)
+                </span>
+              </label>
+              {awaitingPublish && (
+                <div className="ml-6 flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+                  <span>Peso carico</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={300}
+                    step={5}
+                    value={awaitingPublishPct}
+                    disabled={awaitingPublishBusy || awaitingPublishLocked}
+                    onChange={(e) => setAwaitingPublishPct(e.target.value)}
+                    onBlur={() => void commitAwaitingPublishPct()}
+                    className="w-16 rounded border border-line bg-paper px-2 py-1 text-right text-ink disabled:opacity-50 dark:border-line-dark dark:bg-[#0E0F0E] dark:text-paper"
+                  />
+                  <span>%</span>
+                  {awaitingPublishLocked ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name="shield-check" className="h-3 w-3" />
+                      permanente (impostato dall'admin)
+                    </span>
+                  ) : (
+                    <span>· default {awaitingPublishDefaultPct}% · il PM può alzarlo se più complessa</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderRecurrenceSection()}
         </div>
@@ -2199,6 +3743,28 @@ export function WorkItemFormModal({
             onCreateClick={isAdmin ? () => setWorkTagModalOpen(true) : undefined}
             createActionLabel="Crea tag"
           />
+          {form.client_id ? (
+            socialProfileOptions.length > 0 && (
+              <MultiSelect
+                label="Profili social"
+                value={form.social_profile_ids}
+                onChange={(v) => updateForm("social_profile_ids", v)}
+                options={socialProfileOptions}
+                placeholder="Seleziona profili social..."
+              />
+            )
+          ) : null}
+          {websiteOptions.length > 0 && (
+            <MultiSelect
+              label="Siti web"
+              value={form.website_ids}
+              onChange={(v) => updateForm("website_ids", v)}
+              options={websiteOptions}
+              placeholder="Seleziona siti web..."
+            />
+          )}
+          {renderAvvisoSiti()}
+          {renderMaintenanceCheckbox()}
           <div className="h-px bg-line dark:bg-line-dark" />
           {renderChecklistSection()}
           <div className="h-px bg-line dark:bg-line-dark" />
@@ -2236,48 +3802,123 @@ export function WorkItemFormModal({
       open={open}
       onClose={closeModal}
       icon={<Icon name="check-circle" className="h-5 w-5" />}
-      title={sourceItem ? "Modifica lavorazione" : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")}
-      description="Compila i dati della lavorazione. I campi con * sono obbligatori."
+      // In modifica l'intestazione porta il NOME della lavorazione e, sotto, il cliente:
+      // sono le due cose che servono a sapere dove sei, molto piu' di "Modifica
+      // lavorazione", uguale su ogni scheda. Il titolo segue il campo mentre lo si
+      // cambia, cosi' l'intestazione non mente. In creazione restano le diciture di
+      // prima: non c'e' ancora niente da nominare.
+      title={
+        sourceItem
+          ? (form.title.trim() || "Lavorazione senza titolo")
+          : (isInstantiateMode ? "Nuova lavorazione da modello" : "Nuova lavorazione")
+      }
+      description={sourceItem ? headerClientLabel : "Compila i dati della lavorazione. I campi con * sono obbligatori."}
+      // "In pubblicazione" accanto al titolo: e' lo stato che deve saltare all'occhio
+      // appena si apre la scheda, senza doverlo cercare fra i campi. Segue lo stato vivo
+      // (aggiornato in modo ottimistico dalla spunta), non solo il dato caricato.
+      titleBadge={
+        sourceItem && awaitingPublish ? (
+          <span
+            className="inline-flex flex-none rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wider"
+            style={{
+              color: AWAITING_PUBLISH_BADGE.color,
+              backgroundColor: `${AWAITING_PUBLISH_BADGE.color}22`,
+            }}
+            title={AWAITING_PUBLISH_BADGE.title}
+          >
+            {AWAITING_PUBLISH_BADGE.label}
+          </span>
+        ) : undefined
+      }
+      // Chiave della bozza svincolata dal titolo: il Modal la ricava dal titolo quando
+      // manca, e con il titolo della task cambierebbe a ogni tasto digitato, seminando
+      // bozze. Legata all'id, per giunta, ogni lavorazione ha la sua invece di
+      // condividerne una sola con tutte le altre.
+      draftId={modalDraftId}
       size="xl"
-      dialogClassName="h-[85vh] !max-w-3xl"
-      bodyClassName="overflow-x-hidden"
+      dialogClassName={`h-[85vh] ${effectiveSplit ? "!max-w-6xl" : "!max-w-3xl"}`}
+      bodyClassName={effectiveSplit ? "overflow-x-hidden flex min-h-0 flex-col" : "overflow-x-hidden"}
+      headerActions={
+        sourceItem ? (
+          <div className="flex items-center gap-1.5">
+            {sourceItem.trello_card_id && (
+              <button
+                type="button"
+                onClick={() => setTaskSettingsOpen(true)}
+                title="Impostazioni task (sincronizzazione Trello)"
+                aria-label="Impostazioni task"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-line text-muted transition-colors hover:border-brand-magenta hover:text-brand-magenta dark:border-line-dark dark:text-muted-dark"
+              >
+                <Icon name="settings" className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                const link = `${window.location.origin}/work-items?company_id=${sourceItem.company_id}&task=${sourceItem.id}`;
+                try {
+                  await navigator.clipboard.writeText(link);
+                  toast.success("Link della lavorazione copiato");
+                } catch {
+                  toast.error("Copia non riuscita");
+                }
+              }}
+              title="Copia il link condivisibile: chi lo apre vedrà questa lavorazione già aperta"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-[11px] font-semibold uppercase tracking-wider text-brand-magenta transition-colors hover:border-brand-magenta dark:border-line-dark"
+            >
+              <Icon name="link" className="h-4 w-4" /> Copia link
+            </button>
+            <button
+              type="button"
+              onClick={toggleSplitView}
+              title={effectiveSplit ? "Torna alla vista a scheda singola" : "Affianca le schede su due colonne (trascinabili)"}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-[11px] font-semibold uppercase tracking-wider text-brand-magenta transition-colors hover:border-brand-magenta dark:border-line-dark"
+            >
+              <Icon name="grid" className="h-4 w-4" /> {effectiveSplit ? "Vista singola" : "Affianca"}
+            </button>
+          </div>
+        ) : undefined
+      }
       footer={
-        sourceItem && editTab === "revisione" ? (
-          // Sul tab Revisione le azioni sono i due pulsanti gemelli, qui nel footer
-          // accanto a "Chiudi": niente "Salva" generico.
+        sourceItem && !effectiveSplit && editTab === "revisione" ? (
+          // Vista SINGOLA sul tab Revisione: solo le azioni di revisione (non ci sono
+          // altri campi editabili a schermo, quindi niente "Salva" generico).
           <>
             <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
               Chiudi
             </Button>
-            {canManageReviewer && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => void runReviewAction("sendback")}
-                  loading={reviewAction === "sendback"}
-                  disabled={reviewAction != null}
-                >
-                  Rimanda indietro e correggi
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => void runReviewAction("conclude")}
-                  loading={reviewAction === "conclude"}
-                  disabled={reviewAction != null}
-                >
-                  Salva e concludi
-                </Button>
-              </>
-            )}
+            {canManageReviewer && renderReviewActionButtons()}
           </>
         ) : (
+          // Creazione, vista singola non-revisione, oppure vista DIVISA: sempre "Salva"
+          // (persiste i campi del form, es. assegnatari). In divisa, se la Revisione è
+          // visibile in una colonna, si aggiungono anche le azioni di revisione.
           <>
-            <Button variant="ghost" onClick={closeModal} disabled={saving}>
-              Annulla
+            {sourceItem && renderStatusNavigator()}
+            <Button variant="ghost" onClick={closeModal} disabled={saving || reviewAction != null}>
+              {sourceItem ? "Chiudi" : "Annulla"}
             </Button>
-            <Button variant="primary" onClick={() => handleSave()} loading={saving}>
+            {canJoinTask && (
+              <Button
+                variant="secondary"
+                onClick={() => void handleJoin()}
+                loading={joining}
+                disabled={saving || reviewAction != null}
+                leftIcon={<Icon name="users" className="h-4 w-4" />}
+                title="Aggiungiti agli assegnatari per dare una mano"
+              >
+                Prendi in carico
+              </Button>
+            )}
+            <Button
+              variant={splitReviewActions ? "secondary" : "primary"}
+              onClick={() => handleSave()}
+              loading={saving}
+              disabled={reviewAction != null}
+            >
               Salva
             </Button>
+            {splitReviewActions && renderReviewActionButtons()}
           </>
         )
       }
@@ -2289,7 +3930,7 @@ export function WorkItemFormModal({
       ) : isSingleCreate ? (
         renderCreateLayout()
       ) : (
-        <div className="flex min-w-0 max-w-full flex-col gap-5 overflow-x-hidden">
+        <div className={`flex min-w-0 max-w-full flex-col gap-5 overflow-x-hidden ${effectiveSplit ? "min-h-0 flex-1" : ""}`}>
           {formError && (
             <div className="rounded-md border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">
               {formError}
@@ -2311,6 +3952,15 @@ export function WorkItemFormModal({
                 {isFromTemplate && (
                   <span className="inline-flex rounded-pill border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
                     Da modello
+                  </span>
+                )}
+                {isMaintenance && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-pill border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success"
+                    title="Manutenzione programmata di un sito web"
+                  >
+                    <Icon name="globe" className="h-3 w-3" />
+                    Manutenzione sito
                   </span>
                 )}
                 {isGeneratedRecurringItem && (
@@ -2381,41 +4031,40 @@ export function WorkItemFormModal({
             </div>
           )}
 
-          {/* Schede modifica */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-line dark:border-line-dark">
-            {([
-              { id: "dettagli", label: "Dettagli" },
-              { id: "assegnazioni", label: "Assegnazioni & Tag" },
-              { id: "checklist", label: "Checklist & PED" },
-              { id: "revisione", label: "Revisione" },
-              { id: "timeline", label: "Timeline eventi" },
-            ] as const).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setEditTab(tab.id)}
-                className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-                  editTab === tab.id
-                    ? "border-ink text-ink dark:border-paper dark:text-paper"
-                    : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {editTab === "revisione" && sourceItem && (
+          {/* Schede modifica — contenuti in mappa, layout singolo/affiancato sotto */}
+          {(() => {
+          const sections: Record<WiTabId, () => ReactNode> = {
+            dettagli: () => null, assegnazioni: () => null, checklist: () => null, revisione: () => null, timeline: () => null, monitoraggio: () => null, moduli: () => null,
+          };
+          sections.moduli = () => sourceItem ? (
+            <TaskFormsTab
+              workItemId={sourceItem.id}
+              companyId={sourceItem.company_id ?? companyId}
+              canManage={isMonitorManager}
+            />
+          ) : null;
+          sections.monitoraggio = () => sourceItem ? (
+            <TaskMonitoringTab
+              workItemId={sourceItem.id}
+              companyId={sourceItem.company_id ?? companyId}
+              clientId={sourceItem.client_id ?? null}
+              isManager={isMonitorManager}
+              hasPedConfig={!!(sourceItem.ped_configuration_id ?? sourceItem.ped_configuration)}
+            />
+          ) : null;
+          sections.revisione = () => sourceItem ? (
             <ReviewTab
               ref={reviewRef}
               workItemId={sourceItem.id}
               canManage={canManageReviewer}
+              canSendToClient={canManageReviewer || canSendToClient}
+              companyId={sourceItem.company_id ?? companyId}
               onChanged={() => void refetchDetail()}
               renderActionsInline={false}
             />
-          )}
+          ) : null;
 
-          {editTab === "timeline" && (
+          sections.timeline = () => (
             <div className="rounded-md border border-line dark:border-line-dark p-3">
               <div className="mb-2 text-[11px] uppercase tracking-wider text-muted dark:text-muted-dark">Timeline eventi</div>
               {isDetailLoading ? (
@@ -2462,9 +4111,13 @@ export function WorkItemFormModal({
                       return (
                         <div key={`${event.event_type}-${event.created_at}-${index}`} className={`rounded-md border p-2 ${boxClass}`}>
                           <div className={`text-xs font-semibold ${labelClass}`}>{workItemEventLabel(event.event_type, event.field_name)}</div>
-                          <div className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
-                            {new Date(event.created_at).toLocaleString("it-IT")}
-                            {event.actor_name ? ` · ${event.actor_name}` : ""}
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted dark:text-muted-dark">
+                            <span>{new Date(event.created_at).toLocaleString("it-IT")}</span>
+                            {event.actor_name ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-ink dark:text-paper">
+                                <Icon name="user-circle" className="h-3 w-3" /> {event.actor_name}
+                              </span>
+                            ) : null}
                           </div>
                           {segments.length > 0 && (
                             <div className="mt-1 text-xs text-muted dark:text-muted-dark">{segments.join(" · ")}</div>
@@ -2481,9 +4134,10 @@ export function WorkItemFormModal({
                 </div>
               )}
             </div>
-          )}
+          );
 
-          {editTab === "dettagli" && (
+          sections.dettagli = () => (
+          <>
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Base — */}
           <SectionCard icon="document-text" title="Base">
@@ -2493,6 +4147,7 @@ export function WorkItemFormModal({
                   Template di partenza
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={selectedTemplateId}
                   onChange={(value) => setSelectedTemplateId(value)}
                   options={[
@@ -2507,23 +4162,7 @@ export function WorkItemFormModal({
                 />
               </div>
             )}
-              <div className="flex min-w-0 flex-col gap-1">
-              <label className="flex items-center text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Cliente
-                <FieldHelpPopover {...WORKLOAD_FIELD_HELP.client} />
-              </label>
-                <ClientSelectorWithCreate
-                  value={form.client_id}
-                  onChange={(v) => updateForm("client_id", v)}
-                  clients={clients}
-                  companyId={companyId}
-                  placeholder="Nessun cliente"
-                  includeEmptyOption
-                  emptyOptionLabel="Nessun cliente"
-                  menuLayer="portal"
-                  className="min-w-0 max-w-full"
-              />
-            </div>
+            {renderClientField()}
             <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
               <Checkbox
                 checked={form.is_template}
@@ -2538,27 +4177,12 @@ export function WorkItemFormModal({
                 Questo elemento non apparira nella lista operativa standard.
               </p>
             )}
-            <Input
-              label="Titolo *"
-              labelIcon={<Icon name="pencil" className="h-3.5 w-3.5" />}
-              value={form.title}
-              onChange={(e) => updateForm("title", e.target.value)}
-              placeholder="Titolo della lavorazione"
-            />
+            {renderTitleField()}
             {renderPedTitleBadge()}
+            {renderMaintenanceTitleBadge()}
             {renderPedShortcut()}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-                Descrizione
-              </label>
-              <Textarea
-                value={form.description}
-                onChange={(e) => updateForm("description", e.target.value)}
-                placeholder="Descrizione opzionale..."
-                rows={2}
-                className="w-full rounded-md border border-line bg-paper px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none dark:border-line-dark dark:bg-ink-soft dark:text-paper dark:placeholder:text-muted-dark dark:focus:border-paper"
-              />
-            </div>
+            {renderMaintenanceShortcut()}
+            {renderDescriptionField(2)}
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
                 <Checkbox
@@ -2580,9 +4204,7 @@ export function WorkItemFormModal({
           </SectionCard>
 
           </div>
-          )}
 
-          {editTab === "dettagli" && (
           <div className="flex min-w-0 flex-col gap-5 border-t border-line pt-5 dark:border-line-dark">
           {/* — Pianificazione (mostrata nella stessa scheda Dettagli) — */}
           <SectionCard icon="calendar" title="Pianificazione">
@@ -2632,13 +4254,16 @@ export function WorkItemFormModal({
                 onChange={(v) => updateForm("estimated_hours", v == null ? "" : String(v))}
                 help={WORKLOAD_FIELD_HELP.estimated_hours}
               />
+                {/* Peso della task: ora è tutto gestito dalle revisioni (pesi per-ruolo/fase).
+                    Slider nascosto — il valore resta in form.load_weight_factor (default 1×) e
+                    viene impostato dal flusso di revisione. Ripristinare qui se dovesse servire.
                 <LoadWeightField
                   value={form.load_weight_factor}
                   onChange={(w) => updateForm("load_weight_factor", String(w))}
                   estimatedHours={form.estimated_hours}
                   affectsDailyLoad={form.affects_daily_load}
                   help={WORKLOAD_FIELD_HELP.load_weight_factor}
-                />
+                /> */}
             </div>
               <div className="flex flex-wrap items-center gap-4">
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
@@ -2673,6 +4298,16 @@ export function WorkItemFormModal({
                   Frazionabile
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.is_fractionable} />
                 </label>
+                {/* Visibilità: di norma pubblica per l'area, così chi è scarico la trova e
+                    può dare una mano. La spunta la rende privata. */}
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink dark:text-paper">
+                  <Checkbox
+                    checked={form.visibility === "private"}
+                    onChange={(v) => updateForm("visibility", v ? "private" : "area")}
+                  />
+                  Privata
+                  <FieldHelpPopover {...WORKLOAD_FIELD_HELP.visibility} />
+                </label>
               </div>
               {form.is_left_behind && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2681,6 +4316,7 @@ export function WorkItemFormModal({
                       Motivo *
                     </label>
                     <SearchableSelect
+                      menuLayer="portal"
                       value={form.left_behind_reason}
                       onChange={handleLeftBehindReasonChange}
                       options={LEFT_BEHIND_REASON_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
@@ -2710,6 +4346,7 @@ export function WorkItemFormModal({
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.status} />
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.status}
                   onChange={(v) => updateForm("status", v as WorkItemStatus)}
                   options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
@@ -2733,6 +4370,7 @@ export function WorkItemFormModal({
                   <FieldHelpPopover {...WORKLOAD_FIELD_HELP.urgency_level} />
                 </label>
                 <SearchableSelect
+                  menuLayer="portal"
                   value={form.urgency_level}
                   onChange={(v) => updateForm("urgency_level", v as UrgencyLevel | "")}
                   options={[
@@ -2766,9 +4404,10 @@ export function WorkItemFormModal({
           </SectionCard>
 
           </div>
-          )}
+          </>
+          );
 
-          {editTab === "assegnazioni" && (
+          sections.assegnazioni = () => (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Assegnazioni — */}
           <SectionCard icon="users" title="Assegnazioni">
@@ -2836,10 +4475,63 @@ export function WorkItemFormModal({
             />
           </SectionCard>
 
-          </div>
-          )}
+          {/* — Profili social del cliente — */}
+          <SectionCard icon="globe" title="Profili social">
+            {form.client_id ? (
+              socialProfileOptions.length > 0 ? (
+                <MultiSelect
+                  label="Profili collegati"
+                  value={form.social_profile_ids}
+                  onChange={(v) => updateForm("social_profile_ids", v)}
+                  options={socialProfileOptions}
+                  placeholder="Seleziona profili social..."
+                />
+              ) : (
+                <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                  Il cliente non ha profili social in archivio: aggiungili dalla pagina "Profili
+                  social" nel menù.
+                </p>
+              )
+            ) : (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                Seleziona prima un cliente per collegare i suoi profili social.
+              </p>
+            )}
+          </SectionCard>
 
-          {editTab === "checklist" && (
+          {/* — Siti web — Non dietro al cliente come i social: quasi nessun sito
+              in archivio ha un cliente collegato, e le manutenzioni generate
+              agganciano il sito a task che spesso il cliente non ce l'hanno. */}
+          <SectionCard icon="globe" title="Siti web">
+            {websiteOptions.length > 0 ? (
+              <MultiSelect
+                label="Siti collegati"
+                value={form.website_ids}
+                onChange={(v) => updateForm("website_ids", v)}
+                options={websiteOptions}
+                placeholder="Seleziona siti web..."
+              />
+            ) : (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                {form.client_id
+                  ? "Il cliente non ha siti in archivio: aggiungili dalla pagina \u201cSiti web\u201d nel men\u00f9."
+                  : "Nessun sito in archivio: aggiungili dalla pagina \u201cSiti web\u201d nel men\u00f9."}
+              </p>
+            )}
+            {renderAvvisoSiti()}
+            {renderMaintenanceCheckbox()}
+            {isMaintenance && (
+              <p className="text-[12.5px] text-muted dark:text-muted-dark">
+                Le manutenzioni compaiono nel calendario in Siti web e portano con s\u00e9 il modulo
+                di report configurato.
+              </p>
+            )}
+          </SectionCard>
+
+          </div>
+          );
+
+          sections.checklist = () => (
           <div className="flex min-w-0 flex-col gap-5">
           {/* — Checklist — */}
           {renderChecklistSection()}
@@ -2942,10 +4634,57 @@ export function WorkItemFormModal({
             </>
           )}
           </div>
-          )}
+          );
+
+          return effectiveSplit ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-5 lg:flex-row lg:gap-0">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:pr-5">
+                {renderSplitTabBar("left")}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {leftTab && (leftTab !== "monitoraggio" || canSeeMonitorTab) ? sections[leftTab]() : renderEmptyPane()}
+                </div>
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 border-line dark:border-line-dark lg:border-l lg:pl-5">
+                {renderSplitTabBar("right")}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {rightTab && (rightTab !== "monitoraggio" || canSeeMonitorTab) ? sections[rightTab]() : renderEmptyPane()}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1 border-b border-line dark:border-line-dark">
+                {WI_TAB_ORDER.filter((id) => id !== "monitoraggio" || canSeeMonitorTab).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setEditTab(id)}
+                    className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                      editTab === id
+                        ? "border-ink text-ink dark:border-paper dark:text-paper"
+                        : "border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-paper"
+                    }`}
+                  >
+                    {WI_TAB_LABEL[id]}
+                  </button>
+                ))}
+              </div>
+              {sections[editTab === "monitoraggio" && !canSeeMonitorTab ? "dettagli" : editTab]()}
+            </>
+          );
+          })()}
         </div>
       )}
     </Modal>
+
+    {sourceItem && (
+      <TaskSettingsModal
+        open={taskSettingsOpen}
+        onClose={() => setTaskSettingsOpen(false)}
+        workItem={sourceItem}
+        onSaved={() => void refetchDetail()}
+      />
+    )}
 
     <WorkTagCreateModal
       open={workTagModalOpen}
@@ -2989,6 +4728,10 @@ export function WorkItemFormModal({
       onReschedule={handleOverbookingReschedule}
       onProceed={finishAfterOverbooking}
     />
+
+    {/* Configurazione e invio dell'avviso: fuori dal modale della task, così
+        restano montati una volta sola e non uno per sito collegato. */}
+    {avviso.modals}
     </>
   );
 }

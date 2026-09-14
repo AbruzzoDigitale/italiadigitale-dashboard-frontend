@@ -3,6 +3,7 @@ import "./fatturazione-page.css";
 import { Icon } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../context/ToastContext";
+import { useUndo } from "../context/UndoContext";
 import {
   listBillingItemsApi,
   generateBillingItemApi,
@@ -12,6 +13,7 @@ import {
   type BillingItemsResponse,
   type BillingType,
 } from "../api/billing";
+import { deleteWorkItemApi, restoreWorkItemApi } from "../api/workItems";
 import { FicReconcilePanel } from "../components/billing/FicReconcilePanel";
 import { FicCreditNotesPanel } from "../components/billing/FicCreditNotesPanel";
 import { FicDuplicateInvoicesPanel } from "../components/billing/FicDuplicateInvoicesPanel";
@@ -72,15 +74,24 @@ function InvoiceRow({
   busy,
   onGenerate,
   onCancel,
+  onArchive,
+  exiting,
+  onExited,
 }: {
   it: BillingItem;
   busy: boolean;
   onGenerate: (it: BillingItem) => void;
   onCancel: (it: BillingItem) => void;
+  onArchive: (it: BillingItem) => void;
+  exiting?: boolean;
+  onExited?: (it: BillingItem) => void;
 }) {
   const done = it.state === "fatturato";
   return (
-    <div className={"fb-row" + (done ? " is-done" : "")}>
+    <div
+      className={"fb-row" + (done ? " is-done" : "") + (exiting ? " is-exiting" : "")}
+      onAnimationEnd={(e) => exiting && e.target === e.currentTarget && onExited?.(it)}
+    >
       <div className="fb-row-main">
         <div className="fb-row-title">
           {it.title} <TypeBadge type={it.type} />
@@ -112,9 +123,21 @@ function InvoiceRow({
             </button>
           </div>
         ) : (
-          <button className="fb-generate" disabled={busy} onClick={() => onGenerate(it)}>
-            <Icon name="upload" className="h-3.5 w-3.5" /> Genera fattura su FIC
-          </button>
+          <>
+            <button className="fb-generate" disabled={busy} onClick={() => onGenerate(it)}>
+              <Icon name="upload" className="h-3.5 w-3.5" /> Genera fattura su FIC
+            </button>
+            {it.work_item_id ? (
+              <button
+                className="fb-archive"
+                disabled={busy}
+                onClick={() => onArchive(it)}
+                title="Non va fatturata: archivia la lavorazione (puoi annullare subito dopo)"
+              >
+                <Icon name="archive" className="h-3.5 w-3.5" /> Archivia
+              </button>
+            ) : null}
+          </>
         )}
       </div>
     </div>
@@ -127,12 +150,18 @@ function ClientGroup({
   busyIds,
   onGenerate,
   onCancel,
+  onArchive,
+  exiting,
+  onExited,
 }: {
   client: string;
   items: BillingItem[];
   busyIds: Set<string>;
   onGenerate: (it: BillingItem) => void;
   onCancel: (it: BillingItem) => void;
+  onArchive: (it: BillingItem) => void;
+  exiting: Set<string>;
+  onExited: (it: BillingItem) => void;
 }) {
   const todo = items.filter((i) => i.state === "da_fatturare");
   const todoTot = todo.reduce((s, i) => s + i.amount, 0);
@@ -163,6 +192,9 @@ function ClientGroup({
             busy={busyIds.has(billingItemKey(it))}
             onGenerate={onGenerate}
             onCancel={onCancel}
+            onArchive={onArchive}
+            exiting={exiting.has(billingItemKey(it))}
+            onExited={onExited}
           />
         ))}
       </div>
@@ -174,14 +206,23 @@ function ForgottenRow({
   it,
   busy,
   onGenerate,
+  onArchive,
+  exiting,
+  onExited,
 }: {
   it: BillingItem;
   busy: boolean;
   onGenerate: (it: BillingItem) => void;
+  onArchive: (it: BillingItem) => void;
+  exiting?: boolean;
+  onExited?: (it: BillingItem) => void;
 }) {
   const tone = agingTone(it.aging_days ?? 0);
   return (
-    <div className={"fb-forgot-row tone-" + tone}>
+    <div
+      className={"fb-forgot-row tone-" + tone + (exiting ? " is-exiting" : "")}
+      onAnimationEnd={(e) => exiting && e.target === e.currentTarget && onExited?.(it)}
+    >
       <div className="fb-forgot-aging">
         <span className="fb-aging-n">{it.aging_days ?? "—"}</span>
         <span className="fb-aging-u">giorni</span>
@@ -208,6 +249,18 @@ function ForgottenRow({
         <button className="fb-generate urgent" disabled={busy} onClick={() => onGenerate(it)}>
           <Icon name="upload" className="h-3.5 w-3.5" /> Emetti ora
         </button>
+        {/* Voce che non va fatturata (lavorazione di prova, doppione, annullata):
+            archivia la lavorazione che la genera. È un soft-delete, con Annulla. */}
+        {it.work_item_id ? (
+          <button
+            className="fb-archive"
+            disabled={busy}
+            onClick={() => onArchive(it)}
+            title="Non va fatturata: archivia la lavorazione (puoi annullare subito dopo)"
+          >
+            <Icon name="archive" className="h-3.5 w-3.5" /> Archivia
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -219,12 +272,18 @@ function ForgottenPanel({
   onToggle,
   busyIds,
   onGenerate,
+  onArchive,
+  exiting,
+  onExited,
 }: {
   items: BillingItem[];
   open: boolean;
   onToggle: () => void;
   busyIds: Set<string>;
   onGenerate: (it: BillingItem) => void;
+  onArchive: (it: BillingItem) => void;
+  exiting: Set<string>;
+  onExited: (it: BillingItem) => void;
 }) {
   if (items.length === 0) return null;
   const tot = items.reduce((s, i) => s + i.amount, 0);
@@ -254,7 +313,15 @@ function ForgottenPanel({
       {open && (
         <div className="fb-forgot-body">
           {items.map((it) => (
-            <ForgottenRow key={billingItemKey(it)} it={it} busy={busyIds.has(billingItemKey(it))} onGenerate={onGenerate} />
+            <ForgottenRow
+              key={billingItemKey(it)}
+              it={it}
+              busy={busyIds.has(billingItemKey(it))}
+              onGenerate={onGenerate}
+              onArchive={onArchive}
+              exiting={exiting.has(billingItemKey(it))}
+              onExited={onExited}
+            />
           ))}
         </div>
       )}
@@ -264,6 +331,7 @@ function ForgottenPanel({
 
 export function FatturazionePage() {
   const toast = useToast();
+  const { registerUndo } = useUndo();
   const [view, setView] = useState<"fatture" | "riconciliazione" | "note-credito" | "duplica">("fatture");
   const [month, setMonth] = useState<string>(currentMonth());
   const [data, setData] = useState<BillingItemsResponse | null>(null);
@@ -271,6 +339,8 @@ export function FatturazionePage() {
   const [error, setError] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(true);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  // Righe archiviate in uscita: restano montate finché l'animazione non finisce.
+  const [exiting, setExiting] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -306,6 +376,77 @@ export function FatturazionePage() {
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Impossibile generare la fattura");
+    } finally {
+      setBusy(key, false);
+    }
+  };
+
+  /** Toglie la voce dall'elenco in locale, senza ricaricare tutta la pagina. */
+  const removeItemLocally = (it: BillingItem) => {
+    const key = billingItemKey(it);
+    setData((prev) => {
+      if (!prev) return prev;
+      const eraDaFatturare = it.state === "da_fatturare";
+      return {
+        ...prev,
+        items: prev.items.filter((i) => billingItemKey(i) !== key),
+        forgotten: prev.forgotten.filter((i) => billingItemKey(i) !== key),
+        // I totali in testata sono calcolati sul mese: li aggiorno di conseguenza
+        // (le voci "da recuperare" non ci rientrano, sono di mesi passati).
+        summary:
+          eraDaFatturare && prev.items.some((i) => billingItemKey(i) === key)
+            ? {
+                ...prev.summary,
+                todo_count: Math.max(0, prev.summary.todo_count - 1),
+                todo_total: Math.max(0, prev.summary.todo_total - it.amount),
+                canone_total:
+                  it.type === "canone"
+                    ? Math.max(0, prev.summary.canone_total - it.amount)
+                    : prev.summary.canone_total,
+                tantum_total:
+                  it.type === "una_tantum"
+                    ? Math.max(0, prev.summary.tantum_total - it.amount)
+                    : prev.summary.tantum_total,
+              }
+            : prev.summary,
+      };
+    });
+    setExiting((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  /**
+   * Voce che non va fatturata (lavorazione di prova, doppione, lavoro annullato):
+   * archivia la lavorazione da cui la voce è derivata — le voci "da recuperare"
+   * non sono righe di una tabella, si ricalcolano dalle lavorazioni completate.
+   * È il soft-delete già usato in Lavorazioni: ripristinabile, e qui c'è Annulla.
+   *
+   * La riga esce con l'animazione e viene tolta dall'elenco in locale: niente
+   * ricaricamento della pagina, così puoi archiviarne diverse di seguito.
+   */
+  const onArchive = async (it: BillingItem) => {
+    if (!it.work_item_id) return;
+    const key = billingItemKey(it);
+    setBusy(key, true);
+    try {
+      await deleteWorkItemApi(it.work_item_id);
+      setExiting((prev) => new Set(prev).add(key));
+      // La rimozione avviene a fine animazione (onAnimationEnd sulla riga); questo
+      // timer è la rete di sicurezza se l'evento non arriva (tab in background,
+      // animazioni disattivate dal sistema).
+      window.setTimeout(() => removeItemLocally(it), 600);
+      registerUndo({
+        label: `"${it.title}" archiviata: la voce non è più tra quelle da fatturare`,
+        undo: async () => {
+          await restoreWorkItemApi(it.work_item_id!);
+          await load(); // ricarico: la voce deve rientrare al posto giusto
+        },
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Impossibile archiviare la lavorazione");
     } finally {
       setBusy(key, false);
     }
@@ -482,6 +623,9 @@ export function FatturazionePage() {
             onToggle={() => setForgotOpen((v) => !v)}
             busyIds={busyIds}
             onGenerate={onGenerate}
+            onArchive={onArchive}
+            exiting={exiting}
+            onExited={removeItemLocally}
           />
 
           {/* gruppi cliente */}
@@ -502,6 +646,9 @@ export function FatturazionePage() {
                   busyIds={busyIds}
                   onGenerate={onGenerate}
                   onCancel={onCancel}
+                  onArchive={onArchive}
+                  exiting={exiting}
+                  onExited={removeItemLocally}
                 />
               ))}
             </div>

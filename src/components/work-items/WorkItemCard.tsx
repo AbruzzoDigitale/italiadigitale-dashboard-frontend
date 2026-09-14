@@ -1,17 +1,21 @@
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icon";
 import { WorkItemResourceChips } from "./WorkItemResourceChips";
+import { WorkAreaChips } from "./WorkAreaChips";
 import { WorkAreaBadge } from "../work-areas/WorkAreaBadge";
+import { deriveReviewPhase } from "../review/reviewFlow";
+import { WorkItemWarnBadge, type WarnItem } from "./WorkItemWarnBadge";
 import { type WorkItem, type WorkTag, type LeftBehindReason } from "../../api/workItems";
 import { type User } from "../../api/users";
 import { type WorkArea } from "../../api/workAreas";
 import { reworkSeverityClass } from "../../utils/rework";
+import { formatDurationHuman } from "../../utils/duration";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function fmtHours(n: number | null): string {
   if (n == null) return "—";
-  return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
+  return formatDurationHuman(n);
 }
 
 export function leftBehindReasonLabel(reason: LeftBehindReason | null): string {
@@ -45,11 +49,13 @@ export function formatWorkItemDate(d: string | null | undefined): string {
 }
 
 export function taskTypeLabel(taskType?: WorkItem["task_type"]): string {
+  if (taskType === "website_maintenance") return "Manutenzione";
   return taskType === "quick" ? "Quick" : "Standard";
 }
 
 export function taskTypeBadgeClass(taskType?: WorkItem["task_type"]): string {
-  if (taskType === "quick") return "bg-[#E91E8A]/12 text-[#E91E8A] border border-[#E91E8A]/35";
+  if (taskType === "quick") return "bg-[#E91E8A]/10 text-[#E91E8A] border border-[#E91E8A]/35";
+  if (taskType === "website_maintenance") return "bg-[#0d9488]/10 text-[#0f766e] border border-[#0d9488]/35 dark:text-[#5eead4]";
   return "bg-info/10 text-info border border-info/25";
 }
 
@@ -100,6 +106,9 @@ export function WorkItemCard({
   const isDone = item.is_completed || item.status === "completed";
   // In revisione e già consegnata al cliente: evidenziazione dedicata sulla lavagna.
   const sentToClient = item.status === "review" && !!item.delivered_to_client_at;
+  // Fase "In pubblicazione": approvata dal cliente, torna in corso col peso di
+  // pubblicazione (status non è più "review"). Badge + accento dedicati.
+  const inPublishing = deriveReviewPhase(item.status, item.review_stage, item.client_approved_at) === "pubblicazione";
   const scheduleState = item.schedule_state ?? null;
   const isCarriedOver = scheduleState?.delay_code === "carried_over";
   const isSevereDelay = scheduleState?.delay_code === "non_deferrable_overdue";
@@ -121,6 +130,25 @@ export function WorkItemCard({
         ? "var(--amber)"
         : areaColor;
 
+  // Avvisi accorpati nel triangolo (ritardo/ritardo grave/scadenza/non derogabile):
+  // cliccando l'icona si apre il popover con l'elenco, e appare "+N" se sono più di uno.
+  const warnings: WarnItem[] = [];
+  if (isSevereDelay) warnings.push({ key: "severe", label: "Ritardo grave", tone: "grave" });
+  else if (isCarriedOver) warnings.push({ key: "late", label: "In ritardo", tone: "late" });
+  if (overdue) {
+    warnings.push({
+      key: "overdue",
+      label: `Scaduta il ${formatWorkItemDate(item.deadline_date)}`,
+      tone: isSevereDelay ? "grave" : "late",
+    });
+  }
+  if (item.is_deadline_locked) {
+    warnings.push({ key: "nondeg", label: "Scadenza non derogabile", tone: "nondeg" });
+  }
+  if (item.has_monitor_alert) {
+    warnings.push({ key: "monitor", label: "Monitoraggio social: profilo in allarme", tone: "late" });
+  }
+
   return (
     <div
       draggable
@@ -137,7 +165,7 @@ export function WorkItemCard({
         }
       }}
       title="Apri dettaglio lavorazione"
-      className={`lv-card${isSelected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
+      className={`lv-card${item.task_type === "website_maintenance" ? " maint" : ""}${isSelected ? " sel" : ""}${isDone ? " done" : ""}${sentToClient ? " sent-client" : ""}${inPublishing ? " publishing" : ""}${reworkSeverityClass(item.rework_count) ? " " + reworkSeverityClass(item.rework_count) : ""}`}
       style={{ "--area": areaColor, "--accent": accent } as React.CSSProperties}
     >
       {/* Top: checkbox · id · flags + azioni hover */}
@@ -156,7 +184,7 @@ export function WorkItemCard({
             <span />
           </label>
         )}
-        <span className="lv-client min-w-0 flex-1" title={clientName ?? "Senza cliente"}>
+        <span className="lv-client" title={clientName ?? "Senza cliente"}>
           <Icon name="building" className="h-3 w-3" />
           <span className="truncate">{clientName ?? "Senza cliente"}</span>
         </span>
@@ -179,11 +207,9 @@ export function WorkItemCard({
               <Icon name="check-circle" className="h-2.5 w-2.5" /> Al cliente
             </span>
           )}
-          {isSevereDelay && <span className="lv-badge grave">Ritardo grave</span>}
-          {isCarriedOver && <span className="lv-badge late">In ritardo</span>}
-          {item.is_deadline_locked && (
-            <span className="lv-badge nondeg">
-              <Icon name="shield" className="h-2.5 w-2.5" /> Non derog.
+          {inPublishing && (
+            <span className="lv-badge publishing" title="Approvata dal cliente · in pubblicazione">
+              <Icon name="globe" className="h-2.5 w-2.5" /> Pubbl.
             </span>
           )}
           {item.is_template && <span className="lv-badge soft">Modello</span>}
@@ -191,16 +217,17 @@ export function WorkItemCard({
             <span className="lv-badge soft">Ricorrente</span>
           )}
           {item.is_PED && <span className="lv-badge soft">PED</span>}
+          {item.task_type === "website_maintenance" && (
+            <span className="lv-badge maint" title="Manutenzione programmata di un sito web">
+              <Icon name="globe" className="h-2.5 w-2.5" /> Manutenzione
+            </span>
+          )}
           {isAiGenerated && (
             <span className="lv-badge ai" title="Task generata con AI">
               <Icon name="robot" className="h-2.5 w-2.5" /> AI
             </span>
           )}
-          {(overdue || isCarriedOver || isSevereDelay) && (
-            <span title={overdue ? `Scaduto il ${formatWorkItemDate(item.deadline_date)}` : "In ritardo"}>
-              <Icon name="alert-triangle" className="lv-warn h-3.5 w-3.5" />
-            </span>
-          )}
+          <WorkItemWarnBadge warnings={warnings} />
           <div className="lv-actions" onClick={(e) => e.stopPropagation()}>
             {item.is_template && (
               <button
@@ -254,16 +281,7 @@ export function WorkItemCard({
 
       {(areas.length > 0 || scheduleState?.delay_code) && (
         <div className="lv-mid">
-          {areas.map((area) => (
-            <span
-              key={area.id}
-              className="lv-area"
-              style={{ "--area": normColor(area.color) ?? "#8c8d87" } as React.CSSProperties}
-            >
-              <i />
-              {area.name}
-            </span>
-          ))}
+          <WorkAreaChips areas={areas} />
           {scheduleState?.delay_code &&
             (() => {
               // Nota: il "Peso Nx" è stato rimosso su richiesta; resta solo il ritardo.

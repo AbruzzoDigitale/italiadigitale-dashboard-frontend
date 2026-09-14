@@ -23,6 +23,7 @@ import {
   getMePermissionsApi,
   type UserPermissions,
 } from "../api/users";
+import { startSilentRenew } from "../api/session";
 import { useToast } from "./ToastContext";
 
 interface AuthContextValue {
@@ -34,6 +35,8 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (payload: LoginPayload) => Promise<void>;
+  /** Completa il login con un token già ottenuto (Google, passkey). */
+  loginWithToken: (accessToken: string) => Promise<void>;
   refreshSession: () => Promise<void>;
   switchActiveCompany: (companyId: number) => Promise<void>;
   logout: () => void;
@@ -111,6 +114,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerUnauthorizedHandler(() => logoutRef.current());
   }, []);
 
+  // Rinnovo silenzioso della sessione finché l'utente è autenticato: chi sta
+  // lavorando non viene mai buttato fuori allo scadere delle 3 ore.
+  useEffect(() => {
+    if (!user) return;
+    return startSilentRenew();
+  }, [user]);
+
   // Restore session on mount
   useEffect(() => {
     const token = localStorage.getItem("id_token");
@@ -154,6 +164,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refreshSession]
   );
 
+  const loginWithToken = useCallback(
+    async (accessToken: string) => {
+      localStorage.setItem("id_token", accessToken);
+      await refreshSession();
+    },
+    [refreshSession]
+  );
+
   const switchActiveCompany = useCallback(async (companyId: number) => {
     await switchActiveCompanyApi({ company_id: companyId });
 
@@ -179,6 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: user !== null,
         isLoading,
         login,
+        loginWithToken,
         refreshSession,
         switchActiveCompany,
         logout,
