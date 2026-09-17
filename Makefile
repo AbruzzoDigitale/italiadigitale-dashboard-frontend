@@ -47,7 +47,7 @@ dev-backend:
 
 # Login Google Cloud: gcloud auth + Application Default Credentials.
 google-login:
-	$(MAKE) -C $(BACKEND_DIR) google-login
+	$(MAKE) -C $(BACKEND_DIR) google-login project=$(project)
 
 # Cloud SQL Proxy verso il DB (porta 3306 locale).
 google-proxy:
