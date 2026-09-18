@@ -29,6 +29,7 @@ export const APP_SECTIONS: AppSection[] = [
   { label: "Profili social", to: "/profili-social", icon: "globe", routeKey: "social-profiles", group: "operations" },
   { label: "Monitoraggio social", to: "/monitoraggio-social", icon: "activity", routeKey: "social-monitors", group: "operations" },
   { label: "Siti web", to: "/siti-web", icon: "target", routeKey: "websites", group: "operations" },
+  { label: "Cassaforte", to: "/cassaforte", icon: "key", routeKey: "vault", group: "operations" },
   { label: "Prenotazione sale", to: "/prenotazione-sale", icon: "calendar", routeKey: "prenotazione-sale", group: "operations" },
   { label: "Rimborsi trasferte", to: "/rimborsi", icon: "map-pin", routeKey: "rimborsi", group: "operations" },
   { label: "Report", to: "/report", icon: "document-text", routeKey: "reports", group: "operations" },
