@@ -13,9 +13,11 @@ import {
 } from "../../api/vault";
 import { listWebsitesApi } from "../../api/websites";
 import { Button } from "../../components/ui/Button";
+import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
+import { Textarea } from "../../components/ui/Textarea";
 import { useToast } from "../../context/ToastContext";
 
 /**
@@ -187,7 +189,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs font-medium">Tipo</label>
+          <FieldLabel>Tipo</FieldLabel>
           <SearchableSelect
             value={kind}
             onChange={(v) => setKind(v as VaultKind)}
@@ -229,11 +231,9 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
         )}
         {campi.has("private_key") && (
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium">
-              Chiave privata {item && "(vuoto = invariata)"}
-            </label>
-            <textarea
-              className="w-full rounded border border-line bg-surface p-2 font-mono text-xs dark:border-line-dark dark:bg-surface-dark"
+            <Textarea
+              label={item ? "Chiave privata (vuoto = invariata)" : "Chiave privata"}
+              className="font-mono text-xs"
               rows={4}
               value={privateKey}
               onChange={(e) => setPrivateKey(e.target.value)}
@@ -250,7 +250,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
 
         <div className="sm:col-span-2 grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs font-medium">Cliente</label>
+            <FieldLabel>Cliente</FieldLabel>
             <SearchableSelect
               value={clientId}
               onChange={setClientId}
@@ -259,7 +259,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Sito</label>
+            <FieldLabel>Sito</FieldLabel>
             <SearchableSelect
               value={websiteId}
               onChange={setWebsiteId}
@@ -268,7 +268,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Profilo social</label>
+            <FieldLabel>Profilo social</FieldLabel>
             <SearchableSelect
               value={socialId}
               onChange={setSocialId}
@@ -279,9 +279,8 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
         </div>
 
         <div className="sm:col-span-2">
-          <label className="mb-1 block text-xs font-medium">Note</label>
-          <textarea
-            className="w-full rounded border border-line bg-surface p-2 text-sm dark:border-line-dark dark:bg-surface-dark"
+          <Textarea
+            label="Note"
             rows={2}
             value={note}
             onChange={(e) => setNote(e.target.value)}

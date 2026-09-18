@@ -14,14 +14,6 @@ import type { VaultItem, VaultLink } from "../../api/vault";
 
 export type VaultView = "client" | "website" | "social" | "client-tree" | "app";
 
-export const VAULT_VIEW_LABELS: Record<VaultView, string> = {
-  client: "Per cliente",
-  website: "Per sito",
-  social: "Per social",
-  "client-tree": "Cliente › siti e social",
-  app: "Per app / software",
-};
-
 export interface VaultGroup {
   key: string;
   label: string;

@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { type VaultItem } from "../api/vault";
 import { Button } from "../components/ui/Button";
+import { Checkbox } from "../components/ui/Checkbox";
 import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
+import { PageSectionHeader } from "../components/ui/PageSectionHeader";
+import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
 import { VaultList } from "../features/vault/VaultList";
-import { VAULT_VIEW_LABELS, type VaultView } from "../features/vault/grouping";
+import { type VaultView } from "../features/vault/grouping";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 
@@ -28,84 +31,91 @@ export function VaultPage() {
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  if (companyId == null) {
-    return <p className="p-6 text-sm text-muted dark:text-muted-dark">Nessuna azienda selezionata.</p>;
-  }
-
-  const apriNuova = () => {
-    setInModifica(null);
-    setModaleAperta(true);
-  };
-
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
-          <Icon name="key" className="h-5 w-5" />
-          Cassaforte
-        </h1>
-        <Button className="ml-auto" onClick={apriNuova}>
-          <Icon name="plus" className="mr-1 h-4 w-4" />
-          Nuova credenziale
-        </Button>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {(Object.keys(VAULT_VIEW_LABELS) as VaultView[]).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className={
-              "rounded-full border px-3 py-1 text-sm transition " +
-              (view === v
-                ? "border-primary bg-primary/10 font-medium text-primary"
-                : "border-line text-muted hover:bg-muted/5 dark:border-line-dark dark:text-muted-dark")
-            }
-          >
-            {VAULT_VIEW_LABELS[v]}
-          </button>
-        ))}
-
-        <div className="ml-auto flex items-center gap-2">
-          <Input
-            placeholder="Cerca etichetta, utente, URL…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <label className="flex shrink-0 items-center gap-1.5 text-sm">
-            <input
-              type="checkbox"
-              checked={soloDaRinnovare}
-              onChange={(e) => setSoloDaRinnovare(e.target.checked)}
-            />
-            Solo da rinnovare
-          </label>
-        </div>
+    <div className="mx-auto flex h-full w-full flex-col px-6 py-8 min-h-0 animate-fadeIn">
+      <div className="flex flex-none flex-wrap items-center justify-between gap-3">
+        <PageSectionHeader
+          icon={<Icon name="key" className="w-6 h-6" />}
+          title="Cassaforte"
+          lead="Credenziali condivise, cifrate e tracciate."
+        />
+        <SegmentedSwitch
+          value={view}
+          onChange={setView}
+          ariaLabel="Come raggruppare le credenziali"
+          options={[
+            { value: "client", label: <><Icon name="users" className="w-3.5 h-3.5" />Cliente</> },
+            { value: "website", label: <><Icon name="target" className="w-3.5 h-3.5" />Siti</> },
+            { value: "social", label: <><Icon name="globe" className="w-3.5 h-3.5" />Social</> },
+            {
+              value: "client-tree",
+              label: <><Icon name="list" className="w-3.5 h-3.5" />Cliente › siti e social</>,
+              title: "Per cliente, con siti e profili social annidati",
+            },
+            { value: "app", label: <><Icon name="grid" className="w-3.5 h-3.5" />App</> },
+          ]}
+        />
       </div>
 
-      <VaultList
-        filters={{
-          companyId,
-          q: q.trim() || undefined,
-          needsRotation: soloDaRinnovare || undefined,
-        }}
-        view={view}
-        reloadKey={reloadKey}
-        onEdit={(item) => {
-          setInModifica(item);
-          setModaleAperta(true);
-        }}
-        emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
-      />
+      {companyId == null ? (
+        <p className="mt-6 text-sm text-muted dark:text-muted-dark">
+          Nessuna azienda selezionata.
+        </p>
+      ) : (
+        <>
+          <div className="mt-4 flex flex-none flex-wrap items-center gap-3">
+            <Input
+              placeholder="Cerca etichetta, utente, URL…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="w-64"
+            />
+            <button
+              type="button"
+              onClick={() => setSoloDaRinnovare((v) => !v)}
+              className="inline-flex shrink-0 items-center gap-2 self-start text-[12.5px] text-ink dark:text-[#f4f4f7]"
+            >
+              <Checkbox checked={soloDaRinnovare} onChange={setSoloDaRinnovare} />
+              Solo da rinnovare
+            </button>
+            <Button
+              className="ml-auto"
+              onClick={() => {
+                setInModifica(null);
+                setModaleAperta(true);
+              }}
+            >
+              <Icon name="plus" className="mr-1 h-4 w-4" />
+              Nuova credenziale
+            </Button>
+          </div>
 
-      <VaultItemModal
-        open={modaleAperta}
-        onClose={() => setModaleAperta(false)}
-        companyId={companyId}
-        item={inModifica}
-        onSaved={() => setReloadKey((k) => k + 1)}
-      />
+          <div className="mt-4 min-h-0 flex-1 overflow-auto">
+            <VaultList
+              filters={{
+                companyId,
+                q: q.trim() || undefined,
+                needsRotation: soloDaRinnovare || undefined,
+              }}
+              view={view}
+              reloadKey={reloadKey}
+              onEdit={(item) => {
+                setInModifica(item);
+                setModaleAperta(true);
+              }}
+              emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
+            />
+          </div>
+
+          <VaultItemModal
+            open={modaleAperta}
+            onClose={() => setModaleAperta(false)}
+            companyId={companyId}
+            item={inModifica}
+            onSaved={() => setReloadKey((k) => k + 1)}
+          />
+        </>
+      )}
     </div>
   );
 }

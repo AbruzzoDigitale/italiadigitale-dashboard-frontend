@@ -9,8 +9,10 @@ import {
   type VaultItem,
   type VaultListFilters,
 } from "../../api/vault";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
 import { VaultUnlockModal } from "./VaultUnlockModal";
 import { contaGruppo, groupItems, type VaultGroup, type VaultView } from "./grouping";
@@ -110,7 +112,13 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   }
 
   if (caricamento) {
-    return <p className="p-4 text-sm text-muted dark:text-muted-dark">Carico…</p>;
+    return (
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-2/3" />
+      </div>
+    );
   }
   if (items.length === 0) {
     return (
@@ -124,7 +132,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
 
   return (
     <>
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {gruppi.map((g) => (
           <Gruppo
             key={g.key}
@@ -171,25 +179,31 @@ function Gruppo({ gruppo, livello = 0, ...rest }: GruppoProps) {
     <section
       className={
         livello === 0
-          ? "rounded-lg border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
+          ? "rounded-xl border border-line bg-surface dark:border-line-dark dark:bg-surface-dark"
           : "border-l border-line pl-3 dark:border-line-dark"
       }
     >
       <button
         type="button"
         onClick={() => setAperto((a) => !a)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-muted/5"
+        aria-expanded={aperto}
       >
-        <Icon name={aperto ? "chevron-down" : "chevron-right"} className="h-4 w-4 shrink-0" />
-        <span className="font-semibold">{gruppo.label}</span>
+        <Icon
+          name={aperto ? "chevron-down" : "chevron-right"}
+          className="h-4 w-4 shrink-0 text-muted dark:text-muted-dark"
+        />
+        <span className="truncate font-semibold">{gruppo.label}</span>
         {gruppo.sublabel && (
-          <span className="text-xs text-muted dark:text-muted-dark">{gruppo.sublabel}</span>
+          <span className="truncate text-xs text-muted dark:text-muted-dark">
+            {gruppo.sublabel}
+          </span>
         )}
-        <span className="ml-auto text-xs text-muted dark:text-muted-dark">{totale}</span>
+        <Badge className="ml-auto shrink-0">{totale}</Badge>
       </button>
 
       {aperto && (
-        <div className="flex flex-col gap-1 px-3 pb-3">
+        <div className="flex flex-col gap-1.5 px-3 pb-3">
           {gruppo.items.map((item) => (
             <Riga key={item.id} item={item} {...rest} />
           ))}
@@ -213,21 +227,18 @@ function Riga({
   const scoperto = rivelati[item.id];
 
   return (
-    <div className="flex items-center gap-2 rounded border border-line/60 px-2 py-1.5 text-sm dark:border-line-dark/60">
-      <span className="shrink-0 rounded bg-muted/10 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-muted dark:text-muted-dark">
+    <div className="flex items-center gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 text-sm dark:border-line-dark/60">
+      <Badge variant="info" className="shrink-0">
         {VAULT_KIND_LABELS[item.kind] ?? item.kind}
-      </span>
+      </Badge>
       <span className="truncate font-medium">{item.label}</span>
       {item.username && (
         <span className="truncate text-xs text-muted dark:text-muted-dark">{item.username}</span>
       )}
       {item.rotation_due && (
-        <span
-          className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning"
-          title="Questa password andrebbe rinnovata"
-        >
+        <Badge variant="warning" className="shrink-0">
           da rinnovare
-        </span>
+        </Badge>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -259,7 +270,7 @@ function Riga({
           </>
         )}
         {item.can_manage && onEdit && (
-          <Button size="sm" variant="ghost" aria-label="Modifica" onClick={() => onEdit(item)}>
+          <Button size="sm" variant="ghost" title="Modifica" aria-label="Modifica" onClick={() => onEdit(item)}>
             <Icon name="pencil" className="h-4 w-4" />
           </Button>
         )}
@@ -267,6 +278,7 @@ function Riga({
           <Button
             size="sm"
             variant="ghost"
+            title="Elimina"
             aria-label="Elimina"
             onClick={() => void onElimina(item)}
           >
