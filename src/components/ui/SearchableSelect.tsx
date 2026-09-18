@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useInsideModal } from "./modalLayer";
 import { Icon } from "./Icon";
 
 export type SearchableSelectOption = {
@@ -84,7 +85,7 @@ export function SearchableSelect({
   className = "",
   triggerClassName = "",
   menuPlacement = "bottom",
-  menuLayer = "local",
+  menuLayer,
   showAvatar = true,
   menuMinWidth,
   avatarShape = "circle",
@@ -92,6 +93,12 @@ export function SearchableSelect({
   createLoading = false,
   createActionLabel = "Crea",
 }: SearchableSelectProps) {
+  // Dentro un Modal il menu va in portale: disegnarlo in posizione assoluta
+  // dentro un corpo `overflow-y-auto` lo taglia o allunga il modal. La prop
+  // esplicita vince comunque, per i casi in cui serve il contrario.
+  const insideModal = useInsideModal();
+  const effMenuLayer = menuLayer ?? (insideModal ? "portal" : "local");
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -162,7 +169,7 @@ export function SearchableSelect({
   };
 
   useEffect(() => {
-    if (!open || menuLayer !== "portal") {
+    if (!open || effMenuLayer !== "portal") {
       setPortalRect(null);
       return;
     }
@@ -192,15 +199,15 @@ export function SearchableSelect({
       window.removeEventListener("resize", updateRect);
       window.removeEventListener("scroll", updateRect, true);
     };
-  }, [open, menuLayer, menuPlacement]);
+  }, [open, effMenuLayer, menuPlacement]);
 
-  const effPlacement = menuLayer === "portal" && portalRect ? portalRect.placement : menuPlacement;
+  const effPlacement = effMenuLayer === "portal" && portalRect ? portalRect.placement : menuPlacement;
   const menu = (
     <div
       ref={menuRef}
-      className={`w-full ${menuLayer === "portal" ? "fixed" : "absolute z-[3100]"} ${effPlacement === "top" ? (menuLayer === "portal" ? "-translate-y-[calc(100%+4px)]" : "bottom-full mb-1") : "mt-1"}`}
+      className={`w-full ${effMenuLayer === "portal" ? "fixed" : "absolute z-[3100]"} ${effPlacement === "top" ? (effMenuLayer === "portal" ? "-translate-y-[calc(100%+4px)]" : "bottom-full mb-1") : "mt-1"}`}
       style={
-        menuLayer === "portal" && portalRect
+        effMenuLayer === "portal" && portalRect
           ? {
               // Ancorato al bordo del trigger: sotto il campo (placement bottom,
               // con il piccolo gap dato da mt-1) o sopra (placement top).
@@ -219,7 +226,7 @@ export function SearchableSelect({
     >
       <div
         className={`${effPlacement === "top" ? "dd-pop-up" : "dd-pop"} flex w-full flex-col rounded-md border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20] shadow-lg overflow-hidden`}
-        style={menuLayer === "portal" && portalRect ? { maxHeight: portalRect.maxHeight } : undefined}
+        style={effMenuLayer === "portal" && portalRect ? { maxHeight: portalRect.maxHeight } : undefined}
       >
       <div className="shrink-0 p-2 border-b border-line dark:border-[#2a2a2e]">
         <div className="relative">
@@ -244,7 +251,7 @@ export function SearchableSelect({
         </div>
       </div>
 
-      <div className={`overflow-y-auto p-1 ${menuLayer === "portal" ? "flex-1 min-h-0" : "max-h-56"}`}>
+      <div className={`overflow-y-auto p-1 ${effMenuLayer === "portal" ? "flex-1 min-h-0" : "max-h-56"}`}>
         {filtered.length === 0 && !canCreateInline ? (
           <div className="px-2 py-2 text-[12px] text-muted dark:text-[#9999a0]">{emptyMessage}</div>
         ) : (
@@ -320,7 +327,7 @@ export function SearchableSelect({
         />
       </button>
 
-      {open && (menuLayer === "portal" ? createPortal(menu, document.body) : menu)}
+      {open && (effMenuLayer === "portal" ? createPortal(menu, document.body) : menu)}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 } from "../../api/vault";
 import { listWebsitesApi } from "../../api/websites";
 import { Button } from "../../components/ui/Button";
+import { DurationField } from "../../components/ui/DurationField";
 import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
@@ -49,6 +50,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
   const [kind, setKind] = useState<VaultKind>("password");
   const [label, setLabel] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [url, setUrl] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
@@ -57,7 +59,7 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
   const [secret, setSecret] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [totp, setTotp] = useState("");
-  const [rotationDays, setRotationDays] = useState("");
+  const [rotationDays, setRotationDays] = useState<number | null>(null);
   const [clientId, setClientId] = useState("");
   const [websiteId, setWebsiteId] = useState("");
   const [socialId, setSocialId] = useState("");
@@ -73,12 +75,13 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
     setKind((item?.kind as VaultKind) ?? "password");
     setLabel(item?.label ?? "");
     setUsername(item?.username ?? "");
+    setEmail(item?.email ?? "");
     setUrl(item?.url ?? "");
     setHost(item?.host ?? "");
     setPort(item?.port != null ? String(item.port) : "");
     setPath(item?.path ?? "");
     setNote(item?.note ?? "");
-    setRotationDays(item?.rotation_days != null ? String(item.rotation_days) : "");
+    setRotationDays(item?.rotation_days ?? null);
     // Mai precompilati: si riempiono solo per cambiarli.
     setSecret("");
     setPrivateKey("");
@@ -131,12 +134,13 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
       kind,
       label: label.trim(),
       username: username || null,
+      email: email || null,
       url: url || null,
       host: host || null,
       port: port ? Number(port) : null,
       path: path || null,
       note: note || null,
-      rotation_days: rotationDays ? Number(rotationDays) : null,
+      rotation_days: rotationDays,
     };
 
     setSalvataggio(true);
@@ -201,6 +205,15 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
         {campi.has("username") && (
           <Input label="Utente" value={username} onChange={(e) => setUsername(e.target.value)} />
         )}
+        {campi.has("email") && (
+          <Input
+            type="email"
+            label="Email"
+            autoComplete="off"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        )}
         {campi.has("url") && (
           <Input label="URL" value={url} onChange={(e) => setUrl(e.target.value)} />
         )}
@@ -241,11 +254,12 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
           </div>
         )}
 
-        <Input
-          label="Rinnovo ogni (giorni, 0 = mai)"
+        <DurationField
+          label="Rinnovo ogni"
           value={rotationDays}
-          onChange={(e) => setRotationDays(e.target.value)}
+          onChange={setRotationDays}
           placeholder="policy aziendale"
+          hint="Vuoto = usa la policy dell'azienda. 0 = non scade mai."
         />
 
         <div className="sm:col-span-2 grid gap-3 sm:grid-cols-3">

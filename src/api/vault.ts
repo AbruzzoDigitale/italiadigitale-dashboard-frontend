@@ -44,19 +44,19 @@ export const VAULT_KIND_LABELS: Record<VaultKind, string> = {
 /** Campi che hanno senso per tipo: il resto resta nascosto nel form. */
 export const VAULT_KIND_FIELDS: Record<
   VaultKind,
-  Array<"host" | "port" | "username" | "url" | "path" | "private_key" | "totp">
+  Array<"host" | "port" | "username" | "email" | "url" | "path" | "private_key" | "totp">
 > = {
-  password: ["url", "username"],
+  password: ["url", "username", "email"],
   ssh: ["host", "port", "username", "path", "private_key"],
   ftp: ["host", "port", "username", "path"],
-  wordpress: ["url", "username"],
+  wordpress: ["url", "username", "email"],
   database: ["host", "port", "username", "path"],
-  hosting: ["url", "username"],
-  dns: ["url", "username"],
+  hosting: ["url", "username", "email"],
+  dns: ["url", "username", "email"],
   api_key: ["url"],
-  social: ["url", "username", "totp"],
-  app: ["url", "username", "totp"],
-  other: ["url", "username"],
+  social: ["url", "username", "email", "totp"],
+  app: ["url", "username", "email", "totp"],
+  other: ["url", "username", "email"],
 };
 
 export type VaultTargetType =
@@ -97,6 +97,7 @@ export interface VaultItem {
   kind: VaultKind;
   label: string;
   username: string | null;
+  email: string | null;
   url: string | null;
   host: string | null;
   port: number | null;
@@ -125,6 +126,7 @@ export interface VaultItemInput {
   kind: VaultKind;
   label: string;
   username?: string | null;
+  email?: string | null;
   url?: string | null;
   host?: string | null;
   port?: number | null;
@@ -349,5 +351,39 @@ export async function updateVaultPolicyApi(
       method: "PUT",
       body: JSON.stringify(body),
     })
+  );
+}
+
+// ── Import da gestore esterno ───────────────────────────────────────────────
+
+export interface VaultImportRow {
+  label: string;
+  url?: string | null;
+  username?: string | null;
+  email?: string | null;
+  secret?: string | null;
+  note?: string | null;
+}
+
+export interface VaultImportResult {
+  created: number;
+  skipped: number;
+  errors: string[];
+}
+
+/**
+ * Importa voci gia' strutturate. Il CSV NON viene caricato sul server: lo parsa
+ * il browser e manda queste righe, cosi' un file con tutte le password dentro
+ * non finisce in un body multipart che potrebbe essere loggato.
+ */
+export async function importVaultItemsApi(body: {
+  company_id: number;
+  rows: VaultImportRow[];
+  kind?: VaultKind;
+  skip_duplicates?: boolean;
+  links?: Array<{ target_type: VaultTargetType; target_id: number }>;
+}): Promise<VaultImportResult> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/import`, { method: "POST", body: JSON.stringify(body) })
   );
 }
