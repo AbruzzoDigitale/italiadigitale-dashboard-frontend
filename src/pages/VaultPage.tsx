@@ -6,6 +6,7 @@ import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
+import { VaultImportModal } from "../features/vault/VaultImportModal";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
 import { VaultList } from "../features/vault/VaultList";
 import { type VaultView } from "../features/vault/grouping";
@@ -29,6 +30,7 @@ export function VaultPage() {
   const [soloDaRinnovare, setSoloDaRinnovare] = useState(false);
   const [modaleAperta, setModaleAperta] = useState(false);
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
+  const [importAperto, setImportAperto] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   return (
@@ -79,7 +81,14 @@ export function VaultPage() {
               Solo da rinnovare
             </button>
             <Button
+              variant="secondary"
               className="ml-auto"
+              onClick={() => setImportAperto(true)}
+            >
+              <Icon name="upload" className="mr-1 h-4 w-4" />
+              Importa da CSV
+            </Button>
+            <Button
               onClick={() => {
                 setInModifica(null);
                 setModaleAperta(true);
@@ -106,6 +115,13 @@ export function VaultPage() {
               emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
             />
           </div>
+
+          <VaultImportModal
+            open={importAperto}
+            onClose={() => setImportAperto(false)}
+            companyId={companyId}
+            onImported={() => setReloadKey((k) => k + 1)}
+          />
 
           <VaultItemModal
             open={modaleAperta}

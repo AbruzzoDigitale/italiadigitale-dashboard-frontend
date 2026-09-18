@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { InsideModalContext } from "./modalLayer";
 import "./modal-theme.css";
 // `full`: nessun limite di larghezza. Serve agli editor a tela (posizionamento
 // campi sul PDF), dove il dialog deve prendersi tutto lo schermo.
@@ -382,6 +383,7 @@ export function Modal({
   }
 
   return createPortal(
+    <InsideModalContext.Provider value={true}>
     <div
       ref={overlayRef}
       className={`fixed inset-0 z-[3000] flex ${alignmentClass} ${mobileContainerClass} animate-fadeIn ${showOverlay ? "bg-ink/60 backdrop-blur-sm" : "bg-transparent"} ${containerClassName}`}
@@ -394,7 +396,8 @@ export function Modal({
       }}
     >
       {dialogContent}
-    </div>,
+    </div>
+    </InsideModalContext.Provider>,
     document.body
   );
 }
