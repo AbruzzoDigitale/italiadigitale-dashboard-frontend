@@ -827,7 +827,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         </div>
         {/* Cassaforte a tutta larghezza: le voci sono righe, non stanno in colonna. */}
         <div className={compact ? "" : "lg:col-span-2"}>
-          <WebsiteSecretsPanel websiteId={site.id} />
+          <WebsiteSecretsPanel websiteId={site.id} companyId={site.company_id} />
         </div>
       </div>
     </div>

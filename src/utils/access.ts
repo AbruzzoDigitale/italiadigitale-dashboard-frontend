@@ -16,6 +16,7 @@ export type AppRouteKey =
   | "social-profiles"
   | "social-monitors"
   | "websites"
+  | "vault"
   | "prenotazione-sale"
   | "rimborsi"
   | "reports"
@@ -73,6 +74,10 @@ export function canAccessRoute(
       return permissions.can_view_clients || permissions.allowed_views.includes("clients");
     case "social":
       return permissions.can_view_social_packages || permissions.allowed_views.includes("social");
+    case "vault":
+      // La cassaforte è accessibile a tutti: ognuno vede solo le credenziali
+      // di cui è proprietario o che gli sono state concesse (filtro lato API).
+      return true;
     case "social-profiles":
       // Registro profili social dei clienti: consultabile da tutti (admin, PM,
       // operatori); la gestione è limitata lato API ad admin/PM.

@@ -36,6 +36,7 @@ import { SocialPackagesPage } from "./pages/SocialPackagesPage";
 import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
+import { VaultPage } from "./pages/VaultPage";
 import { EmailHistoryPage } from "./pages/EmailHistoryPage";
 import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
 import RimborsiPage from "./pages/RimborsiPage";
@@ -170,6 +171,7 @@ function AppRoutes() {
         <Route path="profili-social" element={<RouteAccess routeKey="social-profiles"><SocialProfilesPage /></RouteAccess>} />
         <Route path="monitoraggio-social" element={<RouteAccess routeKey="social-monitors"><SocialMonitorsPage /></RouteAccess>} />
         <Route path="siti-web" element={<RouteAccess routeKey="websites"><WebsitesPage /></RouteAccess>} />
+        <Route path="cassaforte" element={<RouteAccess routeKey="vault"><VaultPage /></RouteAccess>} />
         <Route path="storico-email" element={<RouteAccess routeKey="admin"><EmailHistoryPage /></RouteAccess>} />
         <Route path="prenotazione-sale" element={<RouteAccess routeKey="prenotazione-sale"><MeetingRoomsPage /></RouteAccess>} />
         <Route path="rimborsi" element={<RouteAccess routeKey="rimborsi"><RimborsiPage /></RouteAccess>} />
