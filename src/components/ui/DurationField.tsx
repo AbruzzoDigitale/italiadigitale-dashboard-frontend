@@ -1,16 +1,22 @@
 import { useEffect, useId, useState } from "react";
 import { FieldHelpPopover, type FieldHelpPopoverProps } from "./FieldHelpPopover";
+import { SearchableSelect } from "./SearchableSelect";
 
 /**
  * Durata: un numero e la sua unità, dentro un solo campo.
  *
  * Verso l'esterno parla sempre in **giorni**, così chi lo usa non deve fare
  * conversioni: `value` e `onChange` sono giorni interi. All'interno sceglie da
- * solo l'unità più leggibile — 90 giorni si mostra come "3 mesi", 14 come
+ * solo l'unità più leggibile — 90 giorni si mostrano come "3 mesi", 14 come
  * "2 settimane".
  *
- * Il selettore dell'unità è un `select` nativo: sta dentro il campo e non può
- * essere tagliato dal corpo di un modal, a differenza di un menu disegnato.
+ * L'unità usa `SearchableSelect`, lo stesso dropdown del resto del gestionale.
+ * Il bordo lo disegna **solo il contenitore**: al trigger vengono tolti bordo,
+ * sfondo e angoli, altrimenti si vedrebbe un riquadro dentro l'altro. Fra numero
+ * e unità resta una riga divisoria sola.
+ *
+ * Dentro un Modal il menu va in portale da sé (vedi `ui/modalLayer.tsx`), quindi
+ * non allunga il modal.
  *
  * Mese = 30 giorni, anno = 365: approssimazione voluta. Serve a dire "ogni tre
  * mesi", non a calcolare una scadenza contrattuale.
@@ -31,6 +37,11 @@ const ETICHETTE: Record<DurationUnit, string> = {
   months: "mesi",
   years: "anni",
 };
+
+const OPZIONI = (Object.keys(ETICHETTE) as DurationUnit[]).map((u) => ({
+  value: u,
+  label: ETICHETTE[u],
+}));
 
 /** L'unità più grande in cui i giorni entrano esatti. */
 function scomponi(giorni: number): { amount: number; unit: DurationUnit } {
@@ -104,9 +115,11 @@ export function DurationField({
         </span>
       )}
 
+      {/* Unico bordo del campo: il trigger del select al suo interno è spoglio. */}
       <div
-        className={`flex w-full items-stretch rounded-md border border-line bg-paper transition-colors duration-150
-          focus-within:border-ink dark:border-line-dark dark:bg-ink-soft dark:focus-within:border-paper
+        className={`flex w-full items-stretch overflow-hidden rounded-md border border-line bg-paper
+          transition-colors duration-150 focus-within:border-ink
+          dark:border-line-dark dark:bg-ink-soft dark:focus-within:border-paper
           ${disabled ? "opacity-60" : ""}`}
       >
         <input
@@ -121,28 +134,29 @@ export function DurationField({
             setAmount(e.target.value);
             emetti(e.target.value, unit);
           }}
-          className="w-full bg-transparent px-3 py-2.5 text-sm font-body text-ink placeholder:text-muted focus:outline-none
+          className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm font-body text-ink placeholder:text-muted focus:outline-none
             dark:text-paper dark:placeholder:text-muted-dark
             [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <select
-          aria-label="Unità di tempo"
-          disabled={disabled}
+        <SearchableSelect
           value={unit}
-          onChange={(e) => {
-            const u = e.target.value as DurationUnit;
+          onChange={(v) => {
+            const u = v as DurationUnit;
             setUnit(u);
             emetti(amount, u);
           }}
-          className="shrink-0 rounded-r-md border-l border-line bg-cream px-2 text-xs text-muted focus:outline-none
-            dark:border-line-dark dark:bg-[#0e0f0e] dark:text-muted-dark"
-        >
-          {(Object.keys(ETICHETTE) as DurationUnit[]).map((u) => (
-            <option key={u} value={u}>
-              {ETICHETTE[u]}
-            </option>
-          ))}
-        </select>
+          options={OPZIONI}
+          disabled={disabled}
+          showAvatar={false}
+          menuMinWidth={150}
+          // Sempre in portale, non solo dentro i modal: il contenitore è
+          // `overflow-hidden` per via degli angoli, e taglierebbe il menu.
+          menuLayer="portal"
+          className="w-[7.5rem] shrink-0 border-l border-line dark:border-line-dark"
+          // `!` necessario: senza, `border` e `border-0` finirebbero a litigare
+          // per ordine nel CSS generato invece che per specificità.
+          triggerClassName="!border-0 !bg-transparent !rounded-none !py-2.5 !pl-3 !pr-8 !text-sm"
+        />
       </div>
 
       {hint && <p className="mt-1 text-xs text-muted dark:text-muted-dark">{hint}</p>}
