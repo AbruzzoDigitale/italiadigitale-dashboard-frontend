@@ -387,3 +387,107 @@ export async function importVaultItemsApi(body: {
     await authFetch(`${BASE}/import`, { method: "POST", body: JSON.stringify(body) })
   );
 }
+
+// ── Richiesta di credenziale a un esterno ───────────────────────────────────
+//
+// L'opposto della condivisione: non consegna un segreto, lo raccoglie. Serve a
+// togliere di mezzo il "mandami la password su WhatsApp".
+
+export interface VaultRequest {
+  id: number;
+  company_id: number;
+  item_id: number | null;
+  kind: VaultKind;
+  label: string;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  recipient_note: string | null;
+  message: string | null;
+  status: "pending" | "submitted" | "cancelled" | "expired";
+  has_password: boolean;
+  expires_at: string;
+  opened_at: string | null;
+  used_at: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  /** Presente solo alla creazione: è il link da inviare. */
+  url_pubblico: string | null;
+}
+
+export interface VaultRequestInput {
+  company_id: number;
+  item_id?: number | null;
+  kind?: VaultKind;
+  label: string;
+  username?: string | null;
+  email?: string | null;
+  url?: string | null;
+  host?: string | null;
+  port?: number | null;
+  path?: string | null;
+  note?: string | null;
+  message?: string | null;
+  recipient_note?: string | null;
+  access_password?: string | null;
+  expires_days?: number | null;
+}
+
+export async function createVaultRequestApi(body: VaultRequestInput): Promise<VaultRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/requests`, { method: "POST", body: JSON.stringify(body) })
+  );
+}
+
+export async function listVaultRequestsApi(companyId?: number): Promise<VaultRequest[]> {
+  const qs = companyId != null ? `?company_id=${companyId}` : "";
+  return jsonOrThrow(await authFetch(`${BASE}/requests${qs}`));
+}
+
+export async function cancelVaultRequestApi(id: number): Promise<void> {
+  await jsonOrThrow<void>(await authFetch(`${BASE}/requests/${id}`, { method: "DELETE" }));
+}
+
+// ── Lato pubblico: nessuna autenticazione, `fetch` nudo di proposito ────────
+
+export interface VaultPublicRequest {
+  label: string;
+  kind: VaultKind;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  host: string | null;
+  port: number | null;
+  path: string | null;
+  note: string | null;
+  message: string | null;
+  azienda: string | null;
+  requires_password: boolean;
+  needs_secret: boolean;
+  needs_private_key: boolean;
+}
+
+export async function getPublicRequestApi(token: string): Promise<VaultPublicRequest> {
+  return jsonOrThrow(await fetch(`${BASE}/public/request/${encodeURIComponent(token)}`));
+}
+
+export async function submitPublicRequestApi(
+  token: string,
+  body: {
+    access_password?: string | null;
+    secret?: string | null;
+    private_key?: string | null;
+    totp?: string | null;
+    username?: string | null;
+    email?: string | null;
+    url?: string | null;
+  }
+): Promise<void> {
+  await jsonOrThrow<void>(
+    await fetch(`${BASE}/public/request/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  );
+}

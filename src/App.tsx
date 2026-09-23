@@ -37,6 +37,7 @@ import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
 import { VaultPage } from "./pages/VaultPage";
+import { PublicCredentialPage } from "./pages/PublicCredentialPage";
 import { EmailHistoryPage } from "./pages/EmailHistoryPage";
 import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
 import RimborsiPage from "./pages/RimborsiPage";
@@ -50,6 +51,7 @@ import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
 import { FatturazionePage } from "./pages/FatturazionePage";
+import { StripeSdiPage } from "./pages/StripeSdiPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { ModelEditorPage } from "./pages/ModelEditorPage";
 import { BrowserPage } from "./pages/BrowserPage";
@@ -98,6 +100,8 @@ function AppRoutes() {
     <Routes>
       {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
       <Route path="/firma/:token" element={<ClientSignPage />} />
+      {/* Pagina con cui un esterno ci consegna una credenziale: nessun account. */}
+      <Route path="/credenziale/:token" element={<PublicCredentialPage />} />
       {/* Rendicontazione trasferte per il commercialista: sola lettura, senza
           account. Il token è la credenziale e si revoca dalle impostazioni. */}
       <Route path="/rimborsi/condiviso/:token" element={<SharedExpensesPage />} />
@@ -182,6 +186,7 @@ function AppRoutes() {
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
+        <Route path="abbonamenti-stripe" element={<RouteAccess routeKey="fatturazione"><StripeSdiPage /></RouteAccess>} />
         <Route path="documenti" element={<RouteAccess routeKey="documenti"><DocumentsPage /></RouteAccess>} />
         <Route path="documenti/modello/:documentId" element={<RouteAccess routeKey="documenti"><ModelEditorPage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />

@@ -8,6 +8,7 @@ import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
 import { VaultImportModal } from "../features/vault/VaultImportModal";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
+import { VaultRequestModal } from "../features/vault/VaultRequestModal";
 import { VaultList } from "../features/vault/VaultList";
 import { type VaultView } from "../features/vault/grouping";
 import { useAuth } from "../hooks/useAuth";
@@ -31,6 +32,7 @@ export function VaultPage() {
   const [modaleAperta, setModaleAperta] = useState(false);
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
   const [importAperto, setImportAperto] = useState(false);
+  const [richiestaAperta, setRichiestaAperta] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   return (
@@ -83,6 +85,14 @@ export function VaultPage() {
             <Button
               variant="secondary"
               className="ml-auto"
+              onClick={() => setRichiestaAperta(true)}
+              title="Manda un link a un cliente perché inserisca lui la password"
+            >
+              <Icon name="mail" className="mr-1 h-4 w-4" />
+              Richiedi credenziale
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => setImportAperto(true)}
             >
               <Icon name="upload" className="mr-1 h-4 w-4" />
@@ -115,6 +125,13 @@ export function VaultPage() {
               emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
             />
           </div>
+
+          <VaultRequestModal
+            open={richiestaAperta}
+            onClose={() => setRichiestaAperta(false)}
+            companyId={companyId}
+            onCreated={() => setReloadKey((k) => k + 1)}
+          />
 
           <VaultImportModal
             open={importAperto}
