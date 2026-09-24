@@ -8,6 +8,7 @@ import {
 } from "../../api/vault";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { DurationField } from "../../components/ui/DurationField";
 import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Icon } from "../../components/ui/Icon";
@@ -32,7 +33,8 @@ import { useToast } from "../../context/ToastContext";
 interface Props {
   open: boolean;
   onClose: () => void;
-  item: VaultItem | null;
+  /** Una o più credenziali: finiscono tutte sullo stesso link, con una password sola. */
+  items: VaultItem[];
 }
 
 const ETICHETTA_STATO: Record<VaultShare["status"], { testo: string; variante: "success" | "default" | "danger" }> = {
@@ -42,42 +44,59 @@ const ETICHETTA_STATO: Record<VaultShare["status"], { testo: string; variante: "
   revoked: { testo: "revocato", variante: "danger" },
 };
 
-export function VaultShareModal({ open, onClose, item }: Props) {
+export function VaultShareModal({ open, onClose, items }: Props) {
   const [giorni, setGiorni] = useState<number | null>(7);
   const [aperture, setAperture] = useState("3");
   const [destinatario, setDestinatario] = useState("");
+  const [inviaMail, setInviaMail] = useState(false);
+  const [email, setEmail] = useState("");
   const [inCorso, setInCorso] = useState(false);
   const [creato, setCreato] = useState<VaultShare | null>(null);
   const [esistenti, setEsistenti] = useState<VaultShare[] | null>(null);
   const toast = useToast();
 
+  // I link già emessi si mostrano solo quando si parte da una credenziale sola:
+  // con dieci selezionate sarebbe un elenco lungo e di nessun aiuto.
+  const unica = items.length === 1 ? items[0] : null;
   const caricaEsistenti = useCallback(async () => {
-    if (!item) return;
+    if (!unica) {
+      setEsistenti([]);
+      return;
+    }
     try {
-      setEsistenti(await listVaultSharesApi(item.id));
+      setEsistenti(await listVaultSharesApi(unica.id));
     } catch {
       setEsistenti([]);
     }
-  }, [item]);
+  }, [unica]);
 
   useEffect(() => {
     if (!open) return;
     setGiorni(7);
     setAperture("3");
     setDestinatario("");
+    setInviaMail(false);
+    setEmail("");
     setCreato(null);
     setEsistenti(null);
     void caricaEsistenti();
   }, [open, caricaEsistenti]);
 
   async function crea() {
-    if (!item) return;
+    if (items.length === 0) return;
+    if (inviaMail && !email.trim()) {
+      toast.error("Serve un indirizzo a cui mandare il link");
+      return;
+    }
     setInCorso(true);
     try {
-      const s = await createVaultShareApi(item.id, {
+      const s = await createVaultShareApi({
+        item_ids: items.map((i) => i.id),
         expires_days: giorni ?? undefined,
         max_views: aperture.trim() ? Number(aperture) : null,
-        recipient_note: destinatario || null,
+        recipient_note: destinatario || email || null,
+        send_email: inviaMail,
+        recipient_email: inviaMail ? email.trim() : null,
       });
       setCreato(s);
       void caricaEsistenti();
@@ -108,11 +127,15 @@ export function VaultShareModal({ open, onClose, item }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title="Condividi la credenziale"
+      title={
+        items.length === 1
+          ? "Condividi la credenziale"
+          : `Condividi ${items.length} credenziali`
+      }
       description={
-        item
-          ? `«${item.label}» verrà consegnata su una pagina protetta da password.`
-          : undefined
+        items.length === 1
+          ? `«${items[0].label}» verrà consegnata su una pagina protetta da password.`
+          : "Finiranno tutte sulla stessa pagina, con una sola password."
       }
       size="lg"
       footer={
@@ -133,10 +156,33 @@ export function VaultShareModal({ open, onClose, item }: Props) {
           <div className="flex items-center gap-2">
             <Badge variant="success">Link creato</Badge>
             <span className="text-sm text-muted dark:text-muted-dark">
-              Scade il {new Date(creato.expires_at).toLocaleDateString("it-IT")}
+              {creato.item_labels.length} {creato.item_labels.length === 1 ? "credenziale" : "credenziali"}
+              {" · "}scade il {new Date(creato.expires_at).toLocaleDateString("it-IT")}
               {creato.max_views != null && ` · ${creato.max_views} aperture`}
             </span>
           </div>
+
+          {creato.email_inviata !== null && (
+            <div
+              className={`flex gap-2 rounded-lg border p-3 text-sm ${
+                creato.email_inviata
+                  ? "border-success/30 bg-success/10"
+                  : "border-danger/30 bg-danger/10"
+              }`}
+            >
+              <Icon
+                name={creato.email_inviata ? "check-circle" : "alert-triangle"}
+                className={`mt-0.5 h-4 w-4 shrink-0 ${
+                  creato.email_inviata ? "text-success" : "text-danger"
+                }`}
+              />
+              <p>
+                {creato.email_inviata
+                  ? "Email inviata. Ora comunica la password su un altro canale."
+                  : `Email non inviata: ${creato.email_dettaglio ?? "errore sconosciuto"}. Il link resta valido, mandalo a mano.`}
+              </p>
+            </div>
+          )}
 
           <div>
             <FieldLabel>Link da inviare</FieldLabel>
@@ -209,6 +255,37 @@ export function VaultShareModal({ open, onClose, item }: Props) {
                 onChange={(e) => setDestinatario(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="rounded-lg border border-line p-3 dark:border-line-dark">
+            <button
+              type="button"
+              onClick={() => setInviaMail((v) => !v)}
+              className="inline-flex items-center gap-2 text-[13px] text-ink dark:text-[#f4f4f7]"
+            >
+              <Checkbox checked={inviaMail} onChange={setInviaMail} />
+              Manda il link per email
+            </button>
+
+            {inviaMail && (
+              <div className="mt-3 flex flex-col gap-2">
+                <Input
+                  type="email"
+                  label="Indirizzo"
+                  name="destinatario-link"
+                  autoComplete="off"
+                  placeholder="cliente@esempio.it"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <p className="text-xs text-muted dark:text-muted-dark">
+                  Parte dal modello aziendale «Cassaforte — consegna credenziali»,
+                  modificabile nelle impostazioni dell'azienda. L'email contiene
+                  <strong> solo il link</strong>: la password resta a te da comunicare
+                  altrove, ed è il motivo per cui protegge qualcosa.
+                </p>
+              </div>
+            )}
           </div>
 
           <div>

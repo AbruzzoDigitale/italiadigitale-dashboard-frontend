@@ -144,27 +144,47 @@ export function PublicSharePage() {
         <div className={CARD}>
           <div className="mb-4 flex items-center gap-2">
             <Icon name="key" className="h-5 w-5" />
-            <h1 className="text-lg font-semibold">{aperta.label}</h1>
+            <h1 className="text-lg font-semibold">
+              {aperta.credenziali.length === 1
+                ? aperta.credenziali[0].label
+                : `${aperta.credenziali.length} credenziali`}
+            </h1>
           </div>
 
-          <div className="flex flex-col gap-3">
-            {aperta.url && <Riga etichetta="Indirizzo" valore={aperta.url} />}
-            {aperta.username && <Riga etichetta="Nome utente" valore={aperta.username} />}
-            {aperta.email && <Riga etichetta="Email" valore={aperta.email} />}
-            {aperta.secret && <Riga etichetta="Password" valore={aperta.secret} segreto />}
-            {aperta.totp && <Riga etichetta="Codice TOTP" valore={aperta.totp} segreto />}
-            {aperta.private_key && (
-              <Riga etichetta="Chiave privata" valore={aperta.private_key} segreto />
-            )}
-            {aperta.note && (
-              <p className="rounded-lg border border-line bg-cream p-3 text-sm dark:border-line-dark dark:bg-[#0E0F0E]">
-                {aperta.note}
-              </p>
-            )}
+          <div className="flex flex-col gap-5">
+            {aperta.credenziali.map((c, idx) => (
+              <div
+                key={`${c.label}-${idx}`}
+                className={
+                  aperta.credenziali.length > 1
+                    ? "rounded-xl border border-line p-4 dark:border-line-dark"
+                    : ""
+                }
+              >
+                {aperta.credenziali.length > 1 && (
+                  <p className="mb-3 font-semibold">{c.label}</p>
+                )}
+                <div className="flex flex-col gap-3">
+                  {c.url && <Riga etichetta="Indirizzo" valore={c.url} />}
+                  {c.username && <Riga etichetta="Nome utente" valore={c.username} />}
+                  {c.email && <Riga etichetta="Email" valore={c.email} />}
+                  {c.secret && <Riga etichetta="Password" valore={c.secret} segreto />}
+                  {c.totp && <Riga etichetta="Codice TOTP" valore={c.totp} segreto />}
+                  {c.private_key && (
+                    <Riga etichetta="Chiave privata" valore={c.private_key} segreto />
+                  )}
+                  {c.note && (
+                    <p className="rounded-lg border border-line bg-cream p-3 text-sm dark:border-line-dark dark:bg-[#0E0F0E]">
+                      {c.note}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
 
           <p className="mt-5 text-xs text-muted dark:text-muted-dark">
-            Salvala adesso in un posto sicuro: chiudendo questa pagina non la si rivede.
+            Salvale adesso in un posto sicuro: chiudendo questa pagina non si rivedono.
             {aperta.views_left != null &&
               ` Restano ${aperta.views_left} aperture su questo link.`}
           </p>
@@ -178,13 +198,28 @@ export function PublicSharePage() {
       <div className={CARD}>
         <div className="mb-4 flex items-center gap-2">
           <Icon name="key" className="h-5 w-5" />
-          <h1 className="text-lg font-semibold">{dati.label}</h1>
+          <h1 className="text-lg font-semibold">
+            {dati.credenziali.length === 1
+              ? dati.credenziali[0].label
+              : `${dati.credenziali.length} credenziali per te`}
+          </h1>
         </div>
 
         {dati.azienda && (
-          <p className="mb-4 text-sm text-muted dark:text-muted-dark">
-            Condivisa da <strong>{dati.azienda}</strong>
+          <p className="mb-3 text-sm text-muted dark:text-muted-dark">
+            Condivise da <strong>{dati.azienda}</strong>
           </p>
+        )}
+
+        {dati.credenziali.length > 1 && (
+          <ul className="mb-4 flex flex-col gap-1 rounded-lg border border-line bg-cream p-3 text-sm dark:border-line-dark dark:bg-[#0E0F0E]">
+            {dati.credenziali.map((c, idx) => (
+              <li key={`${c.label}-${idx}`} className="flex items-center gap-2">
+                <Icon name="key" className="h-3 w-3 shrink-0 text-muted dark:text-muted-dark" />
+                {c.label}
+              </li>
+            ))}
+          </ul>
         )}
 
         <form
@@ -207,7 +242,7 @@ export function PublicSharePage() {
           {errore && <p className="text-sm text-danger">{errore}</p>}
 
           <Button type="submit" loading={inCorso} className="mt-1">
-            Apri la credenziale
+            {dati.credenziali.length === 1 ? "Apri la credenziale" : "Apri le credenziali"}
           </Button>
         </form>
 

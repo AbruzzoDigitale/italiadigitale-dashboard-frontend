@@ -541,8 +541,10 @@ export async function submitPublicRequestApi(
 
 export interface VaultShare {
   id: number;
-  item_id: number;
+  item_id: number | null;
   item_label: string;
+  /** Le etichette di tutte le credenziali del link. */
+  item_labels: string[];
   status: "active" | "expired" | "exhausted" | "revoked";
   expires_at: string;
   max_views: number | null;
@@ -555,21 +557,25 @@ export interface VaultShare {
   /** Solo alla creazione: dopo non sono più rileggibili. */
   url_pubblico: string | null;
   password: string | null;
+  /** null = non era stato chiesto di inviare l'email. */
+  email_inviata: boolean | null;
+  email_dettaglio: string | null;
 }
 
 export interface VaultShareInput {
+  item_ids: number[];
   expires_days?: number | null;
   max_views?: number | null;
   recipient_note?: string | null;
+  /** La password del link non viaggia MAI nell'email: si detta a parte. */
+  send_email?: boolean;
+  recipient_email?: string | null;
 }
 
-/** Richiede la cassaforte sbloccata: sta uscendo un segreto, come una rivelazione. */
-export async function createVaultShareApi(
-  itemId: number,
-  body: VaultShareInput
-): Promise<VaultShare> {
+/** Richiede la cassaforte sbloccata: stanno uscendo dei segreti, come una rivelazione. */
+export async function createVaultShareApi(body: VaultShareInput): Promise<VaultShare> {
   return jsonOrThrow(
-    await authFetch(`${BASE}/items/${itemId}/shares`, {
+    await authFetch(`${BASE}/shares`, {
       method: "POST",
       headers: unlockedHeaders(),
       body: JSON.stringify(body),
@@ -585,15 +591,19 @@ export async function revokeVaultShareApi(shareId: number): Promise<void> {
   await jsonOrThrow<void>(await authFetch(`${BASE}/shares/${shareId}`, { method: "DELETE" }));
 }
 
-export interface VaultPublicShare {
+export interface VaultSharedPreview {
   label: string;
   kind: VaultKind;
+}
+
+export interface VaultPublicShare {
+  credenziali: VaultSharedPreview[];
   azienda: string | null;
   expires_at: string;
   views_left: number | null;
 }
 
-export interface VaultShareRevealed {
+export interface VaultSharedCredential {
   label: string;
   kind: VaultKind;
   username: string | null;
@@ -603,6 +613,10 @@ export interface VaultShareRevealed {
   secret: string | null;
   totp: string | null;
   private_key: string | null;
+}
+
+export interface VaultShareRevealed {
+  credenziali: VaultSharedCredential[];
   views_left: number | null;
 }
 

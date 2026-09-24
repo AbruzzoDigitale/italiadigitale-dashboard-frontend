@@ -50,6 +50,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   const [daCondividere, setDaCondividere] = useState<VaultItem | null>(null);
   const [selezionati, setSelezionati] = useState<Set<number>>(new Set());
   const [permessiAperti, setPermessiAperti] = useState(false);
+  const [linkAperto, setLinkAperto] = useState(false);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -180,6 +181,8 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     );
   }
 
+  const selezionateItems = items.filter((i) => selezionati.has(i.id));
+
   return (
     <>
       {selezionati.size > 0 && (
@@ -201,10 +204,19 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
           </Button>
           <Button
             size="sm"
+            variant="secondary"
             className="ml-auto"
-            onClick={() => setPermessiAperti(true)}
-            title="Le rende visibili nella cassaforte di un collega"
+            onClick={() =>
+              conSblocco(async () => {
+                setLinkAperto(true);
+              })
+            }
+            title="Un solo link con dentro tutte quelle selezionate"
           >
+            <Icon name="link" className="mr-1 h-4 w-4" />
+            Link di condivisione
+          </Button>
+          <Button size="sm" onClick={() => setPermessiAperti(true)}>
             <Icon name="users" className="mr-1 h-4 w-4" />
             Condividi con un collega
           </Button>
@@ -225,9 +237,12 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
       />
 
       <VaultShareModal
-        open={daCondividere !== null}
-        onClose={() => setDaCondividere(null)}
-        item={daCondividere}
+        open={daCondividere !== null || linkAperto}
+        onClose={() => {
+          setDaCondividere(null);
+          setLinkAperto(false);
+        }}
+        items={daCondividere ? [daCondividere] : selezionateItems}
       />
 
       <VaultUnlockModal
