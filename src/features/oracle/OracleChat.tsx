@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Spinner } from "../../components/ui/Spinner";
@@ -12,6 +12,7 @@ import { OracleRecords } from "./OracleRecords";
 import { OracleModelPicker, useOracleModel } from "./OracleModelPicker";
 import { OracleEmptyState } from "./OracleEmptyState";
 import { OracleSphere } from "./OracleSphere";
+import { OracleTesto, indicizzaRecord } from "./OracleTesto";
 import { BottoneMicrofono } from "../voce/BottoneMicrofono";
 import { useDettatura } from "../voce/useDettatura";
 
@@ -201,6 +202,13 @@ export function OracleChat({
     void invia(domandaIniziale);
   }, [domandaIniziale, invia]);
 
+  // Indice di TUTTA la conversazione: un riferimento a un record mostrato dieci turni
+  // fa resta leggibile, perché quel record l'utente ce l'ha ancora sopra.
+  const indiceRecord = useMemo(
+    () => indicizzaRecord(turni.flatMap((t) => t.payloads)),
+    [turni]
+  );
+
   const vuoto = turni.length === 0;
 
   return (
@@ -228,7 +236,7 @@ export function OracleChat({
             <div key={i} className="mb-4">
               {turno.testo ? (
                 <div className="text-[13px] leading-relaxed text-ink dark:text-[#f4f4f7] whitespace-pre-wrap">
-                  {turno.testo}
+                  <OracleTesto testo={turno.testo} indice={indiceRecord} />
                 </div>
               ) : null}
 
