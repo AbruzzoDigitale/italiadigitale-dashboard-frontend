@@ -66,10 +66,22 @@ export default {
           "0%": { opacity: "0", transform: "translateY(-8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        // Cambio di impaginazione della cassaforte: il contenitore si ricompone
+        // e le voci rientrano scaglionate, così si vede CHE COSA è cambiato.
+        swapIn: {
+          "0%": { opacity: "0", transform: "scale(.985)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        itemIn: {
+          "0%": { opacity: "0", transform: "translateY(6px) scale(.985)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
       },
       animation: {
         fadeIn: "fadeIn 0.3s cubic-bezier(.2,.7,.2,1) both",
         slideDown: "slideDown 0.25s cubic-bezier(.2,.7,.2,1) both",
+        swapIn: "swapIn 0.26s cubic-bezier(.2,.7,.2,1) both",
+        itemIn: "itemIn 0.3s cubic-bezier(.2,.7,.2,1) both",
       },
     },
   },

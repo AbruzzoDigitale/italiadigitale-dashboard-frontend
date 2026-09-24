@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   VAULT_KIND_LABELS,
   VaultLockedError,
@@ -18,6 +18,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../hooks/useAuth";
 import { VaultAccessRequestModal } from "./VaultAccessRequestModal";
+import { VaultDetailModal } from "./VaultDetailModal";
 import { VaultGrantModal } from "./VaultGrantModal";
 import { VaultShareModal } from "./VaultShareModal";
 import { VaultUnlockModal } from "./VaultUnlockModal";
@@ -65,6 +66,10 @@ export function VaultList({
   const [permessiAperti, setPermessiAperti] = useState(false);
   const [linkAperto, setLinkAperto] = useState(false);
   const [daAutorizzare, setDaAutorizzare] = useState<VaultItem | null>(null);
+  const [dettaglio, setDettaglio] = useState<VaultItem | null>(null);
+  // Sale a ogni cambio lista/schede: entra nella chiave delle voci e fa
+  // ripartire l'entrata scaglionata senza rimontare i gruppi.
+  const [swap, setSwap] = useState(0);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -88,6 +93,15 @@ export function VaultList({
   useEffect(() => {
     setSelezionati(new Set());
   }, [chiave, view]);
+
+  // Solo sui cambi veri: al primo montaggio le voci hanno già la loro entrata,
+  // e rimontarle subito dopo sarebbe un giro a vuoto su ogni apertura di pagina.
+  const layoutPrecedente = useRef(layout);
+  useEffect(() => {
+    if (layoutPrecedente.current === layout) return;
+    layoutPrecedente.current = layout;
+    setSwap((n) => n + 1);
+  }, [layout]);
 
   /** Esegue l'azione, e se la cassaforte è chiusa apre lo sblocco e la ritenta. */
   const conSblocco = useCallback(
@@ -199,7 +213,9 @@ export function VaultList({
             key={g.key}
             gruppo={g}
             layout={layout}
+            swap={swap}
             rivelati={rivelati}
+            onInfo={setDettaglio}
             onMostra={mostra}
             onCopia={copia}
             onCondividi={condividi}
@@ -283,6 +299,27 @@ export function VaultList({
         items={daCondividere ? [daCondividere] : selezionateItems}
       />
 
+      <VaultDetailModal
+        open={dettaglio !== null}
+        onClose={() => setDettaglio(null)}
+        item={dettaglio}
+        scoperto={dettaglio ? rivelati[dettaglio.id] : undefined}
+        onMostra={mostra}
+        onCopia={copia}
+        onCondividi={(i) => {
+          setDettaglio(null);
+          condividi(i);
+        }}
+        onEdit={
+          onEdit
+            ? (i) => {
+                setDettaglio(null);
+                onEdit(i);
+              }
+            : undefined
+        }
+      />
+
       <VaultUnlockModal
         open={sbloccoAperto}
         onClose={() => {
@@ -302,6 +339,8 @@ interface GruppoProps {
   gruppo: VaultGroup;
   livello?: number;
   layout: VaultLayout;
+  /** Cambia a ogni cambio di impaginazione: è ciò che fa ripartire l'entrata. */
+  swap: number;
   rivelati: Record<number, string>;
   onMostra: (i: VaultItem) => void;
   onCopia: (i: VaultItem) => void;
@@ -310,6 +349,7 @@ interface GruppoProps {
   onSeleziona: (id: number) => void;
   onEdit?: (i: VaultItem) => void;
   onElimina: (i: VaultItem) => void;
+  onInfo: (i: VaultItem) => void;
 }
 
 function Gruppo({ gruppo, livello = 0, ...rest }: GruppoProps) {
@@ -345,15 +385,27 @@ function Gruppo({ gruppo, livello = 0, ...rest }: GruppoProps) {
 
       {aperto && (
         <div className="flex flex-col gap-1.5 px-3 pb-3">
+          {/*
+            La chiave porta dentro `swap`, così cambiando impaginazione le voci
+            si rimontano e l'animazione riparte — ma il gruppo no: restano
+            chiusi quelli che avevi chiuso, che è il motivo per cui la chiave
+            non sta più in cima all'albero.
+          */}
           {gruppo.items.length > 0 &&
             (rest.layout === "schede" ? (
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {gruppo.items.map((item) => (
-                  <Scheda key={item.id} item={item} {...rest} />
+              <div
+                key={`grid-${rest.swap}`}
+                data-vault-anim
+                className="grid animate-swapIn gap-2 sm:grid-cols-2 xl:grid-cols-3"
+              >
+                {gruppo.items.map((item, i) => (
+                  <Scheda key={`${item.id}-${rest.swap}`} item={item} indice={i} {...rest} />
                 ))}
               </div>
             ) : (
-              gruppo.items.map((item) => <Riga key={item.id} item={item} {...rest} />)
+              gruppo.items.map((item, i) => (
+                <Riga key={`${item.id}-${rest.swap}`} item={item} indice={i} {...rest} />
+              ))
             ))}
           {(gruppo.children ?? []).map((c) => (
             <Gruppo key={c.key} gruppo={c} livello={livello + 1} {...rest} />
@@ -366,15 +418,20 @@ function Gruppo({ gruppo, livello = 0, ...rest }: GruppoProps) {
 
 function Riga({
   item,
+  indice,
   rivelati,
   onMostra,
   onCopia,
   onCondividi,
   onEdit,
   onElimina,
+  onInfo,
   selezionati,
   onSeleziona,
-}: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello">) {
+}: { item: VaultItem; indice: number } & Omit<
+  GruppoProps,
+  "gruppo" | "livello" | "layout" | "swap"
+>) {
   const { user } = useAuth();
   const scoperto = rivelati[item.id];
   // "Condivisa da" solo se è arrivata a TE da qualcun altro: sulle proprie voci
@@ -386,7 +443,9 @@ function Riga({
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
+      data-vault-anim
+      style={ritardo(indice)}
+      className={`flex animate-itemIn items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
         selezionati.has(item.id)
           ? "border-brand/40 bg-brand/5"
           : "border-line/60 dark:border-line-dark/60"
@@ -400,7 +459,14 @@ function Riga({
       <Badge variant="info" className="shrink-0">
         {VAULT_KIND_LABELS[item.kind] ?? item.kind}
       </Badge>
-      <span className="truncate font-medium">{item.label}</span>
+      <button
+        type="button"
+        onClick={() => onInfo(item)}
+        className="truncate text-left font-medium hover:underline"
+        title="Vedi tutti i dati"
+      >
+        {item.label}
+      </button>
       {condivisaDa && (
         <span
           className="inline-flex shrink-0 items-center gap-1 text-xs text-muted dark:text-muted-dark"
@@ -420,6 +486,15 @@ function Riga({
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Vedi tutti i dati: indirizzo, note, collegamenti"
+          aria-label="Dettagli della credenziale"
+          onClick={() => onInfo(item)}
+        >
+          <Icon name="info" className="h-4 w-4" />
+        </Button>
         {scoperto !== undefined && (
           <code className="max-w-[16rem] truncate rounded bg-muted/10 px-2 py-0.5 text-xs">
             {scoperto || "(vuoto)"}
@@ -489,15 +564,20 @@ function Riga({
  */
 function Scheda({
   item,
+  indice,
   rivelati,
   onMostra,
   onCopia,
   onCondividi,
   onEdit,
   onElimina,
+  onInfo,
   selezionati,
   onSeleziona,
-}: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello" | "layout">) {
+}: { item: VaultItem; indice: number } & Omit<
+  GruppoProps,
+  "gruppo" | "livello" | "layout" | "swap"
+>) {
   const { user } = useAuth();
   const scoperto = rivelati[item.id];
   const condivisaDa =
@@ -509,7 +589,9 @@ function Scheda({
 
   return (
     <div
-      className={`flex flex-col gap-2 rounded-xl border p-3 text-sm transition ${
+      data-vault-anim
+      style={ritardo(indice)}
+      className={`flex animate-itemIn flex-col gap-2 rounded-xl border p-3 text-sm transition ${
         selezionata
           ? "border-brand/40 bg-brand/5"
           : "border-line/60 bg-surface dark:border-line-dark/60 dark:bg-surface-dark"
@@ -522,9 +604,14 @@ function Scheda({
           aria-label={`Seleziona ${item.label}`}
         />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold" title={item.label}>
+          <button
+            type="button"
+            onClick={() => onInfo(item)}
+            className="block w-full truncate text-left font-semibold hover:underline"
+            title="Vedi tutti i dati"
+          >
             {item.label}
-          </span>
+          </button>
           {identita && (
             <span className="block truncate text-xs text-muted dark:text-muted-dark">
               {identita}
@@ -577,6 +664,15 @@ function Scheda({
       )}
 
       <div className="mt-auto flex items-center gap-1 border-t border-line/60 pt-2 dark:border-line-dark/60">
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Vedi tutti i dati: host, porta, collegamenti, nota intera"
+          aria-label="Dettagli della credenziale"
+          onClick={() => onInfo(item)}
+        >
+          <Icon name="info" className="h-4 w-4" />
+        </Button>
         {item.has_secret && (
           <>
             <Button size="sm" variant="ghost" title="Copia senza mostrarla" aria-label="Copia la password" onClick={() => onCopia(item)}>
@@ -605,6 +701,16 @@ function Scheda({
       </div>
     </div>
   );
+}
+
+/**
+ * Ritardo d'entrata della voce.
+ *
+ * Si ferma alla dodicesima: oltre, l'ultima riga di un elenco lungo comparirebbe
+ * mezzo secondo dopo la prima, e l'effetto diventa attesa invece che movimento.
+ */
+function ritardo(indice: number): React.CSSProperties {
+  return { animationDelay: `${Math.min(indice, 12) * 22}ms` };
 }
 
 /** Indirizzo leggibile: via lo schema e il www, che non dicono nulla. */
