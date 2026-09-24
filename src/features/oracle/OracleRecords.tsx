@@ -87,6 +87,9 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
                 {r.citta ? <span>{String(r.citta)}</span> : null}
                 {r.referente ? <span>{String(r.referente)}</span> : null}
                 {r.azienda ? <span className="opacity-70">{String(r.azienda)}</span> : null}
+                {/* L'id serve: in anagrafica esistono clienti con lo stesso nome nella
+                    stessa azienda, e senza questo due schede sono indistinguibili. */}
+                <span className="opacity-50">#{String(r.id)}</span>
               </div>
             </Riga>
           );
