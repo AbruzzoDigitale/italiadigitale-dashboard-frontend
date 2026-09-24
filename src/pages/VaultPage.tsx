@@ -33,6 +33,12 @@ export function VaultPage() {
   const [modaleAperta, setModaleAperta] = useState(false);
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
   const [importAperto, setImportAperto] = useState(false);
+  // Specchio del controllo vero (`can_import`, lato server): l'import massivo
+  // resta da project manager in su. Creare una credenziale a mano, invece, ora
+  // lo può fare anche un operatore: è l'unico modo perché la password che il
+  // cliente gli detta finisca qui dentro e non su WhatsApp.
+  const puoImportare =
+    Boolean(user?.is_admin) || user?.access_level === "project_manager";
   const [richiestaAperta, setRichiestaAperta] = useState(false);
   const [registroAperto, setRegistroAperto] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -108,13 +114,15 @@ export function VaultPage() {
               <Icon name="mail" className="mr-1 h-4 w-4" />
               Richiedi credenziale
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setImportAperto(true)}
-            >
-              <Icon name="upload" className="mr-1 h-4 w-4" />
-              Importa da CSV
-            </Button>
+            {puoImportare && (
+              <Button
+                variant="secondary"
+                onClick={() => setImportAperto(true)}
+              >
+                <Icon name="upload" className="mr-1 h-4 w-4" />
+                Importa da CSV
+              </Button>
+            )}
             <Button
               onClick={() => {
                 setInModifica(null);
