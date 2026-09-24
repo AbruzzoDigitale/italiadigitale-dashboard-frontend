@@ -19,6 +19,12 @@ import {
 export function OraclePage() {
   const [params, setParams] = useSearchParams();
   const [conversazioni, setConversazioni] = useState<OracleConversation[]>([]);
+  // La `key` della chat deve cambiare SOLO quando è l'utente a cambiare conversazione.
+  // Legarla all'id sarebbe un difetto sottile e distruttivo: appena lo stream annuncia
+  // l'id della conversazione appena creata, la key cambierebbe, React smonterebbe il
+  // componente a metà risposta e la nuova istanza ricaricherebbe dal server una
+  // conversazione che contiene solo la domanda. Risultato: chat vuota, ogni volta.
+  const [sessione, setSessione] = useState(0);
   const idAperto = params.get("c") ? Number(params.get("c")) : null;
 
   const ricarica = useCallback(() => {
@@ -29,9 +35,17 @@ export function OraclePage() {
 
   useEffect(ricarica, [ricarica]);
 
+  /** Navigazione dell'utente: rimonta la chat. */
   const apri = (id: number | null) => {
+    setSessione((n) => n + 1);
     if (id === null) setParams({});
     else setParams({ c: String(id) });
+  };
+
+  /** La chat ha creato una conversazione: aggiorna l'indirizzo, non rimontare niente. */
+  const registraNuova = (id: number) => {
+    setParams({ c: String(id) }, { replace: true });
+    ricarica();
   };
 
   const elimina = async (id: number) => {
@@ -40,8 +54,10 @@ export function OraclePage() {
     ricarica();
   };
 
+  // Stessa cassa delle altre pagine: max-w-6xl centrato, col padding di sezione.
+  // Senza, l'Oracolo era l'unica schermata a tutta larghezza.
   return (
-    <div className="flex gap-4 h-[calc(100vh-140px)] min-h-0">
+    <div className="mx-auto w-full max-w-6xl flex gap-4 h-[calc(100vh-140px)] min-h-0 px-6 py-6">
       <aside className="hidden md:flex w-60 shrink-0 flex-col gap-2 min-h-0">
         <Button variant="secondary" size="sm" onClick={() => apri(null)} className="w-full">
           <Icon name="plus" className="w-3.5 h-3.5 mr-1.5" />
@@ -84,12 +100,9 @@ export function OraclePage() {
 
       <main className="flex-1 min-w-0 min-h-0">
         <OracleChat
-          key={idAperto ?? "nuova"}
+          key={sessione}
           conversationId={idAperto}
-          onConversationId={(id) => {
-            apri(id);
-            ricarica();
-          }}
+          onConversationId={registraNuova}
           autoFocus
         />
       </main>

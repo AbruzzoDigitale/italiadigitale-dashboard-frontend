@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/ui/Icon";
 import type { OraclePayload } from "../../api/oracle";
 import { OracleActionCard } from "./OracleActionCard";
+import { OracleChart } from "./OracleChart";
 
 /**
  * I record restituiti dagli strumenti, disegnati come card.
@@ -49,6 +50,10 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
 
   return (
     <div className="mt-2 space-y-1.5">
+      {/* Il grafico prima delle schede: risponde al colpo d'occhio, le schede al
+          dettaglio. Sono gli stessi numeri, letti in due modi. */}
+      {payload.grafico ? <OracleChart spec={payload.grafico} records={records} /> : null}
+
       {records.map((r, i) => {
         const key = String(r.id ?? i);
 

@@ -56,12 +56,18 @@ export function OracleChat({
   const campo = useRef<HTMLTextAreaElement>(null);
   const annulla = useRef<AbortController | null>(null);
 
+  // Gli id nati in questo componente: quando tornano giù come prop non devono
+  // scatenare un ricaricamento, o la risposta in corso verrebbe sostituita da
+  // quello che c'è sul server, cioè la sola domanda.
+  const createQui = useRef<Set<number>>(new Set());
+
   useEffect(() => {
     setConvId(conversationId);
     if (conversationId === null) {
       setTurni([]);
       return;
     }
+    if (createQui.current.has(conversationId)) return;
     let vivo = true;
     getOracleConversationApi(conversationId)
       .then((c) => {
@@ -119,6 +125,7 @@ export function OracleChat({
           convId,
           {
             onConversation: (id) => {
+              createQui.current.add(id);
               setConvId(id);
               onConversationId?.(id);
             },
@@ -172,7 +179,14 @@ export function OracleChat({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className={`flex-1 min-h-0 overflow-y-auto ${compact ? "px-1" : "px-1 py-2"}`}>
+      <div
+        className={`flex-1 min-h-0 overflow-y-auto ${
+          compact ? "px-1" : "px-1 py-2"
+        }`}
+      >
+        {/* Righe lunghe non si leggono: la colonna resta stretta e centrata,
+            anche quando la pagina attorno è larga. */}
+        <div className={compact ? "" : "mx-auto w-full max-w-3xl"}>
         {vuoto ? (
           <div className={`${compact ? "py-6" : "py-12"} text-center`}>
             <Icon name="robot" className="w-8 h-8 mx-auto text-muted dark:text-[#9999a0]" />
@@ -254,10 +268,12 @@ export function OracleChat({
           </div>
         ) : null}
 
-        <div ref={fondo} />
+          <div ref={fondo} />
+        </div>
       </div>
 
       <div className="shrink-0 pt-2 border-t border-line dark:border-[#2a2a2e]">
+        <div className={compact ? "" : "mx-auto w-full max-w-3xl"}>
         {modelli.length > 1 ? (
           <div className="flex justify-end pb-1.5">
             <OracleModelPicker
@@ -295,6 +311,7 @@ export function OracleChat({
           >
             {inCorso ? <Spinner size="sm" /> : <Icon name="chevron-right" className="w-4 h-4" />}
           </Button>
+        </div>
         </div>
       </div>
     </div>

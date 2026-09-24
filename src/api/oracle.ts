@@ -6,6 +6,8 @@ export interface OraclePayload {
   records: Record<string, unknown>[];
   totale: number;
   filtri_applicati: Record<string, unknown>;
+  /** Come disegnare gli stessi record. Null = non c'è niente da confrontare. */
+  grafico: import("../features/oracle/OracleChart").GraficoSpec | null;
 }
 
 export interface OracleConversation {
