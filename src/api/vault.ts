@@ -89,6 +89,10 @@ export interface VaultGrant {
   user_id: number;
   permission: "view" | "manage";
   user_name: string | null;
+  /** Chi ha condiviso: una credenziale che compare senza spiegazione inquieta. */
+  granted_by_user_id: number | null;
+  granted_by_name: string | null;
+  created_at: string | null;
 }
 
 export interface VaultItem {
@@ -615,6 +619,33 @@ export async function revealPublicShareApi(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
+    })
+  );
+}
+
+
+// ── Condivisione interna, anche su più credenziali insieme ──────────────────
+//
+// Un permesso fa comparire la credenziale nella cassaforte del collega: non è
+// una copia, è la stessa voce vista da un'altra persona. Revocare il permesso
+// gliela toglie di nuovo.
+
+export interface VaultBulkResult {
+  aggiornate: number;
+  invariate: number;
+  /** Voci che non puoi gestire: contate e non elencate, per non rivelarne l'esistenza. */
+  non_permesse: number;
+}
+
+export async function bulkVaultGrantsApi(body: {
+  item_ids: number[];
+  grants: Array<{ user_id: number; permission: "view" | "manage" }>;
+  mode: "add" | "remove";
+}): Promise<VaultBulkResult> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/items/bulk/grants`, {
+      method: "POST",
+      body: JSON.stringify(body),
     })
   );
 }

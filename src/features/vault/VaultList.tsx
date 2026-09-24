@@ -11,9 +11,12 @@ import {
 } from "../../api/vault";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Icon } from "../../components/ui/Icon";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../hooks/useAuth";
+import { VaultGrantModal } from "./VaultGrantModal";
 import { VaultShareModal } from "./VaultShareModal";
 import { VaultUnlockModal } from "./VaultUnlockModal";
 import { contaGruppo, groupItems, type VaultGroup, type VaultView } from "./grouping";
@@ -45,6 +48,8 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   const [inSospeso, setInSospeso] = useState<(() => void) | null>(null);
   const [rivelati, setRivelati] = useState<Record<number, string>>({});
   const [daCondividere, setDaCondividere] = useState<VaultItem | null>(null);
+  const [selezionati, setSelezionati] = useState<Set<number>>(new Set());
+  const [permessiAperti, setPermessiAperti] = useState(false);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -62,6 +67,12 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   useEffect(() => {
     void carica();
   }, [carica, reloadKey]);
+
+  // Cambiati i filtri, la selezione si azzera: agire su voci sparite dalla
+  // vista è il modo classico per condividere qualcosa senza accorgersene.
+  useEffect(() => {
+    setSelezionati(new Set());
+  }, [chiave, view]);
 
   /** Esegue l'azione, e se la cassaforte è chiusa apre lo sblocco e la ritenta. */
   const conSblocco = useCallback(
@@ -84,6 +95,14 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     },
     [toast]
   );
+
+  const inverti = (id: number) =>
+    setSelezionati((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   const mostra = (item: VaultItem) =>
     conSblocco(async () => {
@@ -151,6 +170,8 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
             onMostra={mostra}
             onCopia={copia}
             onCondividi={condividi}
+            selezionati={selezionati}
+            onSeleziona={inverti}
             onEdit={onEdit}
             onElimina={elimina}
           />
@@ -161,7 +182,47 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
 
   return (
     <>
+      {selezionati.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-brand/30 bg-brand/5 px-3 py-2 text-sm">
+          <span className="font-semibold">
+            {selezionati.size} {selezionati.size === 1 ? "selezionata" : "selezionate"}
+          </span>
+          {selezionati.size < items.length && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelezionati(new Set(items.map((i) => i.id)))}
+            >
+              Seleziona tutte ({items.length})
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelezionati(new Set())}>
+            Annulla
+          </Button>
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={() => setPermessiAperti(true)}
+            title="Le rende visibili nella cassaforte di un collega"
+          >
+            <Icon name="users" className="mr-1 h-4 w-4" />
+            Condividi con un collega
+          </Button>
+        </div>
+      )}
+
       {contenuto}
+
+      <VaultGrantModal
+        open={permessiAperti}
+        onClose={() => setPermessiAperti(false)}
+        companyId={filters.companyId ?? 0}
+        itemIds={[...selezionati]}
+        onDone={() => {
+          setSelezionati(new Set());
+          void carica();
+        }}
+      />
 
       <VaultShareModal
         open={daCondividere !== null}
@@ -191,6 +252,8 @@ interface GruppoProps {
   onMostra: (i: VaultItem) => void;
   onCopia: (i: VaultItem) => void;
   onCondividi: (i: VaultItem) => void;
+  selezionati: Set<number>;
+  onSeleziona: (id: number) => void;
   onEdit?: (i: VaultItem) => void;
   onElimina: (i: VaultItem) => void;
 }
@@ -248,15 +311,44 @@ function Riga({
   onCondividi,
   onEdit,
   onElimina,
+  selezionati,
+  onSeleziona,
 }: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello">) {
+  const { user } = useAuth();
   const scoperto = rivelati[item.id];
+  // "Condivisa da" solo se è arrivata a TE da qualcun altro: sulle proprie voci
+  // sarebbe rumore, e sulle altrui non è un'informazione che ti riguarda.
+  const condivisaDa =
+    item.owner_user_id === user?.id
+      ? null
+      : item.grants.find((g) => g.user_id === user?.id)?.granted_by_name ?? null;
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 text-sm dark:border-line-dark/60">
+    <div
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
+        selezionati.has(item.id)
+          ? "border-brand/40 bg-brand/5"
+          : "border-line/60 dark:border-line-dark/60"
+      }`}
+    >
+      <Checkbox
+        checked={selezionati.has(item.id)}
+        onChange={() => onSeleziona(item.id)}
+        aria-label={`Seleziona ${item.label}`}
+      />
       <Badge variant="info" className="shrink-0">
         {VAULT_KIND_LABELS[item.kind] ?? item.kind}
       </Badge>
       <span className="truncate font-medium">{item.label}</span>
+      {condivisaDa && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted dark:text-muted-dark"
+          title={`Condivisa con te da ${condivisaDa}`}
+        >
+          <Icon name="users" className="h-3 w-3" />
+          da {condivisaDa}
+        </span>
+      )}
       {item.username && (
         <span className="truncate text-xs text-muted dark:text-muted-dark">{item.username}</span>
       )}
