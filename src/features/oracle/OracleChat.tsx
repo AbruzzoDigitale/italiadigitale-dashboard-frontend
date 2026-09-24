@@ -25,6 +25,8 @@ interface Props {
   /** Nel dialog ⌘K lo spazio è poco: meno margini, niente intestazione. */
   compact?: boolean;
   autoFocus?: boolean;
+  /** Inviata da sola all'apertura: è la domanda già scritta nella barra di ricerca. */
+  domandaIniziale?: string;
 }
 
 const SUGGERIMENTI = [
@@ -34,7 +36,13 @@ const SUGGERIMENTI = [
   "Come sta andando il PED di questo mese?",
 ];
 
-export function OracleChat({ conversationId, onConversationId, compact, autoFocus }: Props) {
+export function OracleChat({
+  conversationId,
+  onConversationId,
+  compact,
+  autoFocus,
+  domandaIniziale,
+}: Props) {
   const [turni, setTurni] = useState<Turno[]>([]);
   const [domanda, setDomanda] = useState("");
   const [inCorso, setInCorso] = useState(false);
@@ -148,6 +156,14 @@ export function OracleChat({ conversationId, onConversationId, compact, autoFocu
     },
     [convId, inCorso, onConversationId]
   );
+
+  // Parte da sola una volta sola: il ref evita che un ri-render la rimandi.
+  const inizialeInviata = useRef(false);
+  useEffect(() => {
+    if (!domandaIniziale || inizialeInviata.current) return;
+    inizialeInviata.current = true;
+    void invia(domandaIniziale);
+  }, [domandaIniziale, invia]);
 
   const vuoto = turni.length === 0;
 

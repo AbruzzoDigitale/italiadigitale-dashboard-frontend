@@ -25,7 +25,7 @@ import { subscribeRealtime } from "../features/realtime/realtimeBus";
 const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
 const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
-import { OracleDialog } from "../features/oracle/OracleDialog";
+import { CommandPalette } from "../features/search/CommandPalette";
 import { OracleSearchBar } from "../features/oracle/OracleSearchBar";
 import { useOracleShortcut } from "../features/oracle/useOracleShortcut";
 import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
@@ -148,10 +148,10 @@ export function DashboardLayout() {
   // Operatore = non admin e non project manager. Per lui il centro notifiche
   // nasconde la scheda "Contratti" (e il relativo conteggio dal badge).
   const isOperator = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
-  // L'Oracolo: scorciatoia registrata solo per chi ha il permesso, così la
-  // combinazione resta libera per tutti gli altri.
+  // Cercare è per tutti: la scorciatoia e la barra ci sono anche per chi non ha
+  // l'Oracolo, che resta un'opzione dentro il pannello.
   const puoUsareOracolo = canAccessRoute(permissions, "oracolo");
-  const { aperto: oracoloAperto, setAperto: setOracoloAperto } = useOracleShortcut(puoUsareOracolo);
+  const { aperto: oracoloAperto, setAperto: setOracoloAperto } = useOracleShortcut(permissions != null);
   const [oracoloConvId, setOracoloConvId] = useState<number | null>(null);
   const hiddenNotifTabs = isOperator ? OPERATOR_HIDDEN_NOTIF_TABS : NO_HIDDEN_NOTIF_TABS;
   const notifications = useNotifications(hiddenNotifTabs);
@@ -825,7 +825,7 @@ export function DashboardLayout() {
             <Icon name="menu" />
           </button>
 
-          {puoUsareOracolo && <OracleSearchBar onOpen={() => setOracoloAperto(true)} />}
+          {permissions ? <OracleSearchBar onOpen={() => setOracoloAperto(true)} /> : null}
 
           {/* Spacer + barra collegamenti rapidi (centro). Su schermi stretti la barra
               si nasconde (hidden md:flex nel componente) e questo div resta solo spacer. */}
@@ -987,14 +987,15 @@ export function DashboardLayout() {
           companyId={currentCompanyId}
         />
 
-        {puoUsareOracolo && (
-          <OracleDialog
+        {permissions ? (
+          <CommandPalette
             open={oracoloAperto}
             onClose={() => setOracoloAperto(false)}
+            puoUsareOracolo={puoUsareOracolo}
             conversationId={oracoloConvId}
             onConversationId={setOracoloConvId}
           />
-        )}
+        ) : null}
 
         <NotificationCenter
           open={notifOpen}
