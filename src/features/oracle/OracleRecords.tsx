@@ -139,6 +139,32 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
           );
         }
 
+        if (payload.tipo === "puntualita") {
+          const perc = Number(r.puntuali_percento);
+          const tardi = Number(r.in_ritardo);
+          return (
+            <Riga key={key}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-ink dark:text-[#f4f4f7] capitalize">
+                  {String(r.mese)}
+                </span>
+                <span className="text-[11px] tabular-nums text-muted dark:text-[#9999a0]">
+                  {String(r.consegnate)} consegnate
+                </span>
+              </div>
+              {/* Le due parti sono la stessa riga, non due barre: puntuali e in ritardo
+                  sommano sempre alle consegnate, e vederlo toglie il dubbio. */}
+              <div className="mt-1.5 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-cream dark:bg-[#2a2a2e]">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${perc}%` }} />
+                <div className="h-full flex-1 rounded-full bg-danger/70" />
+              </div>
+              <div className="mt-0.5 text-[11px] tabular-nums text-muted dark:text-[#9999a0]">
+                {perc}% puntuali · {tardi} oltre la scadenza
+              </div>
+            </Riga>
+          );
+        }
+
         if (payload.tipo === "ped") {
           return (
             <Riga key={key}>

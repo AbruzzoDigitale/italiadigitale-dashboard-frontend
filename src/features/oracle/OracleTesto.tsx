@@ -9,9 +9,13 @@ import type { OraclePayload } from "../../api/oracle";
  * non passa dal modello. Un id nudo non dice niente a chi legge, e chiedere al modello
  * di ricordarsi di accompagnarlo funziona finché non se ne dimentica.
  *
- * Un riferimento che non corrisponde a nessun record resta visibile ma barrato: è una
- * citazione inventata, e va vista dove sta — dentro la frase — non solo nell'avviso
- * in fondo.
+ * Un riferimento inventato resta visibile ma barrato: va visto dove sta — dentro la
+ * frase — non solo nell'avviso in fondo. Inventato però lo decide il BACKEND, che
+ * confronta gli id citati con quelli davvero restituiti dai tool; qui si sa solo se
+ * un id è traducibile in un nome, che è un'altra cosa. Un tool che aggrega (il PED
+ * per cliente, la puntualità per mese) restituisce id di lavorazioni vere che in
+ * questo indice non compaiono: darli per inventati sarebbe accusare il modello di
+ * un errore che non ha fatto, e insegnare a diffidare dell'avviso quando è vero.
  */
 
 const RIFERIMENTO = /\[#([A-Za-z0-9_-]{1,64})\]/g;
@@ -69,10 +73,14 @@ export function indicizzaRecord(payloads: OraclePayload[]): Map<string, Voce> {
 export function OracleTesto({
   testo,
   indice,
+  sospette,
 }: {
   testo: string;
   indice: Map<string, Voce>;
+  /** Gli id che il backend ha verificato e non ha trovato. Assente mentre risponde. */
+  sospette?: string[];
 }) {
+  const inventati = new Set(sospette ?? []);
   const navigate = useNavigate();
   const pezzi: React.ReactNode[] = [];
   let ultimo = 0;
@@ -103,14 +111,23 @@ export function OracleTesto({
     n += 1;
 
     if (!voce) {
+      // Nessun nome per questo id. Se il backend l'ha bocciato, si vede che è falso;
+      // altrimenti è un record vero che qui non sappiamo nominare — resta com'è,
+      // in sordina, senza accusare nessuno.
       pezzi.push(
-        <span
-          key={`x-${n}`}
-          title="Questo riferimento non corrisponde a nessun dato restituito"
-          className="line-through decoration-danger/70 text-danger/80"
-        >
-          {m[0]}
-        </span>
+        inventati.has(id) ? (
+          <span
+            key={`x-${n}`}
+            title="Questo riferimento non corrisponde a nessun dato restituito"
+            className="line-through decoration-danger/70 text-danger/80"
+          >
+            {m[0]}
+          </span>
+        ) : (
+          <span key={`x-${n}`} className="text-muted dark:text-[#9999a0]">
+            {m[0]}
+          </span>
+        )
       );
       continue;
     }

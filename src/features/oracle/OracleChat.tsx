@@ -236,7 +236,11 @@ export function OracleChat({
             <div key={i} className="mb-4">
               {turno.testo ? (
                 <div className="text-[13px] leading-relaxed text-ink dark:text-[#f4f4f7] whitespace-pre-wrap">
-                  <OracleTesto testo={turno.testo} indice={indiceRecord} />
+                  <OracleTesto
+                    testo={turno.testo}
+                    indice={indiceRecord}
+                    sospette={turno.done?.citazioni_sospette}
+                  />
                 </div>
               ) : null}
 
