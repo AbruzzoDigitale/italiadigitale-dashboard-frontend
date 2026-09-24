@@ -6,7 +6,7 @@ import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
-import { VaultAccessLogModal } from "../features/vault/VaultAccessLogModal";
+import { VaultAdminModal } from "../features/vault/VaultAdminModal";
 import { VaultImportModal } from "../features/vault/VaultImportModal";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
 import { VaultRequestModal } from "../features/vault/VaultRequestModal";
@@ -93,10 +93,10 @@ export function VaultPage() {
                 variant="secondary"
                 className="ml-auto"
                 onClick={() => setRegistroAperto(true)}
-                title="Chi ha aperto quali credenziali, e quando"
+                title="Registro accessi, link condivisi e regole della cassaforte"
               >
-                <Icon name="list" className="mr-1 h-4 w-4" />
-                Registro accessi
+                <Icon name="settings" className="mr-1 h-4 w-4" />
+                Amministrazione
               </Button>
             )}
             <Button
@@ -143,7 +143,7 @@ export function VaultPage() {
             />
           </div>
 
-          <VaultAccessLogModal
+          <VaultAdminModal
             open={registroAperto}
             onClose={() => setRegistroAperto(false)}
             companyId={companyId}

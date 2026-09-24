@@ -5,6 +5,7 @@ import {
   type VaultImportRow,
 } from "../../api/vault";
 import { Badge } from "../../components/ui/Badge";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Modal } from "../../components/ui/Modal";
@@ -92,6 +93,7 @@ export function VaultImportModal({ open, onClose, companyId, onImported }: Props
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
   const [esito, setEsito] = useState<VaultImportResult | null>(null);
+  const [collegaAuto, setCollegaAuto] = useState(true);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
 
@@ -148,9 +150,14 @@ export function VaultImportModal({ open, onClose, companyId, onImported }: Props
         company_id: companyId,
         rows: righe,
         skip_duplicates: true,
+        auto_link: collegaAuto,
       });
       setEsito(res);
-      toast.success(`Importate ${res.created} credenziali.`);
+      toast.success(
+        res.auto_linked > 0
+          ? `Importate ${res.created} credenziali, ${res.auto_linked} collegate al sito da sole.`
+          : `Importate ${res.created} credenziali.`
+      );
       onImported();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import non riuscito");
@@ -259,6 +266,23 @@ export function VaultImportModal({ open, onClose, companyId, onImported }: Props
                 </p>
               )}
             </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setCollegaAuto((v) => !v)}
+                className="inline-flex items-center gap-2 text-[13px] text-ink dark:text-[#f4f4f7]"
+              >
+                <Checkbox checked={collegaAuto} onChange={setCollegaAuto} />
+                Collega da solo al sito con lo stesso dominio
+              </button>
+              <p className="mt-1 text-xs text-muted dark:text-muted-dark">
+                Confronta il dominio dell'indirizzo con i siti in anagrafica e, se
+                lo riconosce, collega la credenziale al sito e al suo cliente. Su
+                un export di centinaia di righe è la differenza fra una cassaforte
+                consultabile e un elenco piatto.
+              </p>
+            </div>
           </>
         )}
 
@@ -267,6 +291,9 @@ export function VaultImportModal({ open, onClose, companyId, onImported }: Props
             <div className="flex flex-wrap gap-2">
               <Badge variant="success">{esito.created} importate</Badge>
               {esito.skipped > 0 && <Badge>{esito.skipped} già presenti</Badge>}
+              {esito.auto_linked > 0 && (
+                <Badge variant="info">{esito.auto_linked} collegate al sito</Badge>
+              )}
               {esito.errors.length > 0 && (
                 <Badge variant="danger">{esito.errors.length} con errori</Badge>
               )}

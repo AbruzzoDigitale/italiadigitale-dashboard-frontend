@@ -9,7 +9,6 @@ import { Badge } from "../../components/ui/Badge";
 import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Icon } from "../../components/ui/Icon";
 import { Input } from "../../components/ui/Input";
-import { Modal } from "../../components/ui/Modal";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
@@ -27,8 +26,6 @@ import { useToast } from "../../context/ToastContext";
  */
 
 interface Props {
-  open: boolean;
-  onClose: () => void;
   companyId: number;
 }
 
@@ -56,7 +53,7 @@ const TONO: Partial<Record<VaultAction, "danger" | "warning" | "info">> = {
   reveal: "info",
 };
 
-export function VaultAccessLogModal({ open, onClose, companyId }: Props) {
+export function VaultAccessLogPanel({ companyId }: Props) {
   const [righe, setRighe] = useState<VaultAccess[] | null>(null);
   const [periodo, setPeriodo] = useState("30");
   const [azione, setAzione] = useState("");
@@ -81,8 +78,8 @@ export function VaultAccessLogModal({ open, onClose, companyId }: Props) {
   }, [companyId, azione, periodo, toast]);
 
   useEffect(() => {
-    if (open) void carica();
-  }, [open, carica]);
+    void carica();
+  }, [carica]);
 
   const filtrate = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -96,14 +93,7 @@ export function VaultAccessLogModal({ open, onClose, companyId }: Props) {
   }, [righe, q]);
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Registro accessi"
-      description="Chi ha aperto cosa, e quando. Resta anche se la credenziale viene eliminata."
-      size="xl"
-    >
-      <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <FieldLabel>Periodo</FieldLabel>
@@ -175,6 +165,5 @@ export function VaultAccessLogModal({ open, onClose, companyId }: Props) {
           </>
         )}
       </div>
-    </Modal>
   );
 }

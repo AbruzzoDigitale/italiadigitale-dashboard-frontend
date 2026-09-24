@@ -409,6 +409,8 @@ export interface VaultImportRow {
 export interface VaultImportResult {
   created: number;
   skipped: number;
+  /** Quante sono state collegate da sole al sito riconosciuto dal dominio. */
+  auto_linked: number;
   errors: string[];
 }
 
@@ -422,6 +424,7 @@ export async function importVaultItemsApi(body: {
   rows: VaultImportRow[];
   kind?: VaultKind;
   skip_duplicates?: boolean;
+  auto_link?: boolean;
   links?: Array<{ target_type: VaultTargetType; target_id: number }>;
 }): Promise<VaultImportResult> {
   return jsonOrThrow(
@@ -587,6 +590,18 @@ export async function createVaultShareApi(body: VaultShareInput): Promise<VaultS
 
 export async function listVaultSharesApi(itemId: number): Promise<VaultShare[]> {
   return jsonOrThrow(await authFetch(`${BASE}/items/${itemId}/shares`));
+}
+
+/** Tutti i link emessi: «cosa abbiamo consegnato, a chi, e cosa è ancora aperto?». */
+export async function listAllVaultSharesApi(filtri?: {
+  companyId?: number;
+  soloAttivi?: boolean;
+}): Promise<VaultShare[]> {
+  const p = new URLSearchParams();
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.soloAttivi === false) p.set("solo_attivi", "false");
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/shares${qs ? `?${qs}` : ""}`));
 }
 
 export async function revokeVaultShareApi(shareId: number): Promise<void> {
