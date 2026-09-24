@@ -466,6 +466,8 @@ export interface VaultRequest {
   created_at: string;
   /** Presente solo alla creazione: è il link da inviare. */
   url_pubblico: string | null;
+  email_inviata: boolean | null;
+  email_dettaglio: string | null;
 }
 
 export interface VaultRequestInput {
@@ -484,6 +486,9 @@ export interface VaultRequestInput {
   recipient_note?: string | null;
   access_password?: string | null;
   expires_days?: number | null;
+  send_email?: boolean;
+  recipient_email?: string | null;
+  include_password?: boolean;
 }
 
 export async function createVaultRequestApi(body: VaultRequestInput): Promise<VaultRequest> {

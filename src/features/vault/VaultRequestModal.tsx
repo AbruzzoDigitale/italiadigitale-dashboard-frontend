@@ -7,6 +7,7 @@ import {
 } from "../../api/vault";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { DurationField } from "../../components/ui/DurationField";
 import { FieldLabel } from "../../components/ui/FieldLabel";
 import { Icon } from "../../components/ui/Icon";
@@ -59,6 +60,9 @@ export function VaultRequestModal({
   const [messaggio, setMessaggio] = useState("");
   const [password, setPassword] = useState("");
   const [giorni, setGiorni] = useState<number | null>(7);
+  const [inviaMail, setInviaMail] = useState(false);
+  const [email, setEmail] = useState("");
+  const [mailConPassword, setMailConPassword] = useState(false);
   const [inCorso, setInCorso] = useState(false);
   const [creata, setCreata] = useState<VaultRequest | null>(null);
   const toast = useToast();
@@ -73,12 +77,19 @@ export function VaultRequestModal({
     setMessaggio("");
     setPassword("");
     setGiorni(7);
+    setInviaMail(false);
+    setEmail("");
+    setMailConPassword(false);
     setCreata(null);
   }, [open, prefill]);
 
   async function crea() {
     if (!label.trim()) {
       toast.error("Serve un'etichetta: il destinatario deve capire cosa gli stai chiedendo");
+      return;
+    }
+    if (inviaMail && !email.trim()) {
+      toast.error("Serve un indirizzo a cui mandare il link");
       return;
     }
     setInCorso(true);
@@ -94,6 +105,9 @@ export function VaultRequestModal({
         recipient_note: destinatario || null,
         access_password: password || null,
         expires_days: giorni ?? undefined,
+        send_email: inviaMail,
+        recipient_email: inviaMail ? email.trim() : null,
+        include_password: inviaMail && mailConPassword,
       });
       setCreata(r);
       onCreated();
@@ -137,6 +151,26 @@ export function VaultRequestModal({
               Scade il {new Date(creata.expires_at).toLocaleDateString("it-IT")} · un solo utilizzo
             </span>
           </div>
+
+          {creata.email_inviata !== null && (
+            <div
+              className={`flex gap-2 rounded-lg border p-3 text-sm ${
+                creata.email_inviata
+                  ? "border-success/30 bg-success/10"
+                  : "border-danger/30 bg-danger/10"
+              }`}
+            >
+              <Icon
+                name={creata.email_inviata ? "check-circle" : "alert-triangle"}
+                className={`mt-0.5 h-4 w-4 shrink-0 ${creata.email_inviata ? "text-success" : "text-danger"}`}
+              />
+              <p>
+                {creata.email_inviata
+                  ? "Email inviata al destinatario."
+                  : `Email non inviata: ${creata.email_dettaglio ?? "errore sconosciuto"}. Il link resta valido, mandalo a mano.`}
+              </p>
+            </div>
+          )}
 
           <div>
             <FieldLabel>Link da inviare</FieldLabel>
@@ -225,6 +259,55 @@ export function VaultRequestModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+          </div>
+
+          <div className="sm:col-span-2 rounded-lg border border-line p-3 dark:border-line-dark">
+            <button
+              type="button"
+              onClick={() => setInviaMail((v) => !v)}
+              className="inline-flex items-center gap-2 text-[13px] text-ink dark:text-[#f4f4f7]"
+            >
+              <Checkbox checked={inviaMail} onChange={setInviaMail} />
+              Manda il link per email
+            </button>
+
+            {inviaMail && (
+              <div className="mt-3 flex flex-col gap-2">
+                <Input
+                  type="email"
+                  label="Indirizzo"
+                  name="destinatario-richiesta"
+                  autoComplete="off"
+                  placeholder="cliente@esempio.it"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <p className="text-xs text-muted dark:text-muted-dark">
+                  Parte dal modello aziendale «Cassaforte — richiesta credenziali»,
+                  modificabile nelle impostazioni dell'azienda.
+                </p>
+                {password && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMailConPassword((v) => !v)}
+                      className="inline-flex items-start gap-2 text-left text-[13px] text-ink dark:text-[#f4f4f7]"
+                    >
+                      <span className="mt-0.5">
+                        <Checkbox checked={mailConPassword} onChange={setMailConPassword} />
+                      </span>
+                      Includi anche la password del link
+                    </button>
+                    {mailConPassword && (
+                      <p className="text-xs text-warning">
+                        Con link e password nello stesso messaggio la password non
+                        protegge più niente: chi legge l'email ha già entrambi.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="sm:col-span-2">
