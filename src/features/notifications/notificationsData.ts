@@ -18,7 +18,8 @@ export type NotifTabKey =
   | "comunicazioni"
   | "monitoraggi"
   | "sale"
-  | "rimborsi";
+  | "rimborsi"
+  | "cassaforte";
 
 /** Forma allineata a NotificationResponse del backend. */
 export interface NotifItem {
@@ -76,6 +77,9 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   trasferta_da_approvare: { label: "Da approvare", icon: "map-pin", tone: "amber" },
   trasferta_approvata: { label: "Trasferta approvata", icon: "check", tone: "mint" },
   trasferta_respinta: { label: "Trasferta respinta", icon: "x", tone: "magenta" },
+  // cassaforte: rinnovo delle credenziali
+  credenziale_in_scadenza: { label: "Da rinnovare", icon: "clock", tone: "amber" },
+  credenziale_scaduta: { label: "Rinnovo scaduto", icon: "alert-triangle", tone: "magenta" },
   // comunicazioni
   com_operatore: { label: "Operatore", icon: "users", tone: "mint" },
   com_area: { label: "Area", icon: "grid", tone: "indigo" },
@@ -142,6 +146,7 @@ export const NOTIF_TABS: { key: NotifTabKey; label: string; icon: IconName }[] =
   { key: "monitoraggi", label: "Monitoraggi", icon: "activity" },
   { key: "sale", label: "Sale", icon: "calendar" },
   { key: "rimborsi", label: "Trasferte", icon: "map-pin" },
+  { key: "cassaforte", label: "Cassaforte", icon: "key" },
 ];
 
 export const NOTIF_COM_FILTERS: { key: string; label: string; tone?: NotifTone }[] = [

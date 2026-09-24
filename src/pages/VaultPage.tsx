@@ -6,6 +6,7 @@ import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
+import { VaultAccessLogModal } from "../features/vault/VaultAccessLogModal";
 import { VaultImportModal } from "../features/vault/VaultImportModal";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
 import { VaultRequestModal } from "../features/vault/VaultRequestModal";
@@ -33,6 +34,7 @@ export function VaultPage() {
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
   const [importAperto, setImportAperto] = useState(false);
   const [richiestaAperta, setRichiestaAperta] = useState(false);
+  const [registroAperto, setRegistroAperto] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   return (
@@ -86,9 +88,20 @@ export function VaultPage() {
               <Checkbox checked={soloDaRinnovare} onChange={setSoloDaRinnovare} />
               Solo da rinnovare
             </button>
+            {user?.is_admin && (
+              <Button
+                variant="secondary"
+                className="ml-auto"
+                onClick={() => setRegistroAperto(true)}
+                title="Chi ha aperto quali credenziali, e quando"
+              >
+                <Icon name="list" className="mr-1 h-4 w-4" />
+                Registro accessi
+              </Button>
+            )}
             <Button
               variant="secondary"
-              className="ml-auto"
+              className={user?.is_admin ? undefined : "ml-auto"}
               onClick={() => setRichiestaAperta(true)}
               title="Manda un link a un cliente perché inserisca lui la password"
             >
@@ -129,6 +142,12 @@ export function VaultPage() {
               emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
             />
           </div>
+
+          <VaultAccessLogModal
+            open={registroAperto}
+            onClose={() => setRegistroAperto(false)}
+            companyId={companyId}
+          />
 
           <VaultRequestModal
             open={richiestaAperta}

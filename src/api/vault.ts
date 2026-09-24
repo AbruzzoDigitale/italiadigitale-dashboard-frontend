@@ -156,6 +156,30 @@ export interface VaultStatus {
   kms_enabled: boolean;
 }
 
+/** Allineato a VAULT_ACTIONS in app/models/vault.py: quella è la fonte unica. */
+export type VaultAction =
+  | "reveal"
+  | "copy"
+  | "export"
+  | "share_created"
+  | "share_viewed"
+  | "share_denied"
+  | "rotated"
+  | "request_created"
+  | "request_submitted";
+
+export const VAULT_ACTION_LABELS: Record<VaultAction, string> = {
+  reveal: "Rivelata",
+  copy: "Copiata",
+  export: "Esportata",
+  share_created: "Link creato",
+  share_viewed: "Link aperto",
+  share_denied: "Password del link errata",
+  rotated: "Rinnovata",
+  request_created: "Richiesta inviata",
+  request_submitted: "Richiesta compilata",
+};
+
 export interface VaultAccess {
   id: number;
   item_id: number | null;
@@ -163,7 +187,7 @@ export interface VaultAccess {
   user_id: number | null;
   user_name: string | null;
   share_id: number | null;
-  action: string;
+  action: VaultAction;
   ip: string | null;
   created_at: string;
 }
@@ -333,9 +357,22 @@ export async function setVaultGrantsApi(
   );
 }
 
-export async function listVaultAccessesApi(itemId?: number): Promise<VaultAccess[]> {
-  const qs = itemId != null ? `?item_id=${itemId}` : "";
-  return jsonOrThrow(await authFetch(`${BASE}/accesses${qs}`));
+export async function listVaultAccessesApi(filtri?: {
+  itemId?: number;
+  companyId?: number;
+  action?: VaultAction;
+  /** Ultimi N giorni. Assente = tutto lo storico. */
+  days?: number;
+  limit?: number;
+}): Promise<VaultAccess[]> {
+  const p = new URLSearchParams();
+  if (filtri?.itemId != null) p.set("item_id", String(filtri.itemId));
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.action) p.set("action", filtri.action);
+  if (filtri?.days != null) p.set("days", String(filtri.days));
+  if (filtri?.limit != null) p.set("limit", String(filtri.limit));
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/accesses${qs ? `?${qs}` : ""}`));
 }
 
 export async function getVaultPolicyApi(companyId: number): Promise<VaultPolicy> {
