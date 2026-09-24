@@ -147,6 +147,88 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
           );
         }
 
+        if (payload.tipo === "contratto") {
+          return (
+            <Riga key={key} onClick={() => navigate(`/contracts-pipeline?contract=${r.contratto_id}`)}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-ink dark:text-[#f4f4f7]">{String(r.titolo)}</span>
+                <span className="shrink-0 text-[11px] text-muted dark:text-[#9999a0]">
+                  {String(r.fase_commerciale)}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-muted dark:text-[#9999a0]">
+                {r.cliente ? <span>{String(r.cliente)}</span> : null}
+                {r.firmato_il ? <span>firmato {String(r.firmato_il)}</span> : null}
+                {r.impegno ? <span className="opacity-70">{String(r.impegno)}</span> : null}
+              </div>
+            </Riga>
+          );
+        }
+
+        if (payload.tipo === "fatturazione") {
+          const scaduta = Boolean(r.scaduta);
+          return (
+            <Riga key={key}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-ink dark:text-[#f4f4f7]">{String(r.titolo)}</span>
+                <span className="shrink-0 font-semibold tabular-nums text-ink dark:text-[#f4f4f7]">
+                  {Number(r.importo).toLocaleString("it-IT", {
+                    style: "currency",
+                    currency: "EUR",
+                  })}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-muted dark:text-[#9999a0]">
+                {r.cliente ? <span>{String(r.cliente)}</span> : null}
+                <span>{String(r.stato)}</span>
+                {r.scadenza ? (
+                  <span className={scaduta ? "text-danger font-semibold" : ""}>
+                    scadenza {String(r.scadenza)}
+                    {scaduta ? " — scaduta" : ""}
+                  </span>
+                ) : null}
+              </div>
+            </Riga>
+          );
+        }
+
+        if (payload.tipo === "sito") {
+          return (
+            <Riga key={key} onClick={() => navigate(`/siti-web?sito=${r.sito_id}`)}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-ink dark:text-[#f4f4f7]">{String(r.nome)}</span>
+                {r.manutenzione ? (
+                  <span className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">
+                    manutenzione
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-muted dark:text-[#9999a0]">
+                {r.cliente ? <span>{String(r.cliente)}</span> : null}
+                {r.stato ? <span>{String(r.stato)}</span> : null}
+                {r.dominio_scade_il ? <span>dominio scade {String(r.dominio_scade_il)}</span> : null}
+              </div>
+            </Riga>
+          );
+        }
+
+        if (payload.tipo === "documento") {
+          return (
+            <Riga key={key}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-ink dark:text-[#f4f4f7]">{String(r.titolo)}</span>
+                <span className="shrink-0 text-[11px] text-muted dark:text-[#9999a0]">
+                  {String(r.tipo)} · {String(r.campo)}
+                </span>
+              </div>
+              {/* L'estratto è parziale per costruzione: va detto, non lasciato intendere. */}
+              <p className="mt-1 text-[11px] leading-relaxed text-muted dark:text-[#9999a0] italic">
+                {String(r.estratto)}
+              </p>
+            </Riga>
+          );
+        }
+
         return (
           <Riga key={key}>
             <pre className="whitespace-pre-wrap text-[11px]">{JSON.stringify(r, null, 1)}</pre>
