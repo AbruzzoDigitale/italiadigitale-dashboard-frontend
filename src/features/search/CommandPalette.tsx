@@ -5,6 +5,8 @@ import { Icon } from "../../components/ui/Icon";
 import { Spinner } from "../../components/ui/Spinner";
 import { OracleChat } from "../oracle/OracleChat";
 import { useSearch } from "./useSearch";
+import { BottoneMicrofono } from "../voce/BottoneMicrofono";
+import { useDettatura } from "../voce/useDettatura";
 
 /**
  * Cerca qualsiasi cosa nel gestionale, e se non basta chiedi all'Oracolo.
@@ -97,6 +99,9 @@ export function CommandPalette({
   const [attiva, setAttiva] = useState(0);
   const campo = useRef<HTMLInputElement>(null);
   const { gruppi, inCorso } = useSearch(modo === "ricerca" ? query : "");
+  // Nella ricerca la dettatura sostituisce il testo invece di accodarlo: si detta
+  // cosa si cerca, non un discorso.
+  const dettatura = useDettatura((testo) => setQuery(testo));
 
   useEffect(() => {
     if (!open) return;
@@ -188,6 +193,12 @@ export function CommandPalette({
                          placeholder:text-muted focus:outline-none"
             />
             {inCorso ? <Spinner size="sm" /> : null}
+            <BottoneMicrofono
+              supportata={dettatura.supportata}
+              inAscolto={dettatura.inAscolto}
+              onAvvia={dettatura.avvia}
+              onFerma={dettatura.ferma}
+            />
           </div>
 
           <div className="flex-1 overflow-y-auto pt-2 min-h-0">

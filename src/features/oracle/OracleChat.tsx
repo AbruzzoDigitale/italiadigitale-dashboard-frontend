@@ -10,6 +10,10 @@ import {
 } from "../../api/oracle";
 import { OracleRecords } from "./OracleRecords";
 import { OracleModelPicker, useOracleModel } from "./OracleModelPicker";
+import { OracleEmptyState } from "./OracleEmptyState";
+import { OracleSphere } from "./OracleSphere";
+import { BottoneMicrofono } from "../voce/BottoneMicrofono";
+import { useDettatura } from "../voce/useDettatura";
 
 /** Un turno in pagina. `streaming` è vero solo sull'ultimo, mentre arriva. */
 interface Turno {
@@ -30,13 +34,6 @@ interface Props {
   domandaIniziale?: string;
 }
 
-const SUGGERIMENTI = [
-  "Cosa ho in programma questa settimana?",
-  "Quali task sono in ritardo?",
-  "Chi è più carico in questo momento?",
-  "Come sta andando il PED di questo mese?",
-];
-
 export function OracleChat({
   conversationId,
   onConversationId,
@@ -51,6 +48,19 @@ export function OracleChat({
   const [errore, setErrore] = useState<string | null>(null);
   const [convId, setConvId] = useState<number | null>(conversationId);
   const { modelli, scelto, cambia } = useOracleModel();
+
+  // Il parziale si vede mentre si parla e viene sostituito dal definitivo; quello
+  // definitivo si accoda a ciò che c'è già, così si può dettare in più riprese.
+  const scrittoPrima = useRef("");
+  const dettatura = useDettatura((testo, definitivo) => {
+    if (definitivo) {
+      const unito = [scrittoPrima.current, testo].filter(Boolean).join(" ");
+      scrittoPrima.current = unito;
+      setDomanda(unito);
+    } else {
+      setDomanda([scrittoPrima.current, testo].filter(Boolean).join(" "));
+    }
+  });
 
   const fondo = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
@@ -105,6 +115,8 @@ export function OracleChat({
 
       setErrore(null);
       setDomanda("");
+      scrittoPrima.current = "";
+      dettatura.ferma();
       setInCorso(true);
       setAttivita("sto pensando…");
       setTurni((t) => [
@@ -164,7 +176,7 @@ export function OracleChat({
         setAttivita(null);
       }
     },
-    [convId, inCorso, onConversationId, scelto]
+    [convId, inCorso, onConversationId, scelto, dettatura]
   );
 
   // Parte da sola una volta sola: il ref evita che un ri-render la rimandi.
@@ -188,26 +200,7 @@ export function OracleChat({
             anche quando la pagina attorno è larga. */}
         <div className={compact ? "" : "mx-auto w-full max-w-3xl"}>
         {vuoto ? (
-          <div className={`${compact ? "py-6" : "py-12"} text-center`}>
-            <Icon name="robot" className="w-8 h-8 mx-auto text-muted dark:text-[#9999a0]" />
-            <p className="mt-3 text-[13px] text-muted dark:text-[#9999a0]">
-              Chiedi qualcosa sul lavoro dell'azienda.
-            </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-              {SUGGERIMENTI.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => void invia(s)}
-                  className="rounded-full border border-line dark:border-[#2a2a2e] px-3 py-1.5 text-[11px]
-                             text-muted dark:text-[#9999a0] hover:border-brand-magenta hover:text-ink
-                             dark:hover:text-[#f4f4f7] transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
+          <OracleEmptyState compact={compact} onSceglie={(s) => void invia(s)} />
         ) : null}
 
         {turni.map((turno, i) =>
@@ -257,8 +250,16 @@ export function OracleChat({
 
         {attivita ? (
           <div className="flex items-center gap-2 text-[12px] text-muted dark:text-[#9999a0] mb-3">
-            <Spinner size="sm" />
+            {/* La stessa sfera della schermata vuota, piccola e col battito accelerato:
+                dice "sto elaborando" senza aggiungere un secondo linguaggio visivo. */}
+            <OracleSphere dimensione={26} attiva />
             {attivita}
+          </div>
+        ) : null}
+
+        {dettatura.errore ? (
+          <div className="mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+            {dettatura.errore}
           </div>
         ) : null}
 
@@ -289,7 +290,10 @@ export function OracleChat({
             ref={campo}
             rows={1}
             value={domanda}
-            onChange={(e) => setDomanda(e.target.value)}
+            onChange={(e) => {
+              setDomanda(e.target.value);
+              scrittoPrima.current = e.target.value;
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -302,6 +306,13 @@ export function OracleChat({
                        bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-[13px] text-ink dark:text-[#f4f4f7]
                        placeholder:text-muted focus:outline-none focus:border-brand-magenta
                        disabled:opacity-60 max-h-32"
+          />
+          <BottoneMicrofono
+            supportata={dettatura.supportata}
+            inAscolto={dettatura.inAscolto}
+            onAvvia={dettatura.avvia}
+            onFerma={dettatura.ferma}
+            disabilitato={inCorso}
           />
           <Button
             variant="primary"
