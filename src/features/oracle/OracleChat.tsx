@@ -9,6 +9,7 @@ import {
   type OraclePayload,
 } from "../../api/oracle";
 import { OracleRecords } from "./OracleRecords";
+import { OracleModelPicker, useOracleModel } from "./OracleModelPicker";
 
 /** Un turno in pagina. `streaming` è vero solo sull'ultimo, mentre arriva. */
 interface Turno {
@@ -49,6 +50,7 @@ export function OracleChat({
   const [attivita, setAttivita] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const [convId, setConvId] = useState<number | null>(conversationId);
+  const { modelli, scelto, cambia } = useOracleModel();
 
   const fondo = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
@@ -141,7 +143,8 @@ export function OracleChat({
               aggiornaUltimo((t) => ({ ...t, streaming: false }));
             },
           },
-          controller.signal
+          controller.signal,
+          scelto
         );
       } catch (e) {
         if ((e as Error)?.name !== "AbortError") {
@@ -154,7 +157,7 @@ export function OracleChat({
         setAttivita(null);
       }
     },
-    [convId, inCorso, onConversationId]
+    [convId, inCorso, onConversationId, scelto]
   );
 
   // Parte da sola una volta sola: il ref evita che un ri-render la rimandi.
@@ -226,6 +229,7 @@ export function OracleChat({
 
               {turno.done && !compact ? (
                 <div className="mt-1.5 text-[10px] text-muted dark:text-[#9999a0] opacity-70">
+                  {turno.done.modello ? `${turno.done.modello} · ` : ""}
                   {turno.done.token.input + turno.done.token.output} token
                   {turno.done.token.cache ? ` · ${turno.done.token.cache} da cache` : ""}
                   {turno.done.interrotto_da !== "end_turn"
@@ -254,6 +258,16 @@ export function OracleChat({
       </div>
 
       <div className="shrink-0 pt-2 border-t border-line dark:border-[#2a2a2e]">
+        {modelli.length > 1 ? (
+          <div className="flex justify-end pb-1.5">
+            <OracleModelPicker
+              modelli={modelli}
+              scelto={scelto}
+              onCambia={cambia}
+              disabilitato={inCorso}
+            />
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <textarea
             ref={campo}

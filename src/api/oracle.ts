@@ -28,6 +28,19 @@ export interface OracleConversationDetail extends OracleConversation {
 }
 
 /** Riepilogo di fine risposta: serve alla barra di stato sotto il messaggio. */
+export interface OracleModel {
+  slug: string;
+  provider: string;
+  model_name: string;
+  predefinito: boolean;
+}
+
+export async function listOracleModelsApi(): Promise<OracleModel[]> {
+  const res = await authFetch(`${API_BASE}/api/v1/oracle/models`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export interface OracleDone {
   testo: string;
   iterazioni: number;
@@ -35,6 +48,8 @@ export interface OracleDone {
   /** Id citati dal modello che nessuno strumento ha restituito: vanno mostrati, non nascosti. */
   citazioni_sospette: string[];
   interrotto_da: string;
+  /** Provider e modello che hanno risposto: con più modelli collegati, serve saperlo dopo. */
+  modello: string;
 }
 
 export interface OracleHandlers {
@@ -58,11 +73,16 @@ export async function askOracleApi(
   domanda: string,
   conversationId: number | null,
   handlers: OracleHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  profileSlug?: string | null
 ): Promise<void> {
   const res = await authFetch(`${API_BASE}/api/v1/oracle/ask`, {
     method: "POST",
-    body: JSON.stringify({ domanda, conversation_id: conversationId }),
+    body: JSON.stringify({
+      domanda,
+      conversation_id: conversationId,
+      profile_slug: profileSlug || null,
+    }),
     signal,
   });
 
