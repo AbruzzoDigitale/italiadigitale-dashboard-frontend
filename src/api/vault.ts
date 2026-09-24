@@ -158,6 +158,8 @@ export interface VaultStatus {
   kinds: VaultKind[];
   target_types: VaultTargetType[];
   kms_enabled: boolean;
+  /** Ha almeno una passkey: si può offrire lo sblocco con impronta o volto. */
+  has_passkey: boolean;
 }
 
 /** Allineato a VAULT_ACTIONS in app/models/vault.py: quella è la fonte unica. */
@@ -248,6 +250,39 @@ export async function unlockVaultApi(password: string): Promise<number> {
   const res = await authFetch(`${BASE}/unlock`, {
     method: "POST",
     body: JSON.stringify({ password }),
+  });
+  const data = await jsonOrThrow<{
+    token: string;
+    expires_at: string;
+    valid_minutes: number;
+  }>(res);
+  vaultToken = data.token;
+  vaultExpiresAt = new Date(data.expires_at).getTime();
+  return data.valid_minutes;
+}
+
+/**
+ * Sblocco con passkey: stessa serratura, chiave diversa.
+ *
+ * Due passaggi come per l'accesso — il server dà la challenge, il browser fa
+ * comparire impronta o volto, il server verifica la firma. Il token che ne esce
+ * è identico a quello dello sblocco con password, e vive solo in memoria.
+ */
+export async function vaultUnlockOptionsApi(): Promise<{
+  options: unknown;
+  challenge_token: string;
+}> {
+  const res = await authFetch(`${BASE}/unlock-options`, { method: "POST" });
+  return jsonOrThrow(res);
+}
+
+export async function unlockVaultWithPasskeyApi(
+  challengeToken: string,
+  credential: Record<string, unknown>
+): Promise<number> {
+  const res = await authFetch(`${BASE}/unlock-passkey`, {
+    method: "POST",
+    body: JSON.stringify({ challenge_token: challengeToken, credential }),
   });
   const data = await jsonOrThrow<{
     token: string;
