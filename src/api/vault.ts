@@ -570,6 +570,8 @@ export interface VaultShareInput {
   /** La password del link non viaggia MAI nell'email: si detta a parte. */
   send_email?: boolean;
   recipient_email?: string | null;
+  /** Sconsigliato: link e password nello stesso messaggio si annullano a vicenda. */
+  include_password?: boolean;
 }
 
 /** Richiede la cassaforte sbloccata: stanno uscendo dei segreti, come una rivelazione. */

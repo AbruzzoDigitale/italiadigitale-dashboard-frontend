@@ -50,6 +50,7 @@ export function VaultShareModal({ open, onClose, items }: Props) {
   const [destinatario, setDestinatario] = useState("");
   const [inviaMail, setInviaMail] = useState(false);
   const [email, setEmail] = useState("");
+  const [mailConPassword, setMailConPassword] = useState(false);
   const [inCorso, setInCorso] = useState(false);
   const [creato, setCreato] = useState<VaultShare | null>(null);
   const [esistenti, setEsistenti] = useState<VaultShare[] | null>(null);
@@ -77,6 +78,7 @@ export function VaultShareModal({ open, onClose, items }: Props) {
     setDestinatario("");
     setInviaMail(false);
     setEmail("");
+    setMailConPassword(false);
     setCreato(null);
     setEsistenti(null);
     void caricaEsistenti();
@@ -97,6 +99,7 @@ export function VaultShareModal({ open, onClose, items }: Props) {
         recipient_note: destinatario || email || null,
         send_email: inviaMail,
         recipient_email: inviaMail ? email.trim() : null,
+        include_password: inviaMail && mailConPassword,
       });
       setCreato(s);
       void caricaEsistenti();
@@ -280,10 +283,36 @@ export function VaultShareModal({ open, onClose, items }: Props) {
                 />
                 <p className="text-xs text-muted dark:text-muted-dark">
                   Parte dal modello aziendale «Cassaforte — consegna credenziali»,
-                  modificabile nelle impostazioni dell'azienda. L'email contiene
-                  <strong> solo il link</strong>: la password resta a te da comunicare
-                  altrove, ed è il motivo per cui protegge qualcosa.
+                  modificabile nelle impostazioni dell'azienda.
                 </p>
+
+                <button
+                  type="button"
+                  onClick={() => setMailConPassword((v) => !v)}
+                  className="inline-flex items-start gap-2 text-left text-[13px] text-ink dark:text-[#f4f4f7]"
+                >
+                  <span className="mt-0.5">
+                    <Checkbox checked={mailConPassword} onChange={setMailConPassword} />
+                  </span>
+                  Includi anche la password nell'email
+                </button>
+
+                {mailConPassword ? (
+                  <div className="flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs">
+                    <Icon name="alert-triangle" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <p>
+                      Con link e password nello stesso messaggio, la password non
+                      protegge più niente: chi legge l'email ha già entrambi. Ha senso
+                      solo se ti fidi della casella del destinatario più che del canale
+                      con cui gli parleresti. L'email lo avvisa di cancellarla.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted dark:text-muted-dark">
+                    L'email contiene <strong>solo il link</strong>: la password resta a
+                    te da comunicare altrove, ed è il motivo per cui protegge qualcosa.
+                  </p>
+                )}
               </div>
             )}
           </div>
