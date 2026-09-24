@@ -3,6 +3,11 @@ import { Icon } from "../../components/ui/Icon";
 import type { OraclePayload } from "../../api/oracle";
 import { OracleActionCard } from "./OracleActionCard";
 import { OracleChart } from "./OracleChart";
+import { AccLaneTaskCard } from "../../components/workload/AccLaneTaskCard";
+import { taskStatusBadges } from "../../utils/taskStatus";
+// Le classi `wl-acc-task*` vivono qui: senza il foglio la scheda perde lo stile,
+// e l'Oracolo non è una pagina del workload, quindi non lo importa già.
+import "../../pages/workload-page.css";
 
 /**
  * I record restituiti dagli strumenti, disegnati come card.
@@ -16,15 +21,6 @@ import { OracleChart } from "./OracleChart";
 const CARD =
   "rounded-lg border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20] " +
   "px-3 py-2.5 text-[12px]";
-
-const STATO_COLORE: Record<string, string> = {
-  completed: "text-emerald-600 dark:text-emerald-400",
-  in_progress: "text-blue-600 dark:text-blue-400",
-  review: "text-amber-600 dark:text-amber-400",
-  planned: "text-muted dark:text-[#9999a0]",
-  blocked: "text-danger",
-  cancelled: "text-muted line-through",
-};
 
 function Riga({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   return (
@@ -59,23 +55,33 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
 
         if (payload.tipo === "task") {
           const taskId = r.task_id as number;
+          const assegnatari = Array.isArray(r.assegnatari) ? (r.assegnatari as string[]) : [];
+          // La scheda è quella del gestionale, non una sua imitazione: stessi colori,
+          // stesse etichette in italiano, stessi casi speciali della revisione. Qui
+          // si leggeva `review` e `#task-471`, che sono nomi interni — e l'Oracolo
+          // era l'unico posto in tutto il prodotto a mostrarli.
           return (
-            <Riga key={key} onClick={() => navigate(`/work-items?task=${taskId}`)}>
-              <div className="flex items-start justify-between gap-2">
-                <span className="font-semibold text-ink dark:text-[#f4f4f7]">{String(r.titolo)}</span>
-                <span className={`shrink-0 text-[11px] ${STATO_COLORE[String(r.stato)] ?? ""}`}>
-                  {String(r.stato)}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted dark:text-[#9999a0]">
-                {r.cliente ? <span>{String(r.cliente)}</span> : null}
-                {r.data ? <span>{String(r.data)}</span> : null}
-                {Array.isArray(r.assegnatari) && r.assegnatari.length ? (
-                  <span>{(r.assegnatari as string[]).join(", ")}</span>
-                ) : null}
-                <span className="opacity-60">#{String(r.id)}</span>
-              </div>
-            </Riga>
+            <div key={key} className="mb-1.5">
+              <AccLaneTaskCard
+                title={String(r.titolo)}
+                clientName={r.cliente ? String(r.cliente) : null}
+                statusBadges={taskStatusBadges({
+                  status: String(r.stato),
+                  delivered_to_client_at: (r.consegnata_il as string) ?? null,
+                  client_approved_at: (r.approvata_il as string) ?? null,
+                })}
+                hoursLabel={r.ore_stimate ? `${r.ore_stimate}h` : null}
+                isPed={Boolean(r.ped)}
+                priority={Boolean(r.prioritaria)}
+                completed={Boolean(r.completata)}
+                leftBehind={Boolean(r.rimandata)}
+                overdue={Boolean(r.in_ritardo)}
+                overdueDays={typeof r.giorni_ritardo === "number" ? r.giorni_ritardo : undefined}
+                assignees={assegnatari.map((name) => ({ name }))}
+                unassigned={assegnatari.length === 0}
+                onClick={() => navigate(`/work-items?task=${taskId}`)}
+              />
+            </div>
           );
         }
 
