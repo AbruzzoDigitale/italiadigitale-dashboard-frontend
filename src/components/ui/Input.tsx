@@ -2,6 +2,7 @@ import React, { forwardRef, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { FieldHelpPopover, type FieldHelpPopoverProps } from "./FieldHelpPopover";
+import { generaPassword } from "../../utils/generaPassword";
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -16,6 +17,17 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
    * se il campo è vuoto).
    */
   onPostpone?: (nextIsoDate: string) => void;
+  /**
+   * Su `type="password"` i due bottoni interni sono attivi da soli, così non
+   * vanno ricordati campo per campo:
+   *   - **occhio**: sempre, perché una password digitata alla cieca si sbaglia;
+   *   - **genera**: solo con `autoComplete="new-password"`, cioè dove una
+   *     password si sta *creando*. Su un campo di accesso un generatore non ha
+   *     senso e sarebbe un bottone per cancellarsi la password per sbaglio.
+   * Questi due servono a spegnerli nei casi rari in cui danno fastidio.
+   */
+  noReveal?: boolean;
+  noGenerator?: boolean;
 }
 
 const POSTPONE_OPTIONS: { label: string; days?: number; months?: number }[] = [
@@ -57,13 +69,61 @@ function postponeIso(value: unknown, option: { days?: number; months?: number })
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, labelIcon, error, hint, help, id, className = "", onPostpone, ...rest }, ref) => {
+  (
+    {
+      label,
+      labelIcon,
+      error,
+      hint,
+      help,
+      id,
+      className = "",
+      onPostpone,
+      noReveal,
+      noGenerator,
+      ...rest
+    },
+    ref
+  ) => {
     const internalRef = useRef<HTMLInputElement | null>(null);
     const [postponeOpen, setPostponeOpen] = useState(false);
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, "-");
     const inputType = rest.type ?? "text";
     const isDateLike = inputType === "date" || inputType === "time" || inputType === "datetime-local" || inputType === "month";
     const isNumber = inputType === "number";
+
+    // ── Campi password ───────────────────────────────────────────────────────
+    const [mostraPassword, setMostraPassword] = useState(false);
+    const isPassword = inputType === "password";
+    const showReveal = isPassword && !noReveal && !rest.readOnly;
+    // `new-password` è il segnale che una password si sta creando: è lo stesso
+    // che usa il gestore del browser per decidere di proporne una.
+    const showGenerator =
+      isPassword && !noGenerator && !rest.readOnly && !rest.disabled &&
+      rest.autoComplete === "new-password";
+
+    /**
+     * Scrive nel campo passando dal setter nativo e sparando un evento `input`.
+     * Assegnare `element.value` e basta non farebbe scattare l'`onChange` di
+     * React, e il valore resterebbe a schermo senza mai arrivare allo stato.
+     */
+    const scriviValore = (valore: string) => {
+      const element = resolveInput();
+      if (!element) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      setter?.call(element, valore);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    const generaEScrivi = () => {
+      scriviValore(generaPassword());
+      // Mostrata subito: una password generata che non si vede è una password
+      // che nessuno si fida di salvare.
+      setMostraPassword(true);
+    };
     const showPostpone = inputType === "date" && typeof onPostpone === "function";
     // Il menu "Posticipa" è renderizzato in un portal a posizione fissa (ancorato al
     // bottone): così non entra nel flusso del contenitore e NON provoca overflow/scroll
@@ -195,10 +255,38 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               dark:bg-ink-soft dark:text-paper dark:border-line-dark dark:placeholder:text-muted-dark dark:focus:border-paper
               ${isNumber ? "pr-20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" : ""}
               ${isDateLike ? `${showPostpone ? "pr-16" : "pr-10"} [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer` : ""}
+              ${showGenerator ? "pr-16" : showReveal ? "pr-10" : ""}
               ${error ? "border-danger focus:border-danger" : ""}
               ${className}`}
             {...rest}
+            type={isPassword && mostraPassword ? "text" : rest.type}
           />
+          {showReveal && (
+            <button
+              type="button"
+              onClick={() => setMostraPassword((v) => !v)}
+              // Fuori dall'ordine di tabulazione: fra il campo e il bottone di
+              // invio non deve intrufolarsi un interruttore grafico.
+              tabIndex={-1}
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-line/80 bg-cream text-muted transition-colors hover:text-ink hover:border-ink/40 dark:border-line-dark/80 dark:bg-[#222228] dark:text-muted-dark dark:hover:text-paper dark:hover:border-paper/40"
+              aria-label={mostraPassword ? "Nascondi la password" : "Mostra la password"}
+              title={mostraPassword ? "Nascondi" : "Mostra"}
+            >
+              <Icon name={mostraPassword ? "eye-off" : "eye"} className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {showGenerator && (
+            <button
+              type="button"
+              onClick={generaEScrivi}
+              tabIndex={-1}
+              className="absolute right-9 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-line/80 bg-cream text-muted transition-colors hover:text-ink hover:border-ink/40 dark:border-line-dark/80 dark:bg-[#222228] dark:text-muted-dark dark:hover:text-paper dark:hover:border-paper/40"
+              aria-label="Genera una password sicura"
+              title="Genera una password sicura"
+            >
+              <Icon name="refresh-cw" className="h-3.5 w-3.5" />
+            </button>
+          )}
           {isDateLike && (
             <button
               type="button"
