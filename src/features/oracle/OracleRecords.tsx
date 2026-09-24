@@ -195,6 +195,10 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
               azioneId={Number(r.azione_id)}
               riepilogo={String(r.riepilogo)}
               dettagli={(r.dettagli ?? {}) as Record<string, string>}
+              // Riaprendo una conversazione questo è lo stato VERO, riletto dal
+              // server; durante lo streaming è "pending", che è anche la verità.
+              statoIniziale={(r.stato as "pending" | "confirmed" | "cancelled" | "failed" | "expired") ?? "pending"}
+              decisaIl={(r.decisa_il as string) ?? null}
             />
           );
         }

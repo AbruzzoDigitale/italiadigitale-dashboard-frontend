@@ -191,12 +191,15 @@ export interface OracleAction {
  * Si manda solo l'id: i parametri stanno sul server, congelati al momento della
  * proposta. Da qui non si può cambiare cosa verrà fatto — è il punto del meccanismo.
  */
-async function decideOracleAction(id: number, scelta: "confirm" | "cancel"): Promise<OracleAction> {
+async function decideOracleAction(id: number, scelta: "confirm" | "cancel" | "repeat"): Promise<OracleAction> {
   const res = await authFetch(`${API_BASE}/api/v1/oracle/actions/${id}/${scelta}`, {
     method: "POST",
   });
   if (!res.ok) {
-    let detail = scelta === "confirm" ? "Non è stato possibile eseguire l'azione" : "Non è stato possibile annullare";
+    let detail =
+      scelta === "cancel"
+        ? "Non è stato possibile annullare"
+        : "Non è stato possibile eseguire l'azione";
     try {
       detail = (await res.json())?.detail ?? detail;
     } catch {
@@ -209,3 +212,5 @@ async function decideOracleAction(id: number, scelta: "confirm" | "cancel"): Pro
 
 export const confirmOracleActionApi = (id: number) => decideOracleAction(id, "confirm");
 export const cancelOracleActionApi = (id: number) => decideOracleAction(id, "cancel");
+/** Rifà un'azione già eseguita: nasce una proposta nuova, eseguita subito. */
+export const repeatOracleActionApi = (id: number) => decideOracleAction(id, "repeat");

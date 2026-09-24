@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Spinner } from "../../components/ui/Spinner";
-import { cancelOracleActionApi, confirmOracleActionApi } from "../../api/oracle";
+import {
+  cancelOracleActionApi,
+  confirmOracleActionApi,
+  repeatOracleActionApi,
+} from "../../api/oracle";
 
 /**
  * La scheda di conferma: l'unico punto in cui l'Oracolo può cambiare qualcosa.
@@ -11,32 +15,63 @@ import { cancelOracleActionApi, confirmOracleActionApi } from "../../api/oracle"
  * server: da qui non si può modificare, solo accettare o rifiutare esattamente ciò
  * che è scritto sopra. Per questo il riepilogo e i dettagli stanno in primo piano e
  * i pulsanti sotto — si legge, poi si decide.
+ *
+ * Lo stato iniziale arriva da fuori e non è `pending` per definizione: riaprendo una
+ * conversazione la scheda ripartiva da capo, e una comunicazione già mandata si
+ * ripresentava col pulsante Conferma, senza dire che era partita. Chi rifà quel clic
+ * la manda due volte credendo di mandarla la prima.
+ *
+ * Rifarlo apposta invece si può, ed è un pulsante diverso con scritto cosa fa.
  */
 
-type Stato = "pending" | "confirmed" | "cancelled" | "failed";
+type Stato = "pending" | "confirmed" | "cancelled" | "failed" | "expired";
+
+/** Quando è stata decisa, detto come lo direbbe una persona. */
+function quando(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const oggi = new Date();
+  const stessoGiorno = d.toDateString() === oggi.toDateString();
+  const ora = d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  if (stessoGiorno) return ` oggi alle ${ora}`;
+  return ` il ${d.toLocaleDateString("it-IT", { day: "numeric", month: "long" })} alle ${ora}`;
+}
 
 export function OracleActionCard({
   azioneId,
   riepilogo,
   dettagli,
+  statoIniziale = "pending",
+  decisaIl,
 }: {
   azioneId: number;
   riepilogo: string;
   dettagli: Record<string, string>;
+  statoIniziale?: Stato;
+  decisaIl?: string | null;
 }) {
-  const [stato, setStato] = useState<Stato>("pending");
+  const [id, setId] = useState(azioneId);
+  const [stato, setStato] = useState<Stato>(statoIniziale);
+  const [decisa, setDecisa] = useState<string | null>(decisaIl ?? null);
   const [inCorso, setInCorso] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
 
-  const decidi = async (scelta: "confirm" | "cancel") => {
+  const decidi = async (scelta: "confirm" | "cancel" | "repeat") => {
     setInCorso(true);
     setErrore(null);
     try {
       const esito =
         scelta === "confirm"
-          ? await confirmOracleActionApi(azioneId)
-          : await cancelOracleActionApi(azioneId);
+          ? await confirmOracleActionApi(id)
+          : scelta === "cancel"
+            ? await cancelOracleActionApi(id)
+            : await repeatOracleActionApi(id);
+      // Un reinvio crea una riga nuova: da qui in avanti la scheda segue quella,
+      // altrimenti un secondo «invia di nuovo» ripartirebbe dalla prima.
+      setId(esito.id);
       setStato(esito.state as Stato);
+      setDecisa(esito.decided_at ?? null);
     } catch (e) {
       setErrore((e as Error).message);
     } finally {
@@ -80,13 +115,28 @@ export function OracleActionCard({
           {errore ? <p className="mt-1.5 text-[11px] text-danger">{errore}</p> : null}
 
           {chiusa ? (
-            <p className="mt-1.5 text-[11px] text-muted dark:text-[#9999a0]">
-              {stato === "confirmed"
-                ? "Fatto."
-                : stato === "cancelled"
-                  ? "Annullata: non è stato modificato nulla."
-                  : "Non eseguita."}
-            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className="text-[11px] text-muted dark:text-[#9999a0]">
+                {stato === "confirmed"
+                  ? `Già inviata${quando(decisa)}.`
+                  : stato === "cancelled"
+                    ? "Annullata: non è stato modificato nulla."
+                    : stato === "expired"
+                      ? "Scaduta: i dati potrebbero essere cambiati, richiedila all'Oracolo."
+                      : "Non eseguita."}
+              </p>
+              {stato === "confirmed" ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={inCorso}
+                  onClick={() => void decidi("repeat")}
+                  className="!px-1.5 !text-[11px]"
+                >
+                  {inCorso ? <Spinner size="sm" /> : "Invia di nuovo"}
+                </Button>
+              ) : null}
+            </div>
           ) : (
             <div className="mt-2 flex items-center gap-2">
               <Button
