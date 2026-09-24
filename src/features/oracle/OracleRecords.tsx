@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/ui/Icon";
 import type { OraclePayload } from "../../api/oracle";
+import { OracleActionCard } from "./OracleActionCard";
 
 /**
  * I record restituiti dagli strumenti, disegnati come card.
@@ -144,6 +145,17 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
                 </span>
               </div>
             </Riga>
+          );
+        }
+
+        if (payload.tipo === "azione") {
+          return (
+            <OracleActionCard
+              key={key}
+              azioneId={Number(r.azione_id)}
+              riepilogo={String(r.riepilogo)}
+              dettagli={(r.dettagli ?? {}) as Record<string, string>}
+            />
           );
         }
 
