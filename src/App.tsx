@@ -38,6 +38,7 @@ import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
 import { VaultPage } from "./pages/VaultPage";
 import { PublicCredentialPage } from "./pages/PublicCredentialPage";
+import { PublicSharePage } from "./pages/PublicSharePage";
 import { EmailHistoryPage } from "./pages/EmailHistoryPage";
 import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
 import RimborsiPage from "./pages/RimborsiPage";
@@ -102,6 +103,8 @@ function AppRoutes() {
       <Route path="/firma/:token" element={<ClientSignPage />} />
       {/* Pagina con cui un esterno ci consegna una credenziale: nessun account. */}
       <Route path="/credenziale/:token" element={<PublicCredentialPage />} />
+      {/* Il verso opposto: qui una credenziale ci esce, protetta da password. */}
+      <Route path="/credenziale-condivisa/:token" element={<PublicSharePage />} />
       {/* Rendicontazione trasferte per il commercialista: sola lettura, senza
           account. Il token è la credenziale e si revoca dalle impostazioni. */}
       <Route path="/rimborsi/condiviso/:token" element={<SharedExpensesPage />} />

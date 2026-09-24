@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../hooks/useAuth";
 
 /**
  * Sblocco della cassaforte.
@@ -24,6 +25,7 @@ export function VaultUnlockModal({ open, onClose, onUnlocked }: Props) {
   const [password, setPassword] = useState("");
   const [inCorso, setInCorso] = useState(false);
   const toast = useToast();
+  const { user } = useAuth();
 
   // Password mai lasciata in stato fra un'apertura e l'altra.
   useEffect(() => {
@@ -64,17 +66,40 @@ export function VaultUnlockModal({ open, onClose, onUnlocked }: Props) {
         </div>
       }
     >
-      <Input
-        type="password"
-        label="La tua password"
-        autoFocus
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void sblocca();
+      {/*
+        Il <form> non è decorativo. Senza, il campo password finisce nel "form
+        implicito" che il browser costruisce con tutti i campi sciolti della
+        pagina — e siccome il modale vive in un portal, lì dentro ci sta anche
+        la ricerca della cassaforte: il gestore password ci scriveva la mail
+        dell'account, la lista si filtrava su quella e restava vuota.
+        Con un form vero l'autofill resta confinato qui, e il campo "Account"
+        gli dà l'aggancio giusto.
+      */}
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void sblocca();
         }}
-      />
+      >
+        <Input
+          label="Account"
+          value={user?.email ?? user?.username ?? ""}
+          readOnly
+          tabIndex={-1}
+          autoComplete="username"
+        />
+        <Input
+          type="password"
+          label="La tua password"
+          autoFocus
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        {/* Serve perché l'Invio faccia il submit: il bottone vero è nel footer. */}
+        <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+      </form>
     </Modal>
   );
 }

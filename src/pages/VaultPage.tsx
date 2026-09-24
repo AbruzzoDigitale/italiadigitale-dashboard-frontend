@@ -70,6 +70,10 @@ export function VaultPage() {
           <div className="mt-4 flex flex-none flex-wrap items-center gap-3">
             <Input
               placeholder="Cerca etichetta, utente, URL…"
+              // Senza nome e con l'autofill attivo il browser ci infilava la mail
+              // dell'account appena apriva un campo password altrove nella pagina.
+              name="cerca-cassaforte"
+              autoComplete="off"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="w-64"

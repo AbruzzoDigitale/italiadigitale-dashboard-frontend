@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
+import { VaultShareModal } from "./VaultShareModal";
 import { VaultUnlockModal } from "./VaultUnlockModal";
 import { contaGruppo, groupItems, type VaultGroup, type VaultView } from "./grouping";
 
@@ -43,6 +44,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   // Azione da riprovare dopo lo sblocco: evita di far ricliccare l'utente.
   const [inSospeso, setInSospeso] = useState<(() => void) | null>(null);
   const [rivelati, setRivelati] = useState<Record<number, string>>({});
+  const [daCondividere, setDaCondividere] = useState<VaultItem | null>(null);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -89,6 +91,14 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
       setRivelati((r) => ({ ...r, [item.id]: dati.secret ?? "" }));
     });
 
+  // Si passa da conSblocco prima ancora di aprire il modale: creare un link
+  // richiede la cassaforte sbloccata, e scoprirlo dopo aver compilato il form
+  // sarebbe una pessima sorpresa.
+  const condividi = (item: VaultItem) =>
+    conSblocco(async () => {
+      setDaCondividere(item);
+    });
+
   const copia = (item: VaultItem) =>
     conSblocco(async () => {
       const dati = await revealVaultItemApi(item.id);
@@ -111,40 +121,53 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     }
   }
 
+  // Niente `return` anticipati qui: il modale di sblocco deve restare montato
+  // anche mentre la lista ricarica o è vuota. Altrimenti basta che cambi un
+  // filtro durante lo sblocco e il modale sparisce, portandosi via l'azione in
+  // sospeso — e su una cassaforte ancora vuota non si riuscirebbe mai ad aprirla.
+  let contenuto;
   if (caricamento) {
-    return (
+    contenuto = (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-2/3" />
       </div>
     );
-  }
-  if (items.length === 0) {
-    return (
+  } else if (items.length === 0) {
+    contenuto = (
       <p className="p-4 text-sm text-muted dark:text-muted-dark">
         {emptyHint ?? "Nessuna credenziale in cassaforte."}
       </p>
     );
-  }
-
-  const gruppi = groupItems(items, view);
-
-  return (
-    <>
+  } else {
+    contenuto = (
       <div className="flex flex-col gap-3">
-        {gruppi.map((g) => (
+        {groupItems(items, view).map((g) => (
           <Gruppo
             key={g.key}
             gruppo={g}
             rivelati={rivelati}
             onMostra={mostra}
             onCopia={copia}
+            onCondividi={condividi}
             onEdit={onEdit}
             onElimina={elimina}
           />
         ))}
       </div>
+    );
+  }
+
+  return (
+    <>
+      {contenuto}
+
+      <VaultShareModal
+        open={daCondividere !== null}
+        onClose={() => setDaCondividere(null)}
+        item={daCondividere}
+      />
 
       <VaultUnlockModal
         open={sbloccoAperto}
@@ -167,6 +190,7 @@ interface GruppoProps {
   rivelati: Record<number, string>;
   onMostra: (i: VaultItem) => void;
   onCopia: (i: VaultItem) => void;
+  onCondividi: (i: VaultItem) => void;
   onEdit?: (i: VaultItem) => void;
   onElimina: (i: VaultItem) => void;
 }
@@ -221,6 +245,7 @@ function Riga({
   rivelati,
   onMostra,
   onCopia,
+  onCondividi,
   onEdit,
   onElimina,
 }: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello">) {
@@ -267,6 +292,17 @@ function Riga({
             >
               <Icon name="eye" className="h-4 w-4" />
             </Button>
+            {item.can_manage && (
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Condividi con un link protetto"
+                aria-label="Condividi la credenziale"
+                onClick={() => onCondividi(item)}
+              >
+                <Icon name="link" className="h-4 w-4" />
+              </Button>
+            )}
           </>
         )}
         {item.can_manage && onEdit && (

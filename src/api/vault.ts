@@ -491,3 +491,93 @@ export async function submitPublicRequestApi(
     })
   );
 }
+
+// ── Condivisione in uscita ──────────────────────────────────────────────────
+//
+// Il verso opposto della richiesta: qui un segreto esce. Per questo la password
+// del link non è opzionale e non la scegliamo noi — la genera il server e la
+// mostra una volta sola, alla creazione.
+
+export interface VaultShare {
+  id: number;
+  item_id: number;
+  item_label: string;
+  status: "active" | "expired" | "exhausted" | "revoked";
+  expires_at: string;
+  max_views: number | null;
+  view_count: number;
+  views_left: number | null;
+  revoked_at: string | null;
+  recipient_note: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  /** Solo alla creazione: dopo non sono più rileggibili. */
+  url_pubblico: string | null;
+  password: string | null;
+}
+
+export interface VaultShareInput {
+  expires_days?: number | null;
+  max_views?: number | null;
+  recipient_note?: string | null;
+}
+
+/** Richiede la cassaforte sbloccata: sta uscendo un segreto, come una rivelazione. */
+export async function createVaultShareApi(
+  itemId: number,
+  body: VaultShareInput
+): Promise<VaultShare> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/items/${itemId}/shares`, {
+      method: "POST",
+      headers: unlockedHeaders(),
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+export async function listVaultSharesApi(itemId: number): Promise<VaultShare[]> {
+  return jsonOrThrow(await authFetch(`${BASE}/items/${itemId}/shares`));
+}
+
+export async function revokeVaultShareApi(shareId: number): Promise<void> {
+  await jsonOrThrow<void>(await authFetch(`${BASE}/shares/${shareId}`, { method: "DELETE" }));
+}
+
+export interface VaultPublicShare {
+  label: string;
+  kind: VaultKind;
+  azienda: string | null;
+  expires_at: string;
+  views_left: number | null;
+}
+
+export interface VaultShareRevealed {
+  label: string;
+  kind: VaultKind;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  note: string | null;
+  secret: string | null;
+  totp: string | null;
+  private_key: string | null;
+  views_left: number | null;
+}
+
+export async function getPublicShareApi(token: string): Promise<VaultPublicShare> {
+  return jsonOrThrow(await fetch(`${BASE}/public/share/${encodeURIComponent(token)}`));
+}
+
+export async function revealPublicShareApi(
+  token: string,
+  password: string
+): Promise<VaultShareRevealed> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/public/share/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    })
+  );
+}
