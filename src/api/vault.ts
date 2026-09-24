@@ -202,6 +202,9 @@ export interface VaultPolicy {
   share_max_days: number;
   share_require_password: boolean;
   unlock_ttl_minutes: number;
+  /** Acceso: chi non è admin chiede, l'admin concede per un tempo. */
+  require_admin_unlock: boolean;
+  admin_unlock_minutes: number;
 }
 
 /** Sollevato quando la cassaforte è bloccata o lo sblocco è scaduto (428). */
@@ -316,12 +319,18 @@ export async function deleteVaultItemApi(id: number): Promise<void> {
 
 /** Richiede la cassaforte sbloccata. Ogni chiamata finisce nel registro accessi. */
 export async function revealVaultItemApi(id: number): Promise<VaultRevealed> {
-  return jsonOrThrow(
-    await authFetch(`${BASE}/items/${id}/reveal`, {
-      method: "POST",
-      headers: unlockedHeaders(),
-    })
-  );
+  const res = await authFetch(`${BASE}/items/${id}/reveal`, {
+    method: "POST",
+    headers: unlockedHeaders(),
+  });
+  // Qui, e solo qui, un 403 significa «serve il via libera di un admin»: in
+  // tutto il resto della cassaforte un accesso mancante risponde 404, proprio
+  // per non confermare che la credenziale esiste.
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    throw new VaultNeedsApprovalError((body as { detail?: string })?.detail);
+  }
+  return jsonOrThrow(res);
 }
 
 export async function rotateVaultItemApi(
@@ -677,6 +686,72 @@ export async function bulkVaultGrantsApi(body: {
     await authFetch(`${BASE}/items/bulk/grants`, {
       method: "POST",
       body: JSON.stringify(body),
+    })
+  );
+}
+
+
+// ── Sblocco mediato dall'admin ──────────────────────────────────────────────
+//
+// Non sostituisce i permessi: senza permesso la credenziale non si vede e non
+// c'è niente da chiedere. È un secondo cancello per chi il permesso ce l'ha,
+// e vale solo se l'azienda l'ha acceso nelle regole.
+
+export interface VaultAccessRequest {
+  id: number;
+  item_id: number;
+  item_label: string;
+  company_id: number;
+  user_id: number;
+  user_name: string | null;
+  reason: string | null;
+  status: "pending" | "granted" | "denied" | "expired";
+  decided_by_name: string | null;
+  decided_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/** Sollevato quando serve il via libera di un admin (403 sulla rivelazione). */
+export class VaultNeedsApprovalError extends Error {
+  constructor(message = "Serve l'autorizzazione di un amministratore") {
+    super(message);
+    this.name = "VaultNeedsApprovalError";
+  }
+}
+
+export async function requestVaultAccessApi(
+  itemId: number,
+  reason?: string | null
+): Promise<VaultAccessRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/items/${itemId}/access-requests`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || null }),
+    })
+  );
+}
+
+export async function listVaultAccessRequestsApi(filtri?: {
+  companyId?: number;
+  soloAttese?: boolean;
+}): Promise<VaultAccessRequest[]> {
+  const p = new URLSearchParams();
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.soloAttese === false) p.set("solo_attese", "false");
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/access-requests${qs ? `?${qs}` : ""}`));
+}
+
+export async function decideVaultAccessRequestApi(
+  id: number,
+  approved: boolean,
+  minutes?: number | null
+): Promise<VaultAccessRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/access-requests/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ approved, minutes: minutes ?? null }),
     })
   );
 }

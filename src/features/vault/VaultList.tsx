@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   VAULT_KIND_LABELS,
   VaultLockedError,
+  VaultNeedsApprovalError,
   deleteVaultItemApi,
   isVaultUnlocked,
   listVaultItemsApi,
@@ -16,6 +17,7 @@ import { Icon } from "../../components/ui/Icon";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../hooks/useAuth";
+import { VaultAccessRequestModal } from "./VaultAccessRequestModal";
 import { VaultGrantModal } from "./VaultGrantModal";
 import { VaultShareModal } from "./VaultShareModal";
 import { VaultUnlockModal } from "./VaultUnlockModal";
@@ -51,6 +53,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   const [selezionati, setSelezionati] = useState<Set<number>>(new Set());
   const [permessiAperti, setPermessiAperti] = useState(false);
   const [linkAperto, setLinkAperto] = useState(false);
+  const [daAutorizzare, setDaAutorizzare] = useState<VaultItem | null>(null);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -105,11 +108,26 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
       return n;
     });
 
+  /** Il 403 «serve un admin» non è un errore da toast: è un'azione da proporre. */
+  const conAutorizzazione = async (item: VaultItem, azione: () => Promise<void>) => {
+    try {
+      await azione();
+    } catch (e) {
+      if (e instanceof VaultNeedsApprovalError) {
+        setDaAutorizzare(item);
+        return;
+      }
+      throw e;
+    }
+  };
+
   const mostra = (item: VaultItem) =>
-    conSblocco(async () => {
-      const dati = await revealVaultItemApi(item.id);
-      setRivelati((r) => ({ ...r, [item.id]: dati.secret ?? "" }));
-    });
+    conSblocco(() =>
+      conAutorizzazione(item, async () => {
+        const dati = await revealVaultItemApi(item.id);
+        setRivelati((r) => ({ ...r, [item.id]: dati.secret ?? "" }));
+      })
+    );
 
   // Si passa da conSblocco prima ancora di aprire il modale: creare un link
   // richiede la cassaforte sbloccata, e scoprirlo dopo aver compilato il form
@@ -120,15 +138,17 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     });
 
   const copia = (item: VaultItem) =>
-    conSblocco(async () => {
-      const dati = await revealVaultItemApi(item.id);
-      if (!dati.secret) {
-        toast.error("Nessun valore da copiare");
-        return;
-      }
-      await navigator.clipboard.writeText(dati.secret);
-      toast.success("Password copiata negli appunti");
-    });
+    conSblocco(() =>
+      conAutorizzazione(item, async () => {
+        const dati = await revealVaultItemApi(item.id);
+        if (!dati.secret) {
+          toast.error("Nessun valore da copiare");
+          return;
+        }
+        await navigator.clipboard.writeText(dati.secret);
+        toast.success("Password copiata negli appunti");
+      })
+    );
 
   async function elimina(item: VaultItem) {
     if (!confirm(`Eliminare «${item.label}»? L'operazione non si annulla.`)) return;
@@ -224,6 +244,12 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
       )}
 
       {contenuto}
+
+      <VaultAccessRequestModal
+        open={daAutorizzare !== null}
+        onClose={() => setDaAutorizzare(null)}
+        item={daAutorizzare}
+      />
 
       <VaultGrantModal
         open={permessiAperti}

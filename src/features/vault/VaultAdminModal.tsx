@@ -4,6 +4,7 @@ import { Modal } from "../../components/ui/Modal";
 import { SegmentedSwitch } from "../../components/ui/SegmentedSwitch";
 import { VaultAccessLogPanel } from "./VaultAccessLogPanel";
 import { VaultPolicyPanel } from "./VaultPolicyPanel";
+import { VaultRequestsPanel } from "./VaultRequestsPanel";
 import { VaultSharesPanel } from "./VaultSharesPanel";
 
 /**
@@ -15,7 +16,7 @@ import { VaultSharesPanel } from "./VaultSharesPanel";
  * bottoni in più da ignorare.
  */
 
-type Scheda = "registro" | "link" | "regole";
+type Scheda = "registro" | "link" | "richieste" | "regole";
 
 interface Props {
   open: boolean;
@@ -59,6 +60,15 @@ export function VaultAdminModal({ open, onClose, companyId }: Props) {
                 ),
               },
               {
+                value: "richieste",
+                label: (
+                  <>
+                    <Icon name="bell" className="w-3.5 h-3.5" />
+                    Richieste
+                  </>
+                ),
+              },
+              {
                 value: "regole",
                 label: (
                   <>
@@ -74,6 +84,7 @@ export function VaultAdminModal({ open, onClose, companyId }: Props) {
     >
       {scheda === "registro" && <VaultAccessLogPanel companyId={companyId} />}
       {scheda === "link" && <VaultSharesPanel companyId={companyId} />}
+      {scheda === "richieste" && <VaultRequestsPanel companyId={companyId} />}
       {scheda === "regole" && <VaultPolicyPanel companyId={companyId} />}
     </Modal>
   );

@@ -80,6 +80,9 @@ export const NOTIF_TYPES: Record<string, NotifTypeMeta> = {
   // cassaforte: rinnovo delle credenziali
   credenziale_in_scadenza: { label: "Da rinnovare", icon: "clock", tone: "amber" },
   credenziale_scaduta: { label: "Rinnovo scaduto", icon: "alert-triangle", tone: "magenta" },
+  accesso_richiesto: { label: "Accesso richiesto", icon: "key", tone: "amber" },
+  accesso_concesso: { label: "Accesso concesso", icon: "check-circle", tone: "mint" },
+  accesso_negato: { label: "Accesso negato", icon: "x", tone: "magenta" },
   // comunicazioni
   com_operatore: { label: "Operatore", icon: "users", tone: "mint" },
   com_area: { label: "Area", icon: "grid", tone: "indigo" },
