@@ -33,16 +33,27 @@ import { contaGruppo, groupItems, type VaultGroup, type VaultView } from "./grou
  * e ogni richiesta finisce nel registro accessi lato server.
  */
 
+export type VaultLayout = "lista" | "schede";
+
 interface Props {
   filters?: VaultListFilters;
   view?: VaultView;
+  /** Come si guardano le voci: righe strette, o schede con URL e note. */
+  layout?: VaultLayout;
   /** Ricarica quando cambia: chi crea o modifica incrementa questo numero. */
   reloadKey?: number;
   onEdit?: (item: VaultItem) => void;
   emptyHint?: string;
 }
 
-export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit, emptyHint }: Props) {
+export function VaultList({
+  filters = {},
+  view = "client",
+  layout = "lista",
+  reloadKey = 0,
+  onEdit,
+  emptyHint,
+}: Props) {
   const [items, setItems] = useState<VaultItem[]>([]);
   const [caricamento, setCaricamento] = useState(true);
   const [sbloccoAperto, setSbloccoAperto] = useState(false);
@@ -187,6 +198,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
           <Gruppo
             key={g.key}
             gruppo={g}
+            layout={layout}
             rivelati={rivelati}
             onMostra={mostra}
             onCopia={copia}
@@ -289,6 +301,7 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
 interface GruppoProps {
   gruppo: VaultGroup;
   livello?: number;
+  layout: VaultLayout;
   rivelati: Record<number, string>;
   onMostra: (i: VaultItem) => void;
   onCopia: (i: VaultItem) => void;
@@ -332,9 +345,16 @@ function Gruppo({ gruppo, livello = 0, ...rest }: GruppoProps) {
 
       {aperto && (
         <div className="flex flex-col gap-1.5 px-3 pb-3">
-          {gruppo.items.map((item) => (
-            <Riga key={item.id} item={item} {...rest} />
-          ))}
+          {gruppo.items.length > 0 &&
+            (rest.layout === "schede" ? (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {gruppo.items.map((item) => (
+                  <Scheda key={item.id} item={item} {...rest} />
+                ))}
+              </div>
+            ) : (
+              gruppo.items.map((item) => <Riga key={item.id} item={item} {...rest} />)
+            ))}
           {(gruppo.children ?? []).map((c) => (
             <Gruppo key={c.key} gruppo={c} livello={livello + 1} {...rest} />
           ))}
@@ -457,4 +477,137 @@ function Riga({
       </div>
     </div>
   );
+}
+
+/**
+ * La stessa credenziale, con lo spazio per ciò che la riga non può mostrare.
+ *
+ * Indirizzo e note arrivano quasi sempre dall'import da Google, che li porta
+ * dentro e poi non si vedevano da nessuna parte: l'unico modo per leggerli era
+ * riaprire la modifica, una voce alla volta. Qui l'indirizzo è anche un link,
+ * perché nove volte su dieci la credenziale la si cerca per andarci.
+ */
+function Scheda({
+  item,
+  rivelati,
+  onMostra,
+  onCopia,
+  onCondividi,
+  onEdit,
+  onElimina,
+  selezionati,
+  onSeleziona,
+}: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello" | "layout">) {
+  const { user } = useAuth();
+  const scoperto = rivelati[item.id];
+  const condivisaDa =
+    item.owner_user_id === user?.id
+      ? null
+      : item.grants.find((g) => g.user_id === user?.id)?.granted_by_name ?? null;
+  const selezionata = selezionati.has(item.id);
+  const identita = item.username || item.email;
+
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-xl border p-3 text-sm transition ${
+        selezionata
+          ? "border-brand/40 bg-brand/5"
+          : "border-line/60 bg-surface dark:border-line-dark/60 dark:bg-surface-dark"
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <Checkbox
+          checked={selezionata}
+          onChange={() => onSeleziona(item.id)}
+          aria-label={`Seleziona ${item.label}`}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold" title={item.label}>
+            {item.label}
+          </span>
+          {identita && (
+            <span className="block truncate text-xs text-muted dark:text-muted-dark">
+              {identita}
+            </span>
+          )}
+        </span>
+        <Badge variant="info" className="shrink-0">
+          {VAULT_KIND_LABELS[item.kind] ?? item.kind}
+        </Badge>
+      </div>
+
+      {item.url && (
+        <a
+          href={/^https?:\/\//i.test(item.url) ? item.url : `https://${item.url}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-w-0 items-center gap-1.5 text-xs text-brand hover:underline"
+          title={item.url}
+        >
+          <Icon name="globe" className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{urlLeggibile(item.url)}</span>
+        </a>
+      )}
+
+      {item.note && (
+        <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs text-muted dark:text-muted-dark">
+          {item.note}
+        </p>
+      )}
+
+      {(condivisaDa || item.rotation_due) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {item.rotation_due && <Badge variant="warning">da rinnovare</Badge>}
+          {condivisaDa && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-muted dark:text-muted-dark"
+              title={`Condivisa con te da ${condivisaDa}`}
+            >
+              <Icon name="users" className="h-3 w-3" />
+              da {condivisaDa}
+            </span>
+          )}
+        </div>
+      )}
+
+      {scoperto !== undefined && (
+        <code className="truncate rounded bg-muted/10 px-2 py-1 text-xs">
+          {scoperto || "(vuoto)"}
+        </code>
+      )}
+
+      <div className="mt-auto flex items-center gap-1 border-t border-line/60 pt-2 dark:border-line-dark/60">
+        {item.has_secret && (
+          <>
+            <Button size="sm" variant="ghost" title="Copia senza mostrarla" aria-label="Copia la password" onClick={() => onCopia(item)}>
+              <Icon name="copy" className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="ghost" title="Mostra" aria-label="Mostra la password" onClick={() => onMostra(item)}>
+              <Icon name="eye" className="h-4 w-4" />
+            </Button>
+            {item.can_manage && (
+              <Button size="sm" variant="ghost" title="Condividi con un link protetto" aria-label="Condividi la credenziale" onClick={() => onCondividi(item)}>
+                <Icon name="link" className="h-4 w-4" />
+              </Button>
+            )}
+          </>
+        )}
+        {item.can_manage && onEdit && (
+          <Button size="sm" variant="ghost" title="Modifica" aria-label="Modifica" onClick={() => onEdit(item)} className="ml-auto">
+            <Icon name="pencil" className="h-4 w-4" />
+          </Button>
+        )}
+        {item.can_manage && (
+          <Button size="sm" variant="ghost" title="Elimina" aria-label="Elimina" onClick={() => void onElimina(item)}>
+            <Icon name="trash" className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Indirizzo leggibile: via lo schema e il www, che non dicono nulla. */
+function urlLeggibile(url: string): string {
+  return url.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 }

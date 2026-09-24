@@ -12,6 +12,7 @@ import { VaultItemModal } from "../features/vault/VaultItemModal";
 import { VaultRequestModal } from "../features/vault/VaultRequestModal";
 import { VaultList } from "../features/vault/VaultList";
 import { type VaultView } from "../features/vault/grouping";
+import { type VaultLayout } from "../features/vault/VaultList";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 
@@ -28,6 +29,15 @@ export function VaultPage() {
   const companyId = selectedCompanyId ?? activeCompanyId ?? user?.company_id ?? null;
 
   const [view, setView] = useState<VaultView>("client");
+  // Lista o schede: scelta che si fa una volta, quindi si ricorda. Sta nel
+  // browser e non sull'account: riguarda lo schermo che hai davanti.
+  const [layout, setLayout] = useState<VaultLayout>(() => {
+    try {
+      return localStorage.getItem("vault_layout") === "schede" ? "schede" : "lista";
+    } catch {
+      return "lista";
+    }
+  });
   const [q, setQ] = useState("");
   const [soloDaRinnovare, setSoloDaRinnovare] = useState(false);
   const [modaleAperta, setModaleAperta] = useState(false);
@@ -42,6 +52,15 @@ export function VaultPage() {
   const [richiestaAperta, setRichiestaAperta] = useState(false);
   const [registroAperto, setRegistroAperto] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  function cambiaLayout(v: VaultLayout) {
+    setLayout(v);
+    try {
+      localStorage.setItem("vault_layout", v);
+    } catch {
+      // Navigazione privata o storage pieno: la scelta vale per questa sessione.
+    }
+  }
 
   return (
     <div className="mx-auto flex h-full w-full flex-col px-6 py-8 min-h-0 animate-fadeIn">
@@ -94,6 +113,19 @@ export function VaultPage() {
               <Checkbox checked={soloDaRinnovare} onChange={setSoloDaRinnovare} />
               Solo da rinnovare
             </button>
+            <SegmentedSwitch
+              value={layout}
+              onChange={cambiaLayout}
+              ariaLabel="Come mostrare le credenziali"
+              options={[
+                { value: "lista", label: <><Icon name="list" className="w-3.5 h-3.5" />Lista</> },
+                {
+                  value: "schede",
+                  label: <><Icon name="grid" className="w-3.5 h-3.5" />Schede</>,
+                  title: "Mostra anche indirizzo e note",
+                },
+              ]}
+            />
             {user?.is_admin && (
               <Button
                 variant="secondary"
@@ -142,6 +174,7 @@ export function VaultPage() {
                 needsRotation: soloDaRinnovare || undefined,
               }}
               view={view}
+              layout={layout}
               reloadKey={reloadKey}
               onEdit={(item) => {
                 setInModifica(item);
