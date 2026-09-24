@@ -37,6 +37,7 @@ export interface WorkloadUserSummary {
   user_id: number;
   username: string;
   full_name: string | null;
+  avatar_url: string | null;
   company_id: number;
   from_date: string;
   to_date: string;
@@ -291,6 +292,8 @@ export interface ListWorkloadUsersParams {
   sort_dir?: "asc" | "desc";
   include_tasks?: boolean;
   include_task_details?: boolean;
+  /** Esclude gli utenti disattivati: utile per popolare un selettore di operatori. */
+  active_only?: boolean;
 }
 
 export interface GetWorkloadUserCalendarDayParams {
@@ -427,6 +430,7 @@ export async function listWorkloadUsersApi(
     sort_by: params.sort_by,
     sort_dir: params.sort_dir,
     include_tasks: params.include_tasks == null ? undefined : Number(params.include_tasks),
+    active_only: params.active_only == null ? undefined : Number(params.active_only),
   });
 
   const res = await authFetch(`${API_BASE}/api/v1/workload/users${qs}`);
@@ -540,11 +544,14 @@ export interface WorkloadDayRecap {
   todo: WorkloadDailyTaskDetail[];
   done: WorkloadDailyTaskDetail[];
   overdue: WorkloadDailyTaskDetail[];
+  /** In revisione: fase attiva a sé, né "di oggi" né "arretrata". */
+  in_review: WorkloadDailyTaskDetail[];
   // Conteggi
   in_progress_count: number;
   todo_count: number;
   done_count: number;
   overdue_count: number;
+  in_review_count: number;
   today_total: number;
   open_total: number;
   // Ore (effective_load_hours, ore-peso)
@@ -552,6 +559,10 @@ export interface WorkloadDayRecap {
   actual_hours_today: number;
   overdue_hours: number;
   capacity_hours: number;
+  /** Ore delle sole task nate oggi, senza le trascinate recuperate a oggi. */
+  today_hours: number;
+  /** Ore arretrate col peso aziendale `carried_over` (default 0.5). */
+  overdue_hours_weighted: number;
 }
 
 export interface WorkloadDailySelfResponse extends WorkloadDailyKPI {
@@ -604,6 +615,28 @@ export async function getDailyTasksSelfApi(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le attività del giorno")}`);
+  }
+  return res.json();
+}
+
+/**
+ * Riepilogo giornaliero di un altro operatore (admin e PM).
+ * Stessa forma di `getDailyTasksSelfApi`, `recap` incluso: la vista "Mie task"
+ * può renderizzarlo identico. Fuori dal perimetro accessibile il backend dà 404.
+ */
+export async function getDailyTasksUserApi(
+  userId: number,
+  params: GetDailyTasksParams = {}
+): Promise<WorkloadDailySelfResponse> {
+  const qs = buildQuery({
+    target_date: params.target_date,
+    company_id: params.company_id,
+  });
+
+  const res = await authFetch(`${API_BASE}/api/v1/workload/day/user/${userId}${qs}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`[${res.status}] ${parseApiError(body, "Impossibile recuperare le attività dell'operatore")}`);
   }
   return res.json();
 }

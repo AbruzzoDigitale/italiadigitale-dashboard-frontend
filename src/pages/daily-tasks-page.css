@@ -545,3 +545,53 @@
 .ag-tbtn--accent:hover { background: #d81a95; border-color: #d81a95; }
 .dark .ag-tbtn--accent { background: theme(colors.brand.magenta); border-color: theme(colors.brand.magenta); color: #fff; }
 .dark .ag-tbtn--accent:hover { background: #d81a95; border-color: #d81a95; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Recap giornaliero + Task del giorno affiancati (vista "Mie task").
+
+   Il recap è tipicamente più alto della viewport: è lui a scorrere con la
+   pagina. La colonna delle task resta invece agganciata (sticky) e alta quanto
+   la viewport, così la si vede sempre mentre si scorre il recap; se le
+   lavorazioni non ci stanno, scorre il suo corpo.
+
+   Nota: lo scroll NON avviene nel body ma dentro <main> del DashboardLayout
+   (radice h-dvh, topbar h-16), quindi lo sticky si ancora al bordo di <main>
+   e l'altezza utile è 100dvh meno la topbar. `align-items: start` è
+   indispensabile: con lo stretch di default la colonna riempirebbe la riga e
+   lo sticky non avrebbe margine di scorrimento.
+   ───────────────────────────────────────────────────────────────────────── */
+.ag-duo {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+@media (min-width: 1100px) {
+  .ag-duo {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .ag-duo-fill {
+    position: sticky;
+    top: 1rem;
+    /* 4rem = topbar h-16; 2rem = aria di respiro sopra e sotto. */
+    height: calc(100dvh - 4rem - 2rem);
+  }
+
+  .ag-duo-fill > .ag-sec {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  /* L'header della sezione resta fermo, scorre solo l'elenco. */
+  .ag-duo-fill > .ag-sec > .ag-sec-h { flex: 0 0 auto; }
+
+  .ag-sec--scroll > .ag-sec-b {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

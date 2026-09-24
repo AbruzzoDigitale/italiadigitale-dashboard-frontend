@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useSelectedCompanyId } from "../hooks/useSelectedCompanyId";
 import { useToast } from "../context/ToastContext";
-import { getDailyTasksSelfApi, getDailyTasksAdminAccordionApi } from "../api/workload";
+import {
+  getDailyTasksSelfApi,
+  getDailyTasksAdminAccordionApi,
+  getDailyTasksUserApi,
+  listWorkloadUsersApi,
+  type WorkloadUserSummary,
+} from "../api/workload";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { Spinner } from "../components/ui/Spinner";
 import { Badge } from "../components/ui/Badge";
@@ -133,6 +141,7 @@ function AgSection({
   title,
   sub,
   actions,
+  className,
   children,
 }: {
   n?: string;
@@ -140,10 +149,11 @@ function AgSection({
   title: string;
   sub?: string;
   actions?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="ag-sec">
+    <section className={`ag-sec${className ? ` ${className}` : ""}`}>
       <header className="ag-sec-h">
         {n && <span className="ag-sec-n">{n}</span>}
         <span className="ag-sec-ic">
@@ -206,6 +216,23 @@ export function DailyTasksPage() {
   const { selectedCompanyId } = useSelectedCompanyId(user?.company_id ?? null);
   const companyId = selectedCompanyId ?? user?.company_id ?? null;
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Operatore di cui si guarda il giorno nella vista "Mie task": null = se stessi.
+  // Vive nella URL (?op=) perché è contesto transitorio e condivisibile, non una
+  // preferenza durevole: riaprendo la pagina si torna sempre sul proprio giorno.
+  const selfUserId = user?.id ?? null;
+  const [recapUserId, setRecapUserId] = useState<number | null>(() => {
+    const raw = searchParams.get("op");
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  });
+  // Cancello lato client: un operatore semplice non può puntare nessun altro.
+  // Quello vero è il backend (`_resolve_user_scope` → 404).
+  const effectiveRecapUserId = canSeeTeam ? recapUserId : null;
+  const [operators, setOperators] = useState<WorkloadUserSummary[]>([]);
+  // Ultimo operatore per cui si è già ricaduti sul proprio giorno dopo un errore.
+  const recoveredUserIdRef = useRef<number | null>(null);
 
   // Admin e PM aprono sull'elenco esteso di tutte le lavorazioni del giorno.
   const [viewMode, setViewMode] = useState<ViewMode>(canSeeTeam ? "list" : "self");
@@ -234,7 +261,7 @@ export function DailyTasksPage() {
   useEffect(() => {
     setRecapDraft(null);
     setRecapEditing(false);
-  }, [targetDate]);
+  }, [targetDate, effectiveRecapUserId]);
 
   // Logo dell'azienda selezionata: immagine del "gruppo" nella chat finta del recap.
   const companyLogoUrl = useMemo(() => {
@@ -250,6 +277,57 @@ export function DailyTasksPage() {
       .then(setRecapTemplate)
       .catch(() => setRecapTemplate(null));
   }, [companyId]);
+
+  // Operatori selezionabili nella tendina. Si legge da /workload/users perché usa
+  // lo stesso `_resolve_user_scope` della rotta del riepilogo: così la tendina non
+  // può proporre qualcuno che poi darebbe 404. `include_tasks: false` la tiene leggera.
+  useEffect(() => {
+    if (!canSeeTeam || viewMode !== "self") return;
+    let cancelled = false;
+    listWorkloadUsersApi({
+      range_mode: "day",
+      anchor_date: targetDate,
+      company_id: companyId ?? undefined,
+      include_tasks: false,
+      active_only: true,
+      sort_by: "name",
+      sort_dir: "asc",
+    })
+      .then((rows) => {
+        if (!cancelled) setOperators(rows);
+      })
+      .catch(() => {
+        // Degrada in silenzio: senza tendina resta la propria giornata.
+        if (!cancelled) setOperators([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canSeeTeam, viewMode, companyId, targetDate]);
+
+  // Potatura: se l'operatore scelto non è più nel perimetro (cambio azienda,
+  // disattivazione) si torna sul proprio giorno. Solo a lista caricata e non
+  // vuota, altrimenti si cancellerebbe la selezione durante il primo fetch.
+  useEffect(() => {
+    if (recapUserId == null || operators.length === 0) return;
+    if (!operators.some((op) => op.user_id === recapUserId)) setRecapUserId(null);
+  }, [operators, recapUserId]);
+
+  // Riflette la selezione nella URL (stesso pattern di WorkloadPage con ?ops=).
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (effectiveRecapUserId != null && effectiveRecapUserId !== selfUserId) {
+          next.set("op", String(effectiveRecapUserId));
+        } else {
+          next.delete("op");
+        }
+        return next;
+      },
+      { replace: true }
+    );
+  }, [effectiveRecapUserId, selfUserId, setSearchParams]);
 
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
   // Apertura dei gruppi della vista elenco (per operatore / per cliente): aperti di
@@ -277,12 +355,20 @@ export function DailyTasksPage() {
     const silent = !!opts?.silent;
     if (!silent) setLoading(true);
     setError(null);
+    // Se la richiesta è per un altro operatore e fallisce (es. uscito dal
+    // perimetro), si ricade sul proprio giorno invece di restare su un errore.
+    const watchingOther = effectiveRecapUserId != null && effectiveRecapUserId !== selfUserId;
     try {
       if (viewMode === "self") {
-        const data = await getDailyTasksSelfApi({
-          target_date: targetDate,
-          company_id: companyId ?? undefined,
-        });
+        const data = watchingOther
+          ? await getDailyTasksUserApi(effectiveRecapUserId as number, {
+              target_date: targetDate,
+              company_id: companyId ?? undefined,
+            })
+          : await getDailyTasksSelfApi({
+              target_date: targetDate,
+              company_id: companyId ?? undefined,
+            });
         setSelfData(data);
       } else {
         const data = await getDailyTasksAdminAccordionApi({
@@ -292,6 +378,14 @@ export function DailyTasksPage() {
         setAdminData(data);
       }
     } catch (err) {
+      // Un solo tentativo di recupero per selezione: senza il ref l'SSE
+      // innescherebbe un ciclo di ricariche.
+      if (watchingOther && recoveredUserIdRef.current !== effectiveRecapUserId) {
+        recoveredUserIdRef.current = effectiveRecapUserId;
+        toast.error("Operatore non più accessibile: torno alle tue attività");
+        setRecapUserId(null);
+        return;
+      }
       // In un refresh silenzioso (realtime) un errore transitorio non deve
       // disturbare: la vista resta sull'ultimo dato buono.
       if (!silent) {
@@ -306,7 +400,7 @@ export function DailyTasksPage() {
 
   useEffect(() => {
     void loadData();
-  }, [viewMode, targetDate]);
+  }, [viewMode, targetDate, companyId, effectiveRecapUserId]);
 
   // Realtime: lo stream SSE (canale azienda work_item_changed + notifiche personali,
   // instradato sul bus) ricarica in silenzio la vista attiva — vale per operatore,
@@ -331,6 +425,9 @@ export function DailyTasksPage() {
       .slice(0, 2)
       .map((word: string) => word[0]?.toUpperCase() || "")
       .join("");
+    // Derivato dal payload e non dallo stato: così non è mai fuori sincrono con
+    // i dati effettivamente renderizzati (es. durante un cambio di selezione).
+    const isOtherOperator = selfUserId != null && selfData.user_id !== selfUserId;
 
     return (
       <div className="space-y-[18px]">
@@ -347,8 +444,30 @@ export function DailyTasksPage() {
             </div>
           )}
           <div className="text-sm font-semibold text-ink dark:text-paper">
-            {getDayGreeting()} {displayName}
+            {isOtherOperator ? `Riepilogo di ${displayName}` : `${getDayGreeting()} ${displayName}`}
           </div>
+          {canSeeTeam && (
+            <SearchableSelect
+              className="w-56 ml-auto"
+              value={recapUserId != null ? String(recapUserId) : ""}
+              onChange={(v) => setRecapUserId(v ? Number(v) : null)}
+              options={[
+                { value: "", label: "Io (le mie task)" },
+                ...operators
+                  .filter((op) => op.user_id !== selfUserId)
+                  .map((op) => ({
+                    value: String(op.user_id),
+                    label: op.full_name || op.username,
+                    keywords: op.username,
+                    avatarUrl: op.avatar_url,
+                    trailing: `${Math.round(op.utilization_percent)}%`,
+                  })),
+              ]}
+              placeholder="Io (le mie task)"
+              searchPlaceholder="Cerca operatore…"
+              emptyMessage="Nessun operatore"
+            />
+          )}
         </div>
 
         {/* KPI Row */}
@@ -405,7 +524,10 @@ export function DailyTasksPage() {
           )}
         </AgSection>
 
-        {/* Recap giornaliero */}
+        {/* Recap giornaliero e Task del giorno, affiancati su schermi larghi.
+            L'altezza della riga la detta il recap: la lista task ci sta dentro e
+            scorre (vedi .ag-duo in daily-tasks-page.css). */}
+        <div className="ag-duo">
         {(() => {
           const recapText =
             recapDraft ?? renderRecapFromTemplate(recapTemplate ?? defaultRecapTemplate(), selfData, targetDate);
@@ -418,7 +540,8 @@ export function DailyTasksPage() {
             }
           };
           const emailRecap = () => {
-            const subject = `Recap giornaliero ${dateFromIso(targetDate).toLocaleDateString("it-IT")}`;
+            const who = isOtherOperator ? ` — ${displayName}` : "";
+            const subject = `Recap giornaliero ${dateFromIso(targetDate).toLocaleDateString("it-IT")}${who}`;
             window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recapText)}`);
           };
           return (
@@ -483,7 +606,14 @@ export function DailyTasksPage() {
         })()}
 
         {/* Task List */}
-        <AgSection n="3" icon="list" title={`Task del giorno (${tasks.length})`} sub="Le tue lavorazioni di oggi">
+        <div className="ag-duo-fill">
+        <AgSection
+          n="3"
+          icon="list"
+          className="ag-sec--scroll"
+          title={`Task del giorno (${tasks.length})`}
+          sub={isOtherOperator ? `Le lavorazioni di ${displayName}` : "Le tue lavorazioni di oggi"}
+        >
           {tasks.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted dark:text-muted-dark">
               Nessuna task per oggi.
@@ -519,6 +649,8 @@ export function DailyTasksPage() {
             </div>
           )}
         </AgSection>
+        </div>
+        </div>
       </div>
     );
   };
