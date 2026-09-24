@@ -89,6 +89,10 @@ export interface VaultGrant {
   user_id: number;
   permission: "view" | "manage";
   user_name: string | null;
+  /** Chi ha condiviso: una credenziale che compare senza spiegazione inquieta. */
+  granted_by_user_id: number | null;
+  granted_by_name: string | null;
+  created_at: string | null;
 }
 
 export interface VaultItem {
@@ -156,6 +160,30 @@ export interface VaultStatus {
   kms_enabled: boolean;
 }
 
+/** Allineato a VAULT_ACTIONS in app/models/vault.py: quella è la fonte unica. */
+export type VaultAction =
+  | "reveal"
+  | "copy"
+  | "export"
+  | "share_created"
+  | "share_viewed"
+  | "share_denied"
+  | "rotated"
+  | "request_created"
+  | "request_submitted";
+
+export const VAULT_ACTION_LABELS: Record<VaultAction, string> = {
+  reveal: "Rivelata",
+  copy: "Copiata",
+  export: "Esportata",
+  share_created: "Link creato",
+  share_viewed: "Link aperto",
+  share_denied: "Password del link errata",
+  rotated: "Rinnovata",
+  request_created: "Richiesta inviata",
+  request_submitted: "Richiesta compilata",
+};
+
 export interface VaultAccess {
   id: number;
   item_id: number | null;
@@ -163,7 +191,7 @@ export interface VaultAccess {
   user_id: number | null;
   user_name: string | null;
   share_id: number | null;
-  action: string;
+  action: VaultAction;
   ip: string | null;
   created_at: string;
 }
@@ -174,6 +202,9 @@ export interface VaultPolicy {
   share_max_days: number;
   share_require_password: boolean;
   unlock_ttl_minutes: number;
+  /** Acceso: chi non è admin chiede, l'admin concede per un tempo. */
+  require_admin_unlock: boolean;
+  admin_unlock_minutes: number;
 }
 
 /** Sollevato quando la cassaforte è bloccata o lo sblocco è scaduto (428). */
@@ -288,12 +319,18 @@ export async function deleteVaultItemApi(id: number): Promise<void> {
 
 /** Richiede la cassaforte sbloccata. Ogni chiamata finisce nel registro accessi. */
 export async function revealVaultItemApi(id: number): Promise<VaultRevealed> {
-  return jsonOrThrow(
-    await authFetch(`${BASE}/items/${id}/reveal`, {
-      method: "POST",
-      headers: unlockedHeaders(),
-    })
-  );
+  const res = await authFetch(`${BASE}/items/${id}/reveal`, {
+    method: "POST",
+    headers: unlockedHeaders(),
+  });
+  // Qui, e solo qui, un 403 significa «serve il via libera di un admin»: in
+  // tutto il resto della cassaforte un accesso mancante risponde 404, proprio
+  // per non confermare che la credenziale esiste.
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    throw new VaultNeedsApprovalError((body as { detail?: string })?.detail);
+  }
+  return jsonOrThrow(res);
 }
 
 export async function rotateVaultItemApi(
@@ -333,9 +370,22 @@ export async function setVaultGrantsApi(
   );
 }
 
-export async function listVaultAccessesApi(itemId?: number): Promise<VaultAccess[]> {
-  const qs = itemId != null ? `?item_id=${itemId}` : "";
-  return jsonOrThrow(await authFetch(`${BASE}/accesses${qs}`));
+export async function listVaultAccessesApi(filtri?: {
+  itemId?: number;
+  companyId?: number;
+  action?: VaultAction;
+  /** Ultimi N giorni. Assente = tutto lo storico. */
+  days?: number;
+  limit?: number;
+}): Promise<VaultAccess[]> {
+  const p = new URLSearchParams();
+  if (filtri?.itemId != null) p.set("item_id", String(filtri.itemId));
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.action) p.set("action", filtri.action);
+  if (filtri?.days != null) p.set("days", String(filtri.days));
+  if (filtri?.limit != null) p.set("limit", String(filtri.limit));
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/accesses${qs ? `?${qs}` : ""}`));
 }
 
 export async function getVaultPolicyApi(companyId: number): Promise<VaultPolicy> {
@@ -368,6 +418,8 @@ export interface VaultImportRow {
 export interface VaultImportResult {
   created: number;
   skipped: number;
+  /** Quante sono state collegate da sole al sito riconosciuto dal dominio. */
+  auto_linked: number;
   errors: string[];
 }
 
@@ -381,9 +433,330 @@ export async function importVaultItemsApi(body: {
   rows: VaultImportRow[];
   kind?: VaultKind;
   skip_duplicates?: boolean;
+  auto_link?: boolean;
   links?: Array<{ target_type: VaultTargetType; target_id: number }>;
 }): Promise<VaultImportResult> {
   return jsonOrThrow(
     await authFetch(`${BASE}/import`, { method: "POST", body: JSON.stringify(body) })
+  );
+}
+
+// ── Richiesta di credenziale a un esterno ───────────────────────────────────
+//
+// L'opposto della condivisione: non consegna un segreto, lo raccoglie. Serve a
+// togliere di mezzo il "mandami la password su WhatsApp".
+
+export interface VaultRequest {
+  id: number;
+  company_id: number;
+  item_id: number | null;
+  kind: VaultKind;
+  label: string;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  recipient_note: string | null;
+  message: string | null;
+  status: "pending" | "submitted" | "cancelled" | "expired";
+  has_password: boolean;
+  expires_at: string;
+  opened_at: string | null;
+  used_at: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  /** Presente solo alla creazione: è il link da inviare. */
+  url_pubblico: string | null;
+  email_inviata: boolean | null;
+  email_dettaglio: string | null;
+}
+
+export interface VaultRequestInput {
+  company_id: number;
+  item_id?: number | null;
+  kind?: VaultKind;
+  label: string;
+  username?: string | null;
+  email?: string | null;
+  url?: string | null;
+  host?: string | null;
+  port?: number | null;
+  path?: string | null;
+  note?: string | null;
+  message?: string | null;
+  recipient_note?: string | null;
+  access_password?: string | null;
+  expires_days?: number | null;
+  send_email?: boolean;
+  recipient_email?: string | null;
+  include_password?: boolean;
+}
+
+export async function createVaultRequestApi(body: VaultRequestInput): Promise<VaultRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/requests`, { method: "POST", body: JSON.stringify(body) })
+  );
+}
+
+export async function listVaultRequestsApi(companyId?: number): Promise<VaultRequest[]> {
+  const qs = companyId != null ? `?company_id=${companyId}` : "";
+  return jsonOrThrow(await authFetch(`${BASE}/requests${qs}`));
+}
+
+export async function cancelVaultRequestApi(id: number): Promise<void> {
+  await jsonOrThrow<void>(await authFetch(`${BASE}/requests/${id}`, { method: "DELETE" }));
+}
+
+// ── Lato pubblico: nessuna autenticazione, `fetch` nudo di proposito ────────
+
+export interface VaultPublicRequest {
+  label: string;
+  kind: VaultKind;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  host: string | null;
+  port: number | null;
+  path: string | null;
+  note: string | null;
+  message: string | null;
+  azienda: string | null;
+  requires_password: boolean;
+  needs_secret: boolean;
+  needs_private_key: boolean;
+}
+
+export async function getPublicRequestApi(token: string): Promise<VaultPublicRequest> {
+  return jsonOrThrow(await fetch(`${BASE}/public/request/${encodeURIComponent(token)}`));
+}
+
+export async function submitPublicRequestApi(
+  token: string,
+  body: {
+    access_password?: string | null;
+    secret?: string | null;
+    private_key?: string | null;
+    totp?: string | null;
+    username?: string | null;
+    email?: string | null;
+    url?: string | null;
+  }
+): Promise<void> {
+  await jsonOrThrow<void>(
+    await fetch(`${BASE}/public/request/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+// ── Condivisione in uscita ──────────────────────────────────────────────────
+//
+// Il verso opposto della richiesta: qui un segreto esce. Per questo la password
+// del link non è opzionale e non la scegliamo noi — la genera il server e la
+// mostra una volta sola, alla creazione.
+
+export interface VaultShare {
+  id: number;
+  item_id: number | null;
+  item_label: string;
+  /** Le etichette di tutte le credenziali del link. */
+  item_labels: string[];
+  status: "active" | "expired" | "exhausted" | "revoked";
+  expires_at: string;
+  max_views: number | null;
+  view_count: number;
+  views_left: number | null;
+  revoked_at: string | null;
+  recipient_note: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  /** Solo alla creazione: dopo non sono più rileggibili. */
+  url_pubblico: string | null;
+  password: string | null;
+  /** null = non era stato chiesto di inviare l'email. */
+  email_inviata: boolean | null;
+  email_dettaglio: string | null;
+}
+
+export interface VaultShareInput {
+  item_ids: number[];
+  expires_days?: number | null;
+  max_views?: number | null;
+  recipient_note?: string | null;
+  /** La password del link non viaggia MAI nell'email: si detta a parte. */
+  send_email?: boolean;
+  recipient_email?: string | null;
+  /** Sconsigliato: link e password nello stesso messaggio si annullano a vicenda. */
+  include_password?: boolean;
+}
+
+/** Richiede la cassaforte sbloccata: stanno uscendo dei segreti, come una rivelazione. */
+export async function createVaultShareApi(body: VaultShareInput): Promise<VaultShare> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/shares`, {
+      method: "POST",
+      headers: unlockedHeaders(),
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+export async function listVaultSharesApi(itemId: number): Promise<VaultShare[]> {
+  return jsonOrThrow(await authFetch(`${BASE}/items/${itemId}/shares`));
+}
+
+/** Tutti i link emessi: «cosa abbiamo consegnato, a chi, e cosa è ancora aperto?». */
+export async function listAllVaultSharesApi(filtri?: {
+  companyId?: number;
+  soloAttivi?: boolean;
+}): Promise<VaultShare[]> {
+  const p = new URLSearchParams();
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.soloAttivi === false) p.set("solo_attivi", "false");
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/shares${qs ? `?${qs}` : ""}`));
+}
+
+export async function revokeVaultShareApi(shareId: number): Promise<void> {
+  await jsonOrThrow<void>(await authFetch(`${BASE}/shares/${shareId}`, { method: "DELETE" }));
+}
+
+export interface VaultSharedPreview {
+  label: string;
+  kind: VaultKind;
+}
+
+export interface VaultPublicShare {
+  credenziali: VaultSharedPreview[];
+  azienda: string | null;
+  expires_at: string;
+  views_left: number | null;
+}
+
+export interface VaultSharedCredential {
+  label: string;
+  kind: VaultKind;
+  username: string | null;
+  email: string | null;
+  url: string | null;
+  note: string | null;
+  secret: string | null;
+  totp: string | null;
+  private_key: string | null;
+}
+
+export interface VaultShareRevealed {
+  credenziali: VaultSharedCredential[];
+  views_left: number | null;
+}
+
+export async function getPublicShareApi(token: string): Promise<VaultPublicShare> {
+  return jsonOrThrow(await fetch(`${BASE}/public/share/${encodeURIComponent(token)}`));
+}
+
+export async function revealPublicShareApi(
+  token: string,
+  password: string
+): Promise<VaultShareRevealed> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/public/share/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    })
+  );
+}
+
+
+// ── Condivisione interna, anche su più credenziali insieme ──────────────────
+//
+// Un permesso fa comparire la credenziale nella cassaforte del collega: non è
+// una copia, è la stessa voce vista da un'altra persona. Revocare il permesso
+// gliela toglie di nuovo.
+
+export interface VaultBulkResult {
+  aggiornate: number;
+  invariate: number;
+  /** Voci che non puoi gestire: contate e non elencate, per non rivelarne l'esistenza. */
+  non_permesse: number;
+}
+
+export async function bulkVaultGrantsApi(body: {
+  item_ids: number[];
+  grants: Array<{ user_id: number; permission: "view" | "manage" }>;
+  mode: "add" | "remove";
+}): Promise<VaultBulkResult> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/items/bulk/grants`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+
+// ── Sblocco mediato dall'admin ──────────────────────────────────────────────
+//
+// Non sostituisce i permessi: senza permesso la credenziale non si vede e non
+// c'è niente da chiedere. È un secondo cancello per chi il permesso ce l'ha,
+// e vale solo se l'azienda l'ha acceso nelle regole.
+
+export interface VaultAccessRequest {
+  id: number;
+  item_id: number;
+  item_label: string;
+  company_id: number;
+  user_id: number;
+  user_name: string | null;
+  reason: string | null;
+  status: "pending" | "granted" | "denied" | "expired";
+  decided_by_name: string | null;
+  decided_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/** Sollevato quando serve il via libera di un admin (403 sulla rivelazione). */
+export class VaultNeedsApprovalError extends Error {
+  constructor(message = "Serve l'autorizzazione di un amministratore") {
+    super(message);
+    this.name = "VaultNeedsApprovalError";
+  }
+}
+
+export async function requestVaultAccessApi(
+  itemId: number,
+  reason?: string | null
+): Promise<VaultAccessRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/items/${itemId}/access-requests`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || null }),
+    })
+  );
+}
+
+export async function listVaultAccessRequestsApi(filtri?: {
+  companyId?: number;
+  soloAttese?: boolean;
+}): Promise<VaultAccessRequest[]> {
+  const p = new URLSearchParams();
+  if (filtri?.companyId != null) p.set("company_id", String(filtri.companyId));
+  if (filtri?.soloAttese === false) p.set("solo_attese", "false");
+  const qs = p.toString();
+  return jsonOrThrow(await authFetch(`${BASE}/access-requests${qs ? `?${qs}` : ""}`));
+}
+
+export async function decideVaultAccessRequestApi(
+  id: number,
+  approved: boolean,
+  minutes?: number | null
+): Promise<VaultAccessRequest> {
+  return jsonOrThrow(
+    await authFetch(`${BASE}/access-requests/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ approved, minutes: minutes ?? null }),
+    })
   );
 }

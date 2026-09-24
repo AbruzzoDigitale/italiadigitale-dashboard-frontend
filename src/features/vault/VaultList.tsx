@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   VAULT_KIND_LABELS,
   VaultLockedError,
+  VaultNeedsApprovalError,
   deleteVaultItemApi,
   isVaultUnlocked,
   listVaultItemsApi,
@@ -11,9 +12,14 @@ import {
 } from "../../api/vault";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { Checkbox } from "../../components/ui/Checkbox";
 import { Icon } from "../../components/ui/Icon";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../hooks/useAuth";
+import { VaultAccessRequestModal } from "./VaultAccessRequestModal";
+import { VaultGrantModal } from "./VaultGrantModal";
+import { VaultShareModal } from "./VaultShareModal";
 import { VaultUnlockModal } from "./VaultUnlockModal";
 import { contaGruppo, groupItems, type VaultGroup, type VaultView } from "./grouping";
 
@@ -43,6 +49,11 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   // Azione da riprovare dopo lo sblocco: evita di far ricliccare l'utente.
   const [inSospeso, setInSospeso] = useState<(() => void) | null>(null);
   const [rivelati, setRivelati] = useState<Record<number, string>>({});
+  const [daCondividere, setDaCondividere] = useState<VaultItem | null>(null);
+  const [selezionati, setSelezionati] = useState<Set<number>>(new Set());
+  const [permessiAperti, setPermessiAperti] = useState(false);
+  const [linkAperto, setLinkAperto] = useState(false);
+  const [daAutorizzare, setDaAutorizzare] = useState<VaultItem | null>(null);
   const toast = useToast();
 
   const chiave = JSON.stringify(filters);
@@ -60,6 +71,12 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
   useEffect(() => {
     void carica();
   }, [carica, reloadKey]);
+
+  // Cambiati i filtri, la selezione si azzera: agire su voci sparite dalla
+  // vista è il modo classico per condividere qualcosa senza accorgersene.
+  useEffect(() => {
+    setSelezionati(new Set());
+  }, [chiave, view]);
 
   /** Esegue l'azione, e se la cassaforte è chiusa apre lo sblocco e la ritenta. */
   const conSblocco = useCallback(
@@ -83,22 +100,55 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     [toast]
   );
 
+  const inverti = (id: number) =>
+    setSelezionati((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  /** Il 403 «serve un admin» non è un errore da toast: è un'azione da proporre. */
+  const conAutorizzazione = async (item: VaultItem, azione: () => Promise<void>) => {
+    try {
+      await azione();
+    } catch (e) {
+      if (e instanceof VaultNeedsApprovalError) {
+        setDaAutorizzare(item);
+        return;
+      }
+      throw e;
+    }
+  };
+
   const mostra = (item: VaultItem) =>
+    conSblocco(() =>
+      conAutorizzazione(item, async () => {
+        const dati = await revealVaultItemApi(item.id);
+        setRivelati((r) => ({ ...r, [item.id]: dati.secret ?? "" }));
+      })
+    );
+
+  // Si passa da conSblocco prima ancora di aprire il modale: creare un link
+  // richiede la cassaforte sbloccata, e scoprirlo dopo aver compilato il form
+  // sarebbe una pessima sorpresa.
+  const condividi = (item: VaultItem) =>
     conSblocco(async () => {
-      const dati = await revealVaultItemApi(item.id);
-      setRivelati((r) => ({ ...r, [item.id]: dati.secret ?? "" }));
+      setDaCondividere(item);
     });
 
   const copia = (item: VaultItem) =>
-    conSblocco(async () => {
-      const dati = await revealVaultItemApi(item.id);
-      if (!dati.secret) {
-        toast.error("Nessun valore da copiare");
-        return;
-      }
-      await navigator.clipboard.writeText(dati.secret);
-      toast.success("Password copiata negli appunti");
-    });
+    conSblocco(() =>
+      conAutorizzazione(item, async () => {
+        const dati = await revealVaultItemApi(item.id);
+        if (!dati.secret) {
+          toast.error("Nessun valore da copiare");
+          return;
+        }
+        await navigator.clipboard.writeText(dati.secret);
+        toast.success("Password copiata negli appunti");
+      })
+    );
 
   async function elimina(item: VaultItem) {
     if (!confirm(`Eliminare «${item.label}»? L'operazione non si annulla.`)) return;
@@ -111,40 +161,115 @@ export function VaultList({ filters = {}, view = "client", reloadKey = 0, onEdit
     }
   }
 
+  // Niente `return` anticipati qui: il modale di sblocco deve restare montato
+  // anche mentre la lista ricarica o è vuota. Altrimenti basta che cambi un
+  // filtro durante lo sblocco e il modale sparisce, portandosi via l'azione in
+  // sospeso — e su una cassaforte ancora vuota non si riuscirebbe mai ad aprirla.
+  let contenuto;
   if (caricamento) {
-    return (
+    contenuto = (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-2/3" />
       </div>
     );
-  }
-  if (items.length === 0) {
-    return (
+  } else if (items.length === 0) {
+    contenuto = (
       <p className="p-4 text-sm text-muted dark:text-muted-dark">
         {emptyHint ?? "Nessuna credenziale in cassaforte."}
       </p>
     );
-  }
-
-  const gruppi = groupItems(items, view);
-
-  return (
-    <>
+  } else {
+    contenuto = (
       <div className="flex flex-col gap-3">
-        {gruppi.map((g) => (
+        {groupItems(items, view).map((g) => (
           <Gruppo
             key={g.key}
             gruppo={g}
             rivelati={rivelati}
             onMostra={mostra}
             onCopia={copia}
+            onCondividi={condividi}
+            selezionati={selezionati}
+            onSeleziona={inverti}
             onEdit={onEdit}
             onElimina={elimina}
           />
         ))}
       </div>
+    );
+  }
+
+  const selezionateItems = items.filter((i) => selezionati.has(i.id));
+
+  return (
+    <>
+      {selezionati.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-brand/30 bg-brand/5 px-3 py-2 text-sm">
+          <span className="font-semibold">
+            {selezionati.size} {selezionati.size === 1 ? "selezionata" : "selezionate"}
+          </span>
+          {selezionati.size < items.length && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelezionati(new Set(items.map((i) => i.id)))}
+            >
+              Seleziona tutte ({items.length})
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelezionati(new Set())}>
+            Annulla
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="ml-auto"
+            onClick={() =>
+              conSblocco(async () => {
+                setLinkAperto(true);
+              })
+            }
+            title="Un solo link con dentro tutte quelle selezionate"
+          >
+            <Icon name="link" className="mr-1 h-4 w-4" />
+            Link di condivisione
+          </Button>
+          <Button size="sm" onClick={() => setPermessiAperti(true)}>
+            <Icon name="users" className="mr-1 h-4 w-4" />
+            Condividi con un collega
+          </Button>
+        </div>
+      )}
+
+      {contenuto}
+
+      <VaultAccessRequestModal
+        open={daAutorizzare !== null}
+        onClose={() => setDaAutorizzare(null)}
+        item={daAutorizzare}
+      />
+
+      <VaultGrantModal
+        open={permessiAperti}
+        onClose={() => setPermessiAperti(false)}
+        companyId={filters.companyId ?? 0}
+        itemIds={[...selezionati]}
+        onDone={() => {
+          setSelezionati(new Set());
+          void carica();
+        }}
+      />
+
+      <VaultShareModal
+        open={daCondividere !== null || linkAperto}
+        onClose={() => {
+          setDaCondividere(null);
+          setLinkAperto(false);
+        }}
+        items={daCondividere ? [daCondividere] : selezionateItems}
+      />
 
       <VaultUnlockModal
         open={sbloccoAperto}
@@ -167,6 +292,9 @@ interface GruppoProps {
   rivelati: Record<number, string>;
   onMostra: (i: VaultItem) => void;
   onCopia: (i: VaultItem) => void;
+  onCondividi: (i: VaultItem) => void;
+  selezionati: Set<number>;
+  onSeleziona: (id: number) => void;
   onEdit?: (i: VaultItem) => void;
   onElimina: (i: VaultItem) => void;
 }
@@ -221,17 +349,47 @@ function Riga({
   rivelati,
   onMostra,
   onCopia,
+  onCondividi,
   onEdit,
   onElimina,
+  selezionati,
+  onSeleziona,
 }: { item: VaultItem } & Omit<GruppoProps, "gruppo" | "livello">) {
+  const { user } = useAuth();
   const scoperto = rivelati[item.id];
+  // "Condivisa da" solo se è arrivata a TE da qualcun altro: sulle proprie voci
+  // sarebbe rumore, e sulle altrui non è un'informazione che ti riguarda.
+  const condivisaDa =
+    item.owner_user_id === user?.id
+      ? null
+      : item.grants.find((g) => g.user_id === user?.id)?.granted_by_name ?? null;
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 text-sm dark:border-line-dark/60">
+    <div
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm ${
+        selezionati.has(item.id)
+          ? "border-brand/40 bg-brand/5"
+          : "border-line/60 dark:border-line-dark/60"
+      }`}
+    >
+      <Checkbox
+        checked={selezionati.has(item.id)}
+        onChange={() => onSeleziona(item.id)}
+        aria-label={`Seleziona ${item.label}`}
+      />
       <Badge variant="info" className="shrink-0">
         {VAULT_KIND_LABELS[item.kind] ?? item.kind}
       </Badge>
       <span className="truncate font-medium">{item.label}</span>
+      {condivisaDa && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-muted dark:text-muted-dark"
+          title={`Condivisa con te da ${condivisaDa}`}
+        >
+          <Icon name="users" className="h-3 w-3" />
+          da {condivisaDa}
+        </span>
+      )}
       {item.username && (
         <span className="truncate text-xs text-muted dark:text-muted-dark">{item.username}</span>
       )}
@@ -267,6 +425,17 @@ function Riga({
             >
               <Icon name="eye" className="h-4 w-4" />
             </Button>
+            {item.can_manage && (
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Condividi con un link protetto"
+                aria-label="Condividi la credenziale"
+                onClick={() => onCondividi(item)}
+              >
+                <Icon name="link" className="h-4 w-4" />
+              </Button>
+            )}
           </>
         )}
         {item.can_manage && onEdit && (

@@ -6,8 +6,10 @@ import { Icon } from "../components/ui/Icon";
 import { Input } from "../components/ui/Input";
 import { PageSectionHeader } from "../components/ui/PageSectionHeader";
 import { SegmentedSwitch } from "../components/ui/SegmentedSwitch";
+import { VaultAdminModal } from "../features/vault/VaultAdminModal";
 import { VaultImportModal } from "../features/vault/VaultImportModal";
 import { VaultItemModal } from "../features/vault/VaultItemModal";
+import { VaultRequestModal } from "../features/vault/VaultRequestModal";
 import { VaultList } from "../features/vault/VaultList";
 import { type VaultView } from "../features/vault/grouping";
 import { useAuth } from "../hooks/useAuth";
@@ -31,6 +33,14 @@ export function VaultPage() {
   const [modaleAperta, setModaleAperta] = useState(false);
   const [inModifica, setInModifica] = useState<VaultItem | null>(null);
   const [importAperto, setImportAperto] = useState(false);
+  // Specchio del controllo vero (`can_import`, lato server): l'import massivo
+  // resta da project manager in su. Creare una credenziale a mano, invece, ora
+  // lo può fare anche un operatore: è l'unico modo perché la password che il
+  // cliente gli detta finisca qui dentro e non su WhatsApp.
+  const puoImportare =
+    Boolean(user?.is_admin) || user?.access_level === "project_manager";
+  const [richiestaAperta, setRichiestaAperta] = useState(false);
+  const [registroAperto, setRegistroAperto] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   return (
@@ -68,6 +78,10 @@ export function VaultPage() {
           <div className="mt-4 flex flex-none flex-wrap items-center gap-3">
             <Input
               placeholder="Cerca etichetta, utente, URL…"
+              // Senza nome e con l'autofill attivo il browser ci infilava la mail
+              // dell'account appena apriva un campo password altrove nella pagina.
+              name="cerca-cassaforte"
+              autoComplete="off"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="w-64"
@@ -80,14 +94,35 @@ export function VaultPage() {
               <Checkbox checked={soloDaRinnovare} onChange={setSoloDaRinnovare} />
               Solo da rinnovare
             </button>
+            {user?.is_admin && (
+              <Button
+                variant="secondary"
+                className="ml-auto"
+                onClick={() => setRegistroAperto(true)}
+                title="Registro accessi, link condivisi e regole della cassaforte"
+              >
+                <Icon name="settings" className="mr-1 h-4 w-4" />
+                Amministrazione
+              </Button>
+            )}
             <Button
               variant="secondary"
-              className="ml-auto"
-              onClick={() => setImportAperto(true)}
+              className={user?.is_admin ? undefined : "ml-auto"}
+              onClick={() => setRichiestaAperta(true)}
+              title="Manda un link a un cliente perché inserisca lui la password"
             >
-              <Icon name="upload" className="mr-1 h-4 w-4" />
-              Importa da CSV
+              <Icon name="mail" className="mr-1 h-4 w-4" />
+              Richiedi credenziale
             </Button>
+            {puoImportare && (
+              <Button
+                variant="secondary"
+                onClick={() => setImportAperto(true)}
+              >
+                <Icon name="upload" className="mr-1 h-4 w-4" />
+                Importa da CSV
+              </Button>
+            )}
             <Button
               onClick={() => {
                 setInModifica(null);
@@ -115,6 +150,19 @@ export function VaultPage() {
               emptyHint="La cassaforte è vuota. Aggiungi la prima credenziale."
             />
           </div>
+
+          <VaultAdminModal
+            open={registroAperto}
+            onClose={() => setRegistroAperto(false)}
+            companyId={companyId}
+          />
+
+          <VaultRequestModal
+            open={richiestaAperta}
+            onClose={() => setRichiestaAperta(false)}
+            companyId={companyId}
+            onCreated={() => setReloadKey((k) => k + 1)}
+          />
 
           <VaultImportModal
             open={importAperto}

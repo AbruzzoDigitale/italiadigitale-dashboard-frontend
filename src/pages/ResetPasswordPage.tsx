@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Icon } from "../components/ui/Icon";
+import { generaPassword } from "../utils/generaPassword";
 import { resetPasswordApi } from "../api/auth";
 
 const inputCls =
@@ -96,7 +97,7 @@ export function ResetPasswordPage() {
                   autoComplete="new-password"
                   autoFocus
                   required
-                  className="w-full pl-3.5 pr-11 py-2.5 rounded-md text-[13px] font-body text-white placeholder:text-[#6b6b6b] border border-[#2e2e2e] outline-none transition-colors duration-150 focus:border-white"
+                  className="w-full pl-3.5 pr-[5.25rem] py-2.5 rounded-md text-[13px] font-body text-white placeholder:text-[#6b6b6b] border border-[#2e2e2e] outline-none transition-colors duration-150 focus:border-white"
                   style={{ background: "#1a1a1a" }}
                 />
                 <button
@@ -107,6 +108,25 @@ export function ResetPasswordPage() {
                   className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#8a8a8a] transition-colors hover:text-white"
                 >
                   <Icon name={showPassword ? "eye-off" : "eye"} className="h-[17px] w-[17px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Riempie entrambi i campi: far generare una password e poi
+                    // chiedere di ribatterla a mano è un invito a sceglierne una
+                    // più corta.
+                    const nuova = generaPassword();
+                    setPassword(nuova);
+                    setConfirm(nuova);
+                    setShowPassword(true);
+                    setError(null);
+                  }}
+                  tabIndex={-1}
+                  aria-label="Genera una password sicura"
+                  title="Genera una password sicura"
+                  className="absolute inset-y-0 right-11 flex w-11 items-center justify-center text-[#8a8a8a] transition-colors hover:text-white"
+                >
+                  <Icon name="refresh-cw" className="h-[17px] w-[17px]" />
                 </button>
               </div>
             </div>

@@ -37,6 +37,8 @@ import { SocialProfilesPage } from "./pages/SocialProfilesPage";
 import { SocialMonitorsPage } from "./pages/SocialMonitorsPage";
 import { WebsitesPage } from "./pages/WebsitesPage";
 import { VaultPage } from "./pages/VaultPage";
+import { PublicCredentialPage } from "./pages/PublicCredentialPage";
+import { PublicSharePage } from "./pages/PublicSharePage";
 import { EmailHistoryPage } from "./pages/EmailHistoryPage";
 import { MeetingRoomsPage } from "./pages/MeetingRoomsPage";
 import RimborsiPage from "./pages/RimborsiPage";
@@ -45,6 +47,7 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
+import { OraclePage } from "./pages/OraclePage";
 import { WorkloadPage } from "./pages/WorkloadPage";
 import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
@@ -98,6 +101,10 @@ function AppRoutes() {
     <Routes>
       {/* Pagina di firma pubblica: nessun account richiesto (gated dal token). */}
       <Route path="/firma/:token" element={<ClientSignPage />} />
+      {/* Pagina con cui un esterno ci consegna una credenziale: nessun account. */}
+      <Route path="/credenziale/:token" element={<PublicCredentialPage />} />
+      {/* Il verso opposto: qui una credenziale ci esce, protetta da password. */}
+      <Route path="/credenziale-condivisa/:token" element={<PublicSharePage />} />
       {/* Rendicontazione trasferte per il commercialista: sola lettura, senza
           account. Il token è la credenziale e si revoca dalle impostazioni. */}
       <Route path="/rimborsi/condiviso/:token" element={<SharedExpensesPage />} />
@@ -188,6 +195,7 @@ function AppRoutes() {
         <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
         <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
+        <Route path="oracolo" element={<RouteAccess routeKey="oracolo"><OraclePage /></RouteAccess>} />
         <Route path="browser" element={<RouteAccess routeKey="profile"><BrowserPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>
