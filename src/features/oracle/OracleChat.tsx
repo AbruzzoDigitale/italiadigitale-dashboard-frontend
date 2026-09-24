@@ -61,6 +61,8 @@ export function OracleChat({
       setDomanda([scrittoPrima.current, testo].filter(Boolean).join(" "));
     }
   });
+  // Solo la funzione, non l'oggetto: `dettatura` è nuovo a ogni render.
+  const fermaDettatura = dettatura.ferma;
 
   const fondo = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
@@ -116,7 +118,7 @@ export function OracleChat({
       setErrore(null);
       setDomanda("");
       scrittoPrima.current = "";
-      dettatura.ferma();
+      fermaDettatura();
       setInCorso(true);
       setAttivita("sto pensando…");
       setTurni((t) => [
@@ -176,7 +178,7 @@ export function OracleChat({
         setAttivita(null);
       }
     },
-    [convId, inCorso, onConversationId, scelto, dettatura]
+    [convId, inCorso, onConversationId, scelto, fermaDettatura]
   );
 
   // Parte da sola una volta sola: il ref evita che un ri-render la rimandi.
