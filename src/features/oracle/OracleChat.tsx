@@ -275,56 +275,62 @@ export function OracleChat({
         </div>
       </div>
 
-      <div className="shrink-0 pt-2 border-t border-line dark:border-[#2a2a2e]">
+      <div className="shrink-0 pt-2">
         <div className={compact ? "" : "mx-auto w-full max-w-3xl"}>
-        {modelli.length > 1 ? (
-          <div className="flex justify-end pb-1.5">
-            <OracleModelPicker
-              modelli={modelli}
-              scelto={scelto}
-              onCambia={cambia}
-              disabilitato={inCorso}
-            />
-          </div>
-        ) : null}
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={campo}
-            rows={1}
-            value={domanda}
-            onChange={(e) => {
-              setDomanda(e.target.value);
-              scrittoPrima.current = e.target.value;
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void invia(domanda);
-              }
-            }}
-            placeholder="Chiedi all'Oracolo…"
-            disabled={inCorso}
-            className="flex-1 resize-none rounded-lg border border-line dark:border-[#2a2a2e]
-                       bg-paper dark:bg-[#1c1c20] px-3 py-2.5 text-[13px] text-ink dark:text-[#f4f4f7]
-                       placeholder:text-muted focus:outline-none focus:border-brand-magenta
-                       disabled:opacity-60 max-h-32"
-          />
-          <BottoneMicrofono
-            supportata={dettatura.supportata}
-            inAscolto={dettatura.inAscolto}
-            onAvvia={dettatura.avvia}
-            onFerma={dettatura.ferma}
-            disabilitato={inCorso}
-          />
-          <Button
-            variant="primary"
-            size="md"
-            disabled={inCorso || !domanda.trim()}
-            onClick={() => void invia(domanda)}
+          {/* Composer: il campo e i suoi controlli in un riquadro solo. Il selettore
+              del modello sta dentro perché è una proprietà di ciò che stai per
+              chiedere, non un'impostazione della pagina. */}
+          <div
+            className="rounded-xl border border-line dark:border-[#2a2a2e] bg-paper dark:bg-[#1c1c20]
+                       focus-within:border-brand-magenta transition-colors px-3 pt-2.5 pb-2"
           >
-            {inCorso ? <Spinner size="sm" /> : <Icon name="chevron-right" className="w-4 h-4" />}
-          </Button>
-        </div>
+            <textarea
+              ref={campo}
+              rows={1}
+              value={domanda}
+              onChange={(e) => {
+                setDomanda(e.target.value);
+                scrittoPrima.current = e.target.value;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void invia(domanda);
+                }
+              }}
+              placeholder="Chiedi all'Oracolo…"
+              disabled={inCorso}
+              className="w-full resize-none bg-transparent text-[13px] text-ink dark:text-[#f4f4f7]
+                         placeholder:text-muted focus:outline-none disabled:opacity-60 max-h-32"
+            />
+
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <OracleModelPicker
+                modelli={modelli}
+                scelto={scelto}
+                onCambia={cambia}
+                disabilitato={inCorso}
+              />
+              <div className="ml-auto flex items-center gap-1.5">
+                <BottoneMicrofono
+                  supportata={dettatura.supportata}
+                  inAscolto={dettatura.inAscolto}
+                  onAvvia={dettatura.avvia}
+                  onFerma={dettatura.ferma}
+                  disabilitato={inCorso}
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={inCorso || !domanda.trim()}
+                  onClick={() => void invia(domanda)}
+                  aria-label="Invia"
+                >
+                  {inCorso ? <Spinner size="sm" /> : <Icon name="chevron-right" className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

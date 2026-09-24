@@ -80,9 +80,9 @@ export function OracleModelPicker({
         value={scelto ?? ""}
         disabled={disabilitato}
         onChange={(e) => onCambia(e.target.value || null)}
-        className="bg-transparent border border-line dark:border-[#2a2a2e] rounded-md
-                   px-1.5 py-0.5 text-[11px] text-muted dark:text-[#9999a0]
-                   focus:outline-none focus:border-brand-magenta disabled:opacity-50"
+        className="bg-transparent rounded px-1 py-0.5 -ml-1 text-[11px] text-muted dark:text-[#9999a0]
+                   hover:text-ink dark:hover:text-[#f4f4f7] focus:outline-none
+                   focus:ring-1 focus:ring-brand-magenta disabled:opacity-50 cursor-pointer"
       >
         <option value="">
           {modelli.find((m) => m.predefinito)?.model_name ?? "predefinito"} (predefinito)
