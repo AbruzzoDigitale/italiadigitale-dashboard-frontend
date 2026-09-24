@@ -103,6 +103,7 @@ export function OraclePage() {
           key={sessione}
           conversationId={idAperto}
           onConversationId={registraNuova}
+          onNonTrovata={() => setParams({}, { replace: true })}
           autoFocus
         />
       </main>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DropdownMenu } from "../../components/ui/DropdownMenu";
 import { listOracleModelsApi, type OracleModel } from "../../api/oracle";
 
 const CHIAVE = "oracolo.modello";
@@ -10,6 +11,11 @@ const CHIAVE = "oracolo.modello";
  * configurato dal pannello, filtrati su quelli il cui provider sa chiamare gli
  * strumenti. Il giorno in cui viene aggiunto un profilo OpenAI o Anthropic compare
  * qui da solo, senza toccare niente.
+ *
+ * Usa il `DropdownMenu` del gestionale, non un `<select>` nativo: dentro al campo di
+ * testo un controllo di sistema stonerebbe, e quello del sito si apre in un portal —
+ * quindi non viene tagliato dal riquadro, e sa aprirsi verso l'alto quando sta in
+ * fondo alla pagina, che è esattamente dove si trova.
  *
  * La scelta si ricorda in `localStorage`: è una comodità per chi guarda, non uno
  * stato che deve sopravvivere o essere condiviso — se il browser la perde, si torna
@@ -73,28 +79,27 @@ export function OracleModelPicker({
   // Con un modello solo non c'è niente da scegliere: la tendina sarebbe rumore.
   if (modelli.length < 2) return null;
 
+  const predefinito = modelli.find((m) => m.predefinito);
+  const attivo = (scelto ? modelli.find((m) => m.slug === scelto) : predefinito) ?? predefinito;
+
   return (
-    <label className="flex items-center gap-1.5 text-[11px] text-muted dark:text-[#9999a0]">
-      <span className="sr-only">Modello</span>
-      <select
-        value={scelto ?? ""}
-        disabled={disabilitato}
-        onChange={(e) => onCambia(e.target.value || null)}
-        className="bg-transparent rounded px-1 py-0.5 -ml-1 text-[11px] text-muted dark:text-[#9999a0]
-                   hover:text-ink dark:hover:text-[#f4f4f7] focus:outline-none
-                   focus:ring-1 focus:ring-brand-magenta disabled:opacity-50 cursor-pointer"
-      >
-        <option value="">
-          {modelli.find((m) => m.predefinito)?.model_name ?? "predefinito"} (predefinito)
-        </option>
-        {modelli
-          .filter((m) => !m.predefinito)
-          .map((m) => (
-            <option key={m.slug} value={m.slug}>
-              {m.model_name} · {m.provider}
-            </option>
-          ))}
-      </select>
-    </label>
+    <DropdownMenu
+      label="Modello"
+      triggerLabel={attivo?.model_name ?? "modello"}
+      variant="ghost"
+      size="sm"
+      align="left"
+      disabled={disabilitato}
+      className="!px-1.5 !text-[11px] !font-normal !normal-case !tracking-normal"
+      items={modelli.map((m) => ({
+        key: m.slug,
+        label: m.predefinito ? `${m.model_name} (predefinito)` : m.model_name,
+        trailing: m.provider,
+        // Il predefinito si sceglie azzerando la preferenza, non fissandone lo slug:
+        // così se domani l'azienda cambia il predefinito, chi non ha scelto lo segue.
+        onClick: () => onCambia(m.predefinito ? null : m.slug),
+        active: m.slug === attivo?.slug,
+      }))}
+    />
   );
 }

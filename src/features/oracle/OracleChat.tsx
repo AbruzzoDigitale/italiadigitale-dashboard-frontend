@@ -32,6 +32,8 @@ interface Props {
   autoFocus?: boolean;
   /** Inviata da sola all'apertura: è la domanda già scritta nella barra di ricerca. */
   domandaIniziale?: string;
+  /** La conversazione richiesta non esiste più: chi ospita ripulisca l'indirizzo. */
+  onNonTrovata?: () => void;
 }
 
 export function OracleChat({
@@ -40,6 +42,7 @@ export function OracleChat({
   compact,
   autoFocus,
   domandaIniziale,
+  onNonTrovata,
 }: Props) {
   const [turni, setTurni] = useState<Turno[]>([]);
   const [domanda, setDomanda] = useState("");
@@ -92,11 +95,20 @@ export function OracleChat({
           }))
         );
       })
-      .catch(() => setErrore("Impossibile aprire la conversazione"));
+      .catch(() => {
+        if (!vivo) return;
+        // Una conversazione che non c'è più — cancellata da qui o altrove — non è
+        // un errore da mostrare: l'indirizzo punta al vuoto e basta ripartire da
+        // capo. Un riquadro rosso sopra una chat vuota fa sembrare rotto qualcosa
+        // che funziona.
+        setTurni([]);
+        setConvId(null);
+        onNonTrovata?.();
+      });
     return () => {
       vivo = false;
     };
-  }, [conversationId]);
+  }, [conversationId, onNonTrovata]);
 
   useEffect(() => {
     fondo.current?.scrollIntoView({ behavior: "smooth" });
