@@ -29,6 +29,9 @@ export interface UserPermissions {
   /** Può inviare/annullare l'invio al cliente di una task in revisione. Admin/PM sempre;
    *  per gli operatori è un permesso per-utente impostabile da admin. */
   can_send_to_client: boolean;
+  /** Può interrogare l'Oracolo. Admin e PM sempre; per gli operatori è un permesso
+   *  per-utente (chiave "oracolo" in operator_permissions), impostabile da admin. */
+  can_use_oracle: boolean;
 }
 
 export interface CreateUserPayload {

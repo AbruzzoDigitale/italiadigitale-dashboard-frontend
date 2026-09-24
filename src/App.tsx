@@ -47,12 +47,12 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { SocialPackagesPresentationPage } from "./pages/SocialPackagesPresentationPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
+import { OraclePage } from "./pages/OraclePage";
 import { WorkloadPage } from "./pages/WorkloadPage";
 import { ControlloPedPage } from "./pages/ControlloPedPage";
 import { DailyTasksPage } from "./pages/DailyTasksPage";
 import { ContractsPipelinePage } from "./pages/ContractsPipelinePage";
 import { FatturazionePage } from "./pages/FatturazionePage";
-import { StripeSdiPage } from "./pages/StripeSdiPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { ModelEditorPage } from "./pages/ModelEditorPage";
 import { BrowserPage } from "./pages/BrowserPage";
@@ -189,13 +189,13 @@ function AppRoutes() {
         <Route path="work-items" element={<RouteAccess routeKey="work-items"><WorkItemsPage /></RouteAccess>} />
         <Route path="contracts-pipeline" element={<RouteAccess routeKey="contracts"><ContractsPipelinePage /></RouteAccess>} />
         <Route path="fatturazione" element={<RouteAccess routeKey="fatturazione"><FatturazionePage /></RouteAccess>} />
-        <Route path="abbonamenti-stripe" element={<RouteAccess routeKey="fatturazione"><StripeSdiPage /></RouteAccess>} />
         <Route path="documenti" element={<RouteAccess routeKey="documenti"><DocumentsPage /></RouteAccess>} />
         <Route path="documenti/modello/:documentId" element={<RouteAccess routeKey="documenti"><ModelEditorPage /></RouteAccess>} />
         <Route path="workload" element={<RouteAccess routeKey="workload"><WorkloadPage /></RouteAccess>} />
         <Route path="controllo-ped" element={<RouteAccess routeKey="controllo-ped"><ControlloPedPage /></RouteAccess>} />
         <Route path="daily-tasks" element={<RouteAccess routeKey="daily-tasks"><DailyTasksPage /></RouteAccess>} />
         <Route path="comunicazioni" element={<RouteAccess routeKey="comunicazioni"><CommunicationsPage /></RouteAccess>} />
+        <Route path="oracolo" element={<RouteAccess routeKey="oracolo"><OraclePage /></RouteAccess>} />
         <Route path="browser" element={<RouteAccess routeKey="profile"><BrowserPage /></RouteAccess>} />
         <Route path="forbidden" element={<ForbiddenPage />} />
       </Route>

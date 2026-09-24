@@ -101,6 +101,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     assigned_client_ids: (user?.assigned_client_ids ?? []).map(String),
     can_use_llm: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("llm"),
     can_send_to_client: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("send_to_client"),
+    can_use_oracle: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("oracolo"),
   });
   const [companySearch, setCompanySearch] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -128,6 +129,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         assigned_client_ids: (user.assigned_client_ids ?? []).map(String),
         can_use_llm: user.is_admin ? true : (user.operator_permissions ?? []).includes("llm"),
         can_send_to_client: user.is_admin ? true : (user.operator_permissions ?? []).includes("send_to_client"),
+        can_use_oracle: user.is_admin ? true : (user.operator_permissions ?? []).includes("oracolo"),
       });
       return;
     }
@@ -150,6 +152,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
       assigned_client_ids: [],
       can_use_llm: false,
       can_send_to_client: false,
+      can_use_oracle: false,
     });
     setErrors({});
     setCompanySearch("");
@@ -317,7 +320,8 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     try {
       if (isEdit && user) {
         const currentOperatorPermissions = (user.operator_permissions ?? []).filter(
-          (permission) => permission !== "llm" && permission !== "send_to_client"
+          (permission) =>
+            permission !== "llm" && permission !== "send_to_client" && permission !== "oracolo"
         );
         // Le viste/permessi operatore (incl. LLM e invio al cliente) si gestiscono solo per
         // l'operatore; admin e PM hanno viste/permessi fissi lato backend.
@@ -327,6 +331,8 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               ...currentOperatorPermissions,
               ...(form.can_use_llm ? ["llm"] : []),
               ...(form.can_send_to_client ? ["send_to_client"] : []),
+          ...(form.can_use_oracle ? ["oracolo"] : []),
+              ...(form.can_use_oracle ? ["oracolo"] : []),
             ]));
         const payload: UpdateUserPayload = {
           full_name: form.full_name,
@@ -636,6 +642,19 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               />
               <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
                 Può inviare al cliente
+              </span>
+            </label>
+          )}
+
+          {/* Oracolo: admin e PM ce l'hanno sempre, all'operatore si concede uno per uno. */}
+          {form.access_level === "operator" && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Checkbox
+                checked={form.can_use_oracle}
+                onChange={(v) => set("can_use_oracle", v)}
+              />
+              <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
+                Può usare l'Oracolo
               </span>
             </label>
           )}

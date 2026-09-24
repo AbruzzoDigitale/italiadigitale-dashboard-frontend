@@ -25,6 +25,9 @@ import { subscribeRealtime } from "../features/realtime/realtimeBus";
 const OPERATOR_HIDDEN_NOTIF_TABS: NotifTabKey[] = ["contratti"];
 const NO_HIDDEN_NOTIF_TABS: NotifTabKey[] = [];
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
+import { OracleDialog } from "../features/oracle/OracleDialog";
+import { OracleSearchBar } from "../features/oracle/OracleSearchBar";
+import { useOracleShortcut } from "../features/oracle/useOracleShortcut";
 import { NotificationToastLayer, NOTIF_BELL_ID } from "../features/notifications/NotificationToastLayer";
 import { PushOpenPrompt } from "../features/notifications/PushOpenPrompt";
 import { CommunicationModal } from "../features/notifications/CommunicationModal";
@@ -145,6 +148,11 @@ export function DashboardLayout() {
   // Operatore = non admin e non project manager. Per lui il centro notifiche
   // nasconde la scheda "Contratti" (e il relativo conteggio dal badge).
   const isOperator = permissions != null && !permissions.is_admin && !permissions.is_project_manager;
+  // L'Oracolo: scorciatoia registrata solo per chi ha il permesso, così la
+  // combinazione resta libera per tutti gli altri.
+  const puoUsareOracolo = canAccessRoute(permissions, "oracolo");
+  const { aperto: oracoloAperto, setAperto: setOracoloAperto } = useOracleShortcut(puoUsareOracolo);
+  const [oracoloConvId, setOracoloConvId] = useState<number | null>(null);
   const hiddenNotifTabs = isOperator ? OPERATOR_HIDDEN_NOTIF_TABS : NO_HIDDEN_NOTIF_TABS;
   const notifications = useNotifications(hiddenNotifTabs);
   // Contatore incrementato a ogni notifica in arrivo (via stream SSE): usato come
@@ -817,6 +825,8 @@ export function DashboardLayout() {
             <Icon name="menu" />
           </button>
 
+          {puoUsareOracolo && <OracleSearchBar onOpen={() => setOracoloAperto(true)} />}
+
           {/* Spacer + barra collegamenti rapidi (centro). Su schermi stretti la barra
               si nasconde (hidden md:flex nel componente) e questo div resta solo spacer. */}
           <div className="flex flex-1 min-w-0 justify-center px-2">
@@ -976,6 +986,15 @@ export function DashboardLayout() {
           onClose={() => setQuickTaskModalOpen(false)}
           companyId={currentCompanyId}
         />
+
+        {puoUsareOracolo && (
+          <OracleDialog
+            open={oracoloAperto}
+            onClose={() => setOracoloAperto(false)}
+            conversationId={oracoloConvId}
+            onConversationId={setOracoloConvId}
+          />
+        )}
 
         <NotificationCenter
           open={notifOpen}

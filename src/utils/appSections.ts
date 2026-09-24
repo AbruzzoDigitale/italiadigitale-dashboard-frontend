@@ -21,6 +21,7 @@ export interface AppSection {
 
 export const APP_SECTIONS: AppSection[] = [
   { label: "Dashboard", to: "/", icon: "home", routeKey: "dashboard", group: "overview" },
+  { label: "Oracolo", to: "/oracolo", icon: "robot", routeKey: "oracolo", group: "overview" },
   { label: "Lavorazioni", to: "/work-items", icon: "list", routeKey: "work-items", group: "operations" },
   { label: "Workload", to: "/workload", icon: "calendar", routeKey: "workload", group: "operations" },
   { label: "Attività del giorno", to: "/daily-tasks", icon: "clock", routeKey: "daily-tasks", group: "operations" },
