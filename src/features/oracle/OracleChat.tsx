@@ -245,7 +245,7 @@ export function OracleChat({
               ) : null}
 
               {turno.payloads.map((p, j) => (
-                <OracleRecords key={j} payload={p} />
+                <OracleRecords key={j} payload={p} onChiedi={(d) => void invia(d)} />
               ))}
 
               {turno.done?.citazioni_sospette?.length ? (

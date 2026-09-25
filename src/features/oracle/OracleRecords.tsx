@@ -36,7 +36,14 @@ function Riga({ children, onClick }: { children: React.ReactNode; onClick?: () =
   );
 }
 
-export function OracleRecords({ payload }: { payload: OraclePayload }) {
+export function OracleRecords({
+  payload,
+  onChiedi,
+}: {
+  payload: OraclePayload;
+  /** Per le schede che propongono una domanda: cliccarla la manda. */
+  onChiedi?: (domanda: string) => void;
+}) {
   const navigate = useNavigate();
   const records = payload.records ?? [];
   if (!records.length) return null;
@@ -185,6 +192,47 @@ export function OracleRecords({ payload }: { payload: OraclePayload }) {
                 </span>
               </div>
             </Riga>
+          );
+        }
+
+        if (payload.tipo === "capacita") {
+          // Una voce per riga, raggruppate: l'elenco arriva già ordinato e già
+          // filtrato sui permessi di chi chiede, quindi qui non si sceglie niente.
+          // L'esempio è cliccabile: fra leggere «posso cercare fra le lavorazioni»
+          // e vedere la risposta alla domanda vera, la seconda insegna di più.
+          const precedente = i > 0 ? String(records[i - 1].gruppo ?? "") : "";
+          const nuovoGruppo = String(r.gruppo ?? "") !== precedente;
+          return (
+            <div key={key}>
+              {nuovoGruppo ? (
+                <p className="mt-3 first:mt-0 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+                  {String(r.gruppo)}
+                </p>
+              ) : null}
+              <div className={CARD}>
+                <div className="flex items-start gap-2">
+                  {r.azione ? (
+                    <span
+                      title="È un'azione: te la propongo, parte solo se confermi"
+                      className="mt-0.5 shrink-0 rounded px-1 text-[9px] font-semibold uppercase tracking-wider bg-brand-magenta/10 text-brand-magenta"
+                    >
+                      azione
+                    </span>
+                  ) : null}
+                  <span className="text-ink dark:text-[#f4f4f7]">{String(r.cosa_fa)}</span>
+                </div>
+                {r.esempio ? (
+                  <button
+                    type="button"
+                    onClick={() => onChiedi?.(String(r.esempio))}
+                    disabled={!onChiedi}
+                    className="mt-1.5 text-left text-[11px] text-muted hover:text-brand-magenta transition-colors disabled:hover:text-muted dark:text-[#9999a0]"
+                  >
+                    «{String(r.esempio)}»
+                  </button>
+                ) : null}
+              </div>
+            </div>
           );
         }
 

@@ -13,10 +13,10 @@ import { OracleSphere } from "./OracleSphere";
  */
 
 const SUGGERIMENTI = [
-  "Cosa ho in programma questa settimana?",
+  "Cosa sai fare?",
   "Quali task sono in ritardo?",
   "Chi è più carico in questo momento?",
-  "Come sta andando il PED di questo mese?",
+  "Cosa ho in programma questa settimana?",
 ];
 
 // Angoli scelti a mano, non equidistanti: due in alto e due in basso leggermente
