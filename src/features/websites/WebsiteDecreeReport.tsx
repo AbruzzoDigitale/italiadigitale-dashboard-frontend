@@ -3,6 +3,7 @@ import {
   SCAN_STATUS_LABELS,
   SEVERITY_DESCRIPTIONS,
   SEVERITY_LABELS,
+  scanInCorso,
   severityClass,
   severityIcon,
   type DecreeFinding,
@@ -156,7 +157,22 @@ export function WebsiteDecreeReport({
           </p>
         )}
 
-        {totale === 0 ? (
+        {scanInCorso(scan.status) ? (
+          /* Senza questo ramo una scansione a metà si presentava come un sito
+             pulito, spunta verde compresa: i conteggi sono a zero perché non si
+             sa ancora, non perché non ci sia niente. */
+          <div className="flex flex-col items-center gap-2 rounded-md border border-line px-4 py-10 text-center dark:border-[#2a2a2e]">
+            <Icon name="clock" className="h-8 w-8 text-brand-magenta" />
+            <p className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">
+              Scansione non ancora conclusa
+            </p>
+            <p className="max-w-md text-[12.5px] text-muted dark:text-[#9999a0]">
+              {scan.status === "pending"
+                ? "È in coda: la eseguirà il controllo automatico. I rilievi compaiono qui quando ha finito."
+                : "È in esecuzione adesso. I rilievi compaiono qui quando ha finito."}
+            </p>
+          </div>
+        ) : totale === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-md border border-line px-4 py-10 text-center dark:border-[#2a2a2e]">
             <Icon name="check-circle" className="h-8 w-8 text-emerald-500" />
             <p className="text-sm font-semibold text-ink dark:text-[#f4f4f7]">

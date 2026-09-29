@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   SCAN_STATUS_LABELS,
   listDecreeScansApi,
+  scanInCorso,
   severityClass,
   type DecreeScanSummary,
 } from "../../api/websiteDecrees";
@@ -86,8 +87,12 @@ export function WebsiteDecreeHistory({
             <li key={g.id}>
               <button
                 type="button"
+                // Un giro ancora in coda o in esecuzione non ha un referto da
+                // aprire: i suoi conteggi sono a zero perché non si sa ancora,
+                // non perché il sito sia pulito.
+                disabled={scanInCorso(g.status)}
                 onClick={() => onOpen(g.id)}
-                className="flex w-full items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left transition-colors hover:border-line hover:bg-paper dark:hover:border-[#2a2a2e] dark:hover:bg-[#131316]"
+                className="flex w-full items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left transition-colors hover:border-line hover:bg-paper disabled:cursor-default disabled:opacity-70 disabled:hover:border-transparent disabled:hover:bg-transparent dark:hover:border-[#2a2a2e] dark:hover:bg-[#131316]"
               >
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-semibold text-ink dark:text-[#f4f4f7]">
@@ -103,7 +108,12 @@ export function WebsiteDecreeHistory({
                   </span>
                 </span>
 
-                <span className="flex flex-none gap-1">
+                <span className="flex flex-none items-center gap-1">
+                  {scanInCorso(g.status) && (
+                    <span className="rounded-full border border-brand-magenta/30 bg-brand-magenta/5 px-2 py-0.5 text-[11px] font-semibold text-brand-magenta">
+                      {SCAN_STATUS_LABELS[g.status] ?? g.status}
+                    </span>
+                  )}
                   {g.critical_count > 0 && (
                     <span
                       title="Da rimuovere"
@@ -128,14 +138,20 @@ export function WebsiteDecreeHistory({
                       {g.info_count}
                     </span>
                   )}
-                  {g.critical_count + g.warning_count + g.info_count === 0 && (
-                    <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
-                      nessun rilievo
-                    </span>
-                  )}
+                  {/* «nessun rilievo» solo su un giro CONCLUSO: dirlo di uno in
+                      corso significherebbe dare per pulito un sito non ancora
+                      controllato, che è l'errore peggiore per questa funzione. */}
+                  {!scanInCorso(g.status) &&
+                    g.critical_count + g.warning_count + g.info_count === 0 && (
+                      <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
+                        nessun rilievo
+                      </span>
+                    )}
                 </span>
 
-                <Icon name="chevron-right" className="h-4 w-4 flex-none opacity-50" />
+                {!scanInCorso(g.status) && (
+                  <Icon name="chevron-right" className="h-4 w-4 flex-none opacity-50" />
+                )}
               </button>
             </li>
           ))}
