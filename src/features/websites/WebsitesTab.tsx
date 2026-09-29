@@ -26,6 +26,7 @@ import {
 import {
   getDecreeScanApi,
   listDecretiApi,
+  queueDecreeScansApi,
   runDecreeScanApi,
   type DecretoCatalogo,
   type DecreeScanDetail,
@@ -49,6 +50,7 @@ import {
   type DecreeBulkRow,
 } from "./WebsiteDecreeReport";
 import { WebsiteDecreeHistory } from "./WebsiteDecreeHistory";
+import { WebsiteDecreeQueueBanner } from "./WebsiteDecreeQueueBanner";
 import { ActionButton } from "../button-actions/ActionButton";
 import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
@@ -301,6 +303,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   // Alzata dopo ogni scansione: lo storico aperto nella scheda si riallinea da
   // solo, senza ricaricare l'elenco dei siti.
   const [decreeReloadKey, setDecreeReloadKey] = useState(0);
+  const [accodando, setAccodando] = useState(false);
   const stopDecreeRef = useRef(false);
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -728,6 +731,32 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
 
   /** Con un decreto solo non c'è niente da scegliere: è quello. */
   const decretoUnico = decreti.length === 1 ? decreti[0] : null;
+
+  /**
+   * Accoda la scansione dei siti selezionati: la esegue il controllo automatico.
+   *
+   * È l'alternativa al bulk immediato per quando non si vuole tenere la pagina
+   * aperta: la coda sta nel database, quindi un ricaricamento non la perde.
+   */
+  const accodaDecreto = async (decreto: DecretoCatalogo) => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    setAccodando(true);
+    try {
+      const esito = await queueDecreeScansApi(ids, decreto.id);
+      const gia = esito.already ? ` · ${esito.already} erano già in coda` : "";
+      toast.success(
+        `${esito.queued} ${esito.queued === 1 ? "sito messo" : "siti messi"} in coda${gia}: ` +
+          "la scansione parte col prossimo giro automatico"
+      );
+      setDecreeReloadKey((k) => k + 1);
+      clearSelection();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Accodamento non riuscito");
+    } finally {
+      setAccodando(false);
+    }
+  };
 
   /** Riapre un referto già salvato. Stessa forma di una scansione appena fatta. */
   const apriRefertoStorico = async (site: Website, scanId: number) => {
@@ -1296,6 +1325,11 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         </div>
       </div>
 
+      {/* Coda lato server: l'unico avanzamento che sopravvive a un F5. */}
+      {decreti.length > 0 && (
+        <WebsiteDecreeQueueBanner reloadKey={decreeReloadKey} onSvuotata={() => void refetch()} />
+      )}
+
       {bulkScan ? (
         <div className="mb-4 flex flex-none flex-col gap-2 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-3">
@@ -1394,6 +1428,18 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             </Button>
             {/* Scansione decreti: con un decreto solo il bottone parte diretto,
                 con più di uno apre il menu delle scelte. */}
+            {decretoUnico && (
+              <Button
+                variant="secondary"
+                onClick={() => accodaDecreto(decretoUnico)}
+                loading={accodando}
+                leftIcon={<Icon name="clock" className="w-3.5 h-3.5" />}
+              >
+                {/* Gemello di «Metti in coda» dell'analisi: nessun tempo
+                    dichiarato, perché non aspetti tu. */}
+                Decreti in coda ({selectedIds.size})
+              </Button>
+            )}
             {decretoUnico ? (
               <Button
                 variant="secondary"
@@ -1438,8 +1484,10 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             )}
             <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
               «Analizza ora» gira subito da questa pagina e si può interrompere; «Metti in coda»
-              lascia fare al controllo automatico. «Scansione decreti» legge le pagine in ordine
-              di rilevanza, quindi anche su un sito grande guarda prima dove stanno i claim.
+              lascia fare al controllo automatico. Stessa differenza per i decreti: «Scansione
+              decreti» ti fa vedere il referto adesso ma va tenuta aperta, «Decreti in coda»
+              sopravvive alla chiusura della pagina. In entrambi i casi le pagine si leggono in
+              ordine di rilevanza, quindi anche su un sito grande guarda prima dove stanno i claim.
             </span>
             <button
               type="button"

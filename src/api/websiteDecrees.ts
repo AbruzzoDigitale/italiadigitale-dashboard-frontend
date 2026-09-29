@@ -99,7 +99,16 @@ export function severityIcon(severity: string): "alert-triangle" | "information-
   return "check-circle";
 }
 
+/** Stati in cui un giro NON ha ancora un esito: i conteggi a zero non
+ *  significano «nessun rilievo», significano «non lo sappiamo ancora». */
+export const SCAN_STATUS_NOT_DONE = ["pending", "running"];
+
+export function scanInCorso(status: string): boolean {
+  return SCAN_STATUS_NOT_DONE.includes(status);
+}
+
 export const SCAN_STATUS_LABELS: Record<string, string> = {
+  pending: "In coda",
   running: "In corso",
   completed: "Completata",
   partial: "Parziale",
@@ -141,4 +150,38 @@ export async function listDecreeScansApi(
 /** Il referto di un giro: intestazione più rilievi, già ordinati per gravità. */
 export async function getDecreeScanApi(scanId: number): Promise<DecreeScanDetail> {
   return jsonOrThrow(await authFetch(`${BASE}/${scanId}`));
+}
+
+// ── Coda ─────────────────────────────────────────────────────────────────────
+// L'alternativa al bulk dal browser: la coda vive nel database, quindi
+// ricaricare la pagina non la perde e da qualunque postazione si vede a che
+// punto è arrivata.
+
+export interface DecreeQueueStatus {
+  /** Richieste ancora da prendere. */
+  pending: number;
+  /** Richieste che il cron sta eseguendo adesso. */
+  running: number;
+  /** Da quando aspetta la più vecchia: distingue «partita ora» da «ferma». */
+  oldest_queued_at: string | null;
+  /** Quante se ne sono concluse da quando la coda è iniziata. */
+  done: number;
+}
+
+/** Accoda la scansione di più siti. `already` = quelli che erano già in coda. */
+export async function queueDecreeScansApi(
+  websiteIds: number[],
+  decreeId: string
+): Promise<{ queued: number; already: number }> {
+  return jsonOrThrow(
+    await authFetch(
+      `${BASE}/coda`,
+      jsonBody("POST", { website_ids: websiteIds, decree_id: decreeId })
+    )
+  );
+}
+
+/** Stato della coda visibile a chi chiede. Lo interroga il banner dell'elenco. */
+export async function getDecreeQueueApi(): Promise<DecreeQueueStatus> {
+  return jsonOrThrow(await authFetch(`${BASE}/coda`));
 }
