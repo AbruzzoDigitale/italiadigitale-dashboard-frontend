@@ -29,6 +29,9 @@ export interface UserPermissions {
   /** Può inviare/annullare l'invio al cliente di una task in revisione. Admin/PM sempre;
    *  per gli operatori è un permesso per-utente impostabile da admin. */
   can_send_to_client: boolean;
+  /** Può interrogare l'Oracolo. Admin e PM sempre; per gli operatori è un permesso
+   *  per-utente (chiave "oracolo" in operator_permissions), impostabile da admin. */
+  can_use_oracle: boolean;
 }
 
 export interface CreateUserPayload {
@@ -203,6 +206,30 @@ export async function deleteUserApi(id: number): Promise<void> {
     const body = await res.json().catch(() => ({}));
     throw new Error(parseApiError(body, "Errore nell'eliminazione utente"));
   }
+}
+
+/**
+ * Password decisa dall'amministratore. Da usare quando la si deve dettare al
+ * telefono: se la persona ha una casella che funziona, meglio il link.
+ */
+export async function setUserPasswordApi(userId: number, newPassword: string): Promise<string> {
+  const res = await authFetch(`${API_BASE}/api/v1/users/${userId}/password`, {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(body, "Cambio password non riuscito"));
+  return (body as { detail?: string }).detail ?? "Password aggiornata.";
+}
+
+/** Manda all'utente il link per scegliersela da sé: nessuno la legge. */
+export async function sendUserPasswordResetApi(userId: number): Promise<string> {
+  const res = await authFetch(`${API_BASE}/api/v1/users/${userId}/password-reset-email`, {
+    method: "POST",
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(body, "Invio del link non riuscito"));
+  return (body as { detail?: string }).detail ?? "Link inviato.";
 }
 
 export async function replaceUserAssignedClientsApi(userId: number, clientIds: number[]): Promise<User> {

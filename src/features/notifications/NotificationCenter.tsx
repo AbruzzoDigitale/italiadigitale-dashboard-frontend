@@ -391,6 +391,9 @@ function routeForItem(item: NotifItem, isManager: boolean): string | null {
   // Richiesta: apre direttamente l'editor di QUELLA richiesta, non la lista.
   if (item.tab === "richieste") return item.entity_id != null ? `/requests/edit?quote_id=${item.entity_id}` : "/requests";
   if (item.tab === "contratti") return "/contracts-pipeline";
+  // La pagina cassaforte non ha (ancora) un indirizzo per singola voce:
+  // si apre l'elenco invece di inventare una rotta inesistente.
+  if (item.tab === "cassaforte" || item.entity_type === "vault_item") return "/cassaforte";
   // Prenotazione sala: la pagina porta al giorno giusto e apre la scheda.
   if (item.tab === "sale") {
     return item.entity_id != null
@@ -673,6 +676,9 @@ export function NotificationCenter({ open, onClose, notifications, onOpenPrefere
           )}
           {tab === "rimborsi" && (
             <FlatList items={itemsByTab("rimborsi")} actions={rowActions} emptyLabel="Nessuna trasferta da approvare" />
+          )}
+          {tab === "cassaforte" && (
+            <FlatList items={itemsByTab("cassaforte")} actions={rowActions} emptyLabel="Nessuna credenziale da rinnovare" />
           )}
           {isArchivio && <FlatList items={archived} actions={rowActions} emptyLabel="Nessuna notifica archiviata" />}
         </div>

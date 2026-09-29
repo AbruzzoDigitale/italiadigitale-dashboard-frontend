@@ -9,6 +9,8 @@ import {
   createUserApi,
   updateUserApi,
   deleteUserApi,
+  setUserPasswordApi,
+  sendUserPasswordResetApi,
   type User,
   type CreateUserPayload,
   type UpdateUserPayload,
@@ -101,9 +103,9 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     assigned_client_ids: (user?.assigned_client_ids ?? []).map(String),
     can_use_llm: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("llm"),
     can_send_to_client: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("send_to_client"),
+    can_use_oracle: user?.is_admin ? true : (user?.operator_permissions ?? []).includes("oracolo"),
   });
   const [companySearch, setCompanySearch] = useState("");
-  const [showPwd, setShowPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -128,6 +130,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
         assigned_client_ids: (user.assigned_client_ids ?? []).map(String),
         can_use_llm: user.is_admin ? true : (user.operator_permissions ?? []).includes("llm"),
         can_send_to_client: user.is_admin ? true : (user.operator_permissions ?? []).includes("send_to_client"),
+        can_use_oracle: user.is_admin ? true : (user.operator_permissions ?? []).includes("oracolo"),
       });
       return;
     }
@@ -150,6 +153,7 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
       assigned_client_ids: [],
       can_use_llm: false,
       can_send_to_client: false,
+      can_use_oracle: false,
     });
     setErrors({});
     setCompanySearch("");
@@ -317,7 +321,8 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
     try {
       if (isEdit && user) {
         const currentOperatorPermissions = (user.operator_permissions ?? []).filter(
-          (permission) => permission !== "llm" && permission !== "send_to_client"
+          (permission) =>
+            permission !== "llm" && permission !== "send_to_client" && permission !== "oracolo"
         );
         // Le viste/permessi operatore (incl. LLM e invio al cliente) si gestiscono solo per
         // l'operatore; admin e PM hanno viste/permessi fissi lato backend.
@@ -327,6 +332,8 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               ...currentOperatorPermissions,
               ...(form.can_use_llm ? ["llm"] : []),
               ...(form.can_send_to_client ? ["send_to_client"] : []),
+          ...(form.can_use_oracle ? ["oracolo"] : []),
+              ...(form.can_use_oracle ? ["oracolo"] : []),
             ]));
         const payload: UpdateUserPayload = {
           full_name: form.full_name,
@@ -452,24 +459,20 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
             placeholder="Non dichiarato"
           />
         </label>
-        {!isEdit && (
-          <div className="relative">
-            <Input
-              label="Password"
-              type={showPwd ? "text" : "password"}
-              value={form.password}
-              onChange={(e) => set("password", e.target.value)}
-              error={errors.password}
-              placeholder="Minimo 8 caratteri"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPwd((v) => !v)}
-              className="absolute right-3 bottom-[10px] text-muted hover:text-ink dark:hover:text-paper transition-colors"
-            >
-              <Icon name={showPwd ? "eye-off" : "eye"} className="w-4 h-4" />
-            </button>
-          </div>
+        {!isEdit ? (
+          // Occhio e generatore li mette `Input` da sé sui campi di creazione:
+          // qui c'era una coppia di bottoni fatta a mano che faceva solo metà.
+          <Input
+            label="Password"
+            type="password"
+            autoComplete="new-password"
+            value={form.password}
+            onChange={(e) => set("password", e.target.value)}
+            error={errors.password}
+            placeholder="Minimo 8 caratteri"
+          />
+        ) : (
+          <PasswordSection userId={user?.id ?? null} nome={user?.full_name || user?.username || ""} />
         )}
 
         {/* Primary company */}
@@ -636,6 +639,19 @@ function UserModal({ open, onClose, onSaved, user, defaultCompanyId, companiesLi
               />
               <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
                 Può inviare al cliente
+              </span>
+            </label>
+          )}
+
+          {/* Oracolo: admin e PM ce l'hanno sempre, all'operatore si concede uno per uno. */}
+          {form.access_level === "operator" && (
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Checkbox
+                checked={form.can_use_oracle}
+                onChange={(v) => set("can_use_oracle", v)}
+              />
+              <span className="text-sm font-body font-semibold text-ink dark:text-[#f4f4f7]">
+                Può usare l'Oracolo
               </span>
             </label>
           )}
@@ -914,6 +930,115 @@ export function UsersPage() {
         user={deleteUser}
         deleting={deleting}
       />
+    </div>
+  );
+}
+
+/**
+ * Password di un utente esistente, dal pannello dell'amministratore.
+ *
+ * Due strade perché i casi sono due. Il link è la strada buona: la password la
+ * sceglie la persona e non passa per nessun altro, né per una chat. Dettarne
+ * una a voce serve a chi è al telefono e deve entrare adesso, o a chi la casella
+ * non riesce più ad aprirla — ed è il motivo per cui il campo sta chiuso e va
+ * aperto apposta.
+ *
+ * L'occhio e il generatore dentro al campo li mette `Input` da sé.
+ */
+function PasswordSection({ userId, nome }: { userId: number | null; nome: string }) {
+  const toast = useToast();
+  const [aperta, setAperta] = useState(false);
+  const [nuova, setNuova] = useState("");
+  const [inCorso, setInCorso] = useState<"link" | "password" | null>(null);
+
+  if (userId == null) return null;
+
+  async function mandaLink() {
+    setInCorso("link");
+    try {
+      toast.success(await sendUserPasswordResetApi(userId!));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Invio non riuscito");
+    } finally {
+      setInCorso(null);
+    }
+  }
+
+  async function salvaPassword() {
+    setInCorso("password");
+    try {
+      toast.success(await setUserPasswordApi(userId!, nuova));
+      setNuova("");
+      setAperta(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cambio non riuscito");
+    } finally {
+      setInCorso(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line p-3 dark:border-line-dark">
+      <div>
+        <p className="text-sm font-semibold">Password</p>
+        <p className="mt-0.5 text-[11px] text-muted dark:text-muted-dark">
+          Quella attuale non è leggibile da nessuno, nemmeno da te: è salvata come
+          impronta. Si può solo sostituire.
+        </p>
+      </div>
+
+      <Button
+        variant="secondary"
+        onClick={() => void mandaLink()}
+        loading={inCorso === "link"}
+        disabled={inCorso !== null}
+      >
+        <Icon name="mail" className="mr-1 h-4 w-4" />
+        Manda a {nome || "questo utente"} il link per reimpostarla
+      </Button>
+
+      {!aperta ? (
+        <button
+          type="button"
+          onClick={() => setAperta(true)}
+          className="text-left text-[11.5px] font-semibold text-muted underline-offset-2 hover:underline dark:text-muted-dark"
+        >
+          Oppure impostane una tu, da dettargli a voce
+        </button>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Input
+            label="Nuova password"
+            type="password"
+            autoComplete="new-password"
+            value={nuova}
+            onChange={(e) => setNuova(e.target.value)}
+            placeholder="Minimo 8 caratteri"
+          />
+          <div className="flex gap-2">
+            <Button
+              onClick={() => void salvaPassword()}
+              loading={inCorso === "password"}
+              disabled={nuova.trim().length < 8 || inCorso !== null}
+            >
+              Salva la password
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setAperta(false);
+                setNuova("");
+              }}
+            >
+              Annulla
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted dark:text-muted-dark">
+            Dettagliela a voce o per SMS, non nella stessa chat dove c'è l'indirizzo
+            del gestionale. E digli di cambiarla al primo accesso, dal suo profilo.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

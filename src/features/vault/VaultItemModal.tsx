@@ -15,6 +15,7 @@ import { listWebsitesApi } from "../../api/websites";
 import { Button } from "../../components/ui/Button";
 import { DurationField } from "../../components/ui/DurationField";
 import { FieldLabel } from "../../components/ui/FieldLabel";
+import { Icon } from "../../components/ui/Icon";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
@@ -300,6 +301,38 @@ export function VaultItemModal({ open, onClose, companyId, item, linkFisso, onSa
             onChange={(e) => setNote(e.target.value)}
           />
         </div>
+
+        {/* Chi altri ce l'ha. In sola lettura: si condivide dalla lista, dove si
+            possono prendere più credenziali insieme invece che una per volta. */}
+        {item && item.grants.length > 0 && (
+          <div className="sm:col-span-2">
+            <FieldLabel>Condivisa con</FieldLabel>
+            <div className="flex flex-wrap gap-1.5">
+              {item.grants.map((g) => (
+                <span
+                  key={g.user_id}
+                  className="inline-flex items-center gap-1.5 rounded-pill border border-line px-2.5 py-1 text-xs dark:border-line-dark"
+                  title={
+                    g.granted_by_name
+                      ? `Condivisa da ${g.granted_by_name}`
+                      : "Provenienza non registrata (permesso anteriore a questa funzione)"
+                  }
+                >
+                  <Icon name="users" className="h-3 w-3 text-muted dark:text-muted-dark" />
+                  {g.user_name ?? `utente ${g.user_id}`}
+                  <span className="text-muted dark:text-muted-dark">
+                    {g.permission === "manage" ? "· gestisce" : "· vede"}
+                  </span>
+                  {g.granted_by_name && (
+                    <span className="text-muted dark:text-muted-dark">
+                      · da {g.granted_by_name}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

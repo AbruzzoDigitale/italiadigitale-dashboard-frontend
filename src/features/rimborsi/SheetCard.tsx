@@ -87,8 +87,15 @@ export function SheetCard({
           </p>
 
           <div className="mt-2 flex flex-wrap gap-1.5">
+            {/* Dire solo l'email non basta: le identità possibili sono due, e
+                quella personale è di chi ha scelto l'impostazione, non di chi
+                sta guardando. Senza scriverlo, un account inatteso sembra un
+                errore del gestionale invece che la configurazione in vigore. */}
             <Tag tone="success">
-              <i className="h-1.5 w-1.5 rounded-full bg-success" /> Google · {settings.google_email}
+              <i className="h-1.5 w-1.5 rounded-full bg-success" />
+              {settings.google_account === "personale"
+                ? `Google di ${settings.google_user_name ?? "chi l'ha configurato"} · ${settings.google_email ?? "—"}`
+                : `Google aziendale · ${settings.google_email ?? "—"}`}
             </Tag>
             {settings.sheet_configured && (
               <Tag tone={settings.auto_sync ? "success" : "default"}>

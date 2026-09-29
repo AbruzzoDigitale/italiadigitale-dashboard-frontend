@@ -23,9 +23,16 @@ import {
   type WebsiteTheme,
   type WebsiteType,
 } from "../../api/websites";
+import {
+  listDecretiApi,
+  runDecreeScanApi,
+  type DecretoCatalogo,
+  type DecreeScanDetail,
+} from "../../api/websiteDecrees";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
+import { DropdownMenu } from "../../components/ui/DropdownMenu";
 import { Icon } from "../../components/ui/Icon";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
@@ -35,6 +42,11 @@ import { useToast } from "../../context/ToastContext";
 import { ScanDetail, ScoresRow } from "./WebsiteMetrics";
 import { WebsiteCustomFieldsModal } from "./WebsiteCustomFieldsModal";
 import { WebsiteSecretsPanel } from "./WebsiteSecretsPanel";
+import {
+  WebsiteDecreeBulkSummary,
+  WebsiteDecreeReport,
+  type DecreeBulkRow,
+} from "./WebsiteDecreeReport";
 import { ActionButton } from "../button-actions/ActionButton";
 import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
@@ -268,6 +280,24 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     eta: string;
   } | null>(null);
   const stopBulkRef = useRef(false);
+
+  // ── Scansione decreti ──────────────────────────────────────────────────────
+  // Il catalogo arriva dal backend: aggiungere un decreto non richiede alcuna
+  // modifica qui. Con un solo decreto il bottone parte diretto, con più di uno
+  // apre il menu delle scelte.
+  const [decreti, setDecreti] = useState<DecretoCatalogo[]>([]);
+  const [decreeScanningId, setDecreeScanningId] = useState<number | null>(null);
+  const [decreeReport, setDecreeReport] = useState<{ scan: DecreeScanDetail; label: string; url: string } | null>(null);
+  const [decreeBulk, setDecreeBulk] = useState<{
+    total: number;
+    done: number;
+    critical: number;
+    current: string | null;
+    eta: string;
+  } | null>(null);
+  const [decreeSummary, setDecreeSummary] = useState<DecreeBulkRow[] | null>(null);
+  const stopDecreeRef = useRef(false);
+
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   // Righe in chiusura: restano montate finché l'animazione d'uscita non finisce,
   // altrimenti il pannello sparirebbe di scatto invece di richiudersi.
@@ -681,6 +711,143 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     if (!interrupted) clearSelection();
   };
 
+  // ── Scansione decreti ──────────────────────────────────────────────────────
+
+  // Il catalogo si legge una volta: cambia solo con un rilascio del backend.
+  useEffect(() => {
+    listDecretiApi()
+      .then(setDecreti)
+      // Un catalogo che non arriva nasconde il bottone, non rompe la pagina.
+      .catch(() => setDecreti([]));
+  }, []);
+
+  /** Con un decreto solo non c'è niente da scegliere: è quello. */
+  const decretoUnico = decreti.length === 1 ? decreti[0] : null;
+
+  const scansionaDecreto = async (site: Website, decreto: DecretoCatalogo) => {
+    setDecreeScanningId(site.id);
+    try {
+      const scan = await runDecreeScanApi(site.id, decreto.id);
+      setDecreeReport({ scan, label: websiteLabel(site), url: site.url });
+      // La data in tabella si aggiorna subito, senza rileggere tutto l'elenco.
+      setWebsites((prev) =>
+        prev.map((s) => (s.id === site.id ? { ...s, last_decree_scan_at: scan.finished_at } : s))
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Scansione non riuscita");
+    } finally {
+      setDecreeScanningId(null);
+    }
+  };
+
+  /**
+   * Bulk sequenziale, come «Analizza ora»: una richiesta per sito, avanzamento
+   * visibile e interrompibile. Alla fine apre il riepilogo ordinato per
+   * gravità — senza quello l'operatore avrebbe venti referti e nessuna priorità.
+   */
+  const scansionaDecretoSelezionati = async (decreto: DecretoCatalogo) => {
+    const targets = websites.filter((site) => selectedIds.has(site.id));
+    if (!targets.length) return;
+
+    stopDecreeRef.current = false;
+    const startedAt = Date.now();
+    let done = 0;
+    let critical = 0;
+    const righe: DecreeBulkRow[] = [];
+    setDecreeBulk({ total: targets.length, done, critical, current: null, eta: "" });
+
+    for (const site of targets) {
+      if (stopDecreeRef.current) break;
+      setDecreeBulk({
+        total: targets.length,
+        done,
+        critical,
+        current: websiteLabel(site),
+        eta: etaLabel(startedAt, done, targets.length),
+      });
+      try {
+        const scan = await runDecreeScanApi(site.id, decreto.id);
+        righe.push({ websiteId: site.id, label: websiteLabel(site), url: site.url, scan });
+        if (scan.critical_count > 0) critical += 1;
+        setWebsites((prev) =>
+          prev.map((s) => (s.id === site.id ? { ...s, last_decree_scan_at: scan.finished_at } : s))
+        );
+      } catch (err) {
+        // Un sito che non si lascia leggere non ferma gli altri, ma resta in
+        // riepilogo: un buco nel controllo non è un sito a posto.
+        righe.push({
+          websiteId: site.id,
+          label: websiteLabel(site),
+          url: site.url,
+          scan: null,
+          error: err instanceof Error ? err.message : "Sito non raggiungibile",
+        });
+      }
+      done += 1;
+      setDecreeBulk({
+        total: targets.length,
+        done,
+        critical,
+        current: null,
+        eta: etaLabel(startedAt, done, targets.length),
+      });
+    }
+
+    const interrotta = stopDecreeRef.current;
+    setDecreeBulk(null);
+    stopDecreeRef.current = false;
+    setDecreeSummary(righe);
+    const esito = `${done} ${done === 1 ? "sito scansionato" : "siti scansionati"}${
+      critical ? ` · ${critical} con rilievi da rimuovere` : ""
+    }`;
+    if (interrotta) toast.success(`Scansione interrotta: ${esito}`);
+    else if (critical) toast.error(`Scansione completata: ${esito}`);
+    else toast.success(`Scansione completata: ${esito}`);
+    if (!interrotta) clearSelection();
+  };
+
+  /**
+   * Bottone «Scansione decreti» di una riga. Scritto una volta: la tabella e le
+   * schede rendono lo stesso elemento. Con un decreto solo parte diretto, con
+   * più di uno apre il menu — così il secondo decreto non richiede di toccare
+   * questo file.
+   */
+  const renderDecreeButton = (site: Website) => {
+    if (!decreti.length) return null;
+    const busy = decreeScanningId === site.id;
+    const bloccato = busy || !!bulkScan || !!decreeBulk;
+
+    if (decretoUnico) {
+      return (
+        <button
+          type="button"
+          title={`Scansione decreti — ${decretoUnico.nome}`}
+          aria-label="Scansione decreti"
+          disabled={bloccato}
+          onClick={() => scansionaDecreto(site, decretoUnico)}
+          className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
+        >
+          <Icon name="shield" className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
+        </button>
+      );
+    }
+    return (
+      <DropdownMenu
+        label="Scansione decreti"
+        icon="shield"
+        variant="secondary"
+        size="sm"
+        disabled={bloccato}
+        items={decreti.map((d) => ({
+          key: d.id,
+          label: d.nome,
+          icon: "shield" as const,
+          onClick: () => scansionaDecreto(site, d),
+        }))}
+      />
+    );
+  };
+
   /**
    * Pannello «Dettagli e metriche», condiviso da tabella e schede: dominio,
    * anagrafica, campi personalizzati e le due letture PageSpeed.
@@ -895,6 +1062,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                 className={`h-3.5 w-3.5 ${scanningId === site.id ? "animate-spin" : ""}`}
               />
             </button>
+            {renderDecreeButton(site)}
             <button
               type="button"
               title="Modifica"
@@ -1123,6 +1291,45 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             restano aggiornati.
           </p>
         </div>
+      ) : decreeBulk ? (
+        <div className="mb-4 flex flex-none flex-col gap-2 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Icon name="shield" className="h-4 w-4 animate-pulse text-brand-magenta" />
+            <span className="text-[13px] font-semibold text-ink dark:text-[#f4f4f7]">
+              Scansione decreti: {decreeBulk.done} di {decreeBulk.total}
+            </span>
+            {decreeBulk.current && (
+              <span className="min-w-0 truncate text-[12px] text-muted dark:text-[#9999a0]">
+                {decreeBulk.current}
+              </span>
+            )}
+            <span className="text-[12px] text-muted dark:text-[#9999a0]">{decreeBulk.eta}</span>
+            {decreeBulk.critical > 0 && (
+              <span className="text-[12px] font-semibold text-danger">
+                {decreeBulk.critical} da sistemare
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                stopDecreeRef.current = true;
+              }}
+              className="ml-auto text-[12px] font-semibold text-danger hover:underline"
+            >
+              Interrompi
+            </button>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-line dark:bg-[#2a2a2e]">
+            <div
+              className="h-full rounded-full bg-brand-magenta transition-all duration-300"
+              style={{ width: `${Math.round((decreeBulk.done / decreeBulk.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-[11.5px] text-muted dark:text-[#9999a0]">
+            Legge le pagine pubbliche di ogni sito: se chiudi la pagina si ferma, e i siti già
+            letti restano in riepilogo.
+          </p>
+        </div>
       ) : (
         selectedIds.size > 0 && (
           <div className="mb-4 flex flex-none flex-wrap items-center gap-3 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2">
@@ -1146,6 +1353,32 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             >
               Metti in coda
             </Button>
+            {/* Scansione decreti: con un decreto solo il bottone parte diretto,
+                con più di uno apre il menu delle scelte. */}
+            {decretoUnico ? (
+              <Button
+                variant="secondary"
+                onClick={() => scansionaDecretoSelezionati(decretoUnico)}
+                leftIcon={<Icon name="shield" className="w-3.5 h-3.5" />}
+              >
+                Scansione decreti ({selectedIds.size})
+              </Button>
+            ) : (
+              decreti.length > 1 && (
+                <DropdownMenu
+                  label="Scansione decreti"
+                  icon="shield"
+                  triggerLabel={`Scansione decreti (${selectedIds.size})`}
+                  variant="secondary"
+                  items={decreti.map((d) => ({
+                    key: d.id,
+                    label: d.nome,
+                    icon: "shield" as const,
+                    onClick: () => scansionaDecretoSelezionati(d),
+                  }))}
+                />
+              )
+            )}
             {/* L'avviso multiplo compare solo se il bottone è configurato: senza
                 azione collegata non c'è niente da mandare. */}
             {avviso.allConfigured([...selectedIds]) && (
@@ -1337,6 +1570,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                                 className={`h-3.5 w-3.5 ${scanningId === site.id ? "animate-spin" : ""}`}
                               />
                             </button>
+                            {renderDecreeButton(site)}
                             <button
                               type="button"
                               title="Modifica"
@@ -1683,6 +1917,27 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         fields={customFields}
         onChanged={refetchFields}
         canShare={canShareFields}
+      />
+
+      {/* Referto di un singolo sito, aperto da riga o dal riepilogo di massa. */}
+      <WebsiteDecreeReport
+        open={!!decreeReport}
+        onClose={() => setDecreeReport(null)}
+        scan={decreeReport?.scan ?? null}
+        siteLabel={decreeReport?.label ?? ""}
+        siteUrl={decreeReport?.url}
+      />
+
+      {/* Riepilogo del bulk: quali siti sono a rischio, in che ordine guardarli. */}
+      <WebsiteDecreeBulkSummary
+        open={!!decreeSummary}
+        onClose={() => setDecreeSummary(null)}
+        decretoNome={decretoUnico?.nome ?? "Scansione decreti"}
+        rows={decreeSummary ?? []}
+        onOpenReport={(row) => {
+          if (!row.scan) return;
+          setDecreeReport({ scan: row.scan, label: row.label, url: row.url });
+        }}
       />
 
       {/* Popup di configurazione e modale d'invio del bottone «Avvisa
