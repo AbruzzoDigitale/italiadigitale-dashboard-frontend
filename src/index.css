@@ -323,6 +323,12 @@
   .wl-drag-ghost-stack { animation: none; }
 }
 
+/* Cassaforte: il passaggio lista/schede è un'animazione, non un'informazione.
+   Chi ha chiesto meno movimento vede subito il risultato. */
+@media (prefers-reduced-motion: reduce) {
+  [data-vault-anim] { animation: none; }
+}
+
 /* ── Transizione tema chiaro/scuro (View Transitions API) ─────────────────────
    Reveal circolare del nuovo tema a partire dal punto di click (--vt-x/--vt-y),
    con raggio --vt-r calcolato in ThemeContext. Fallback: crossfade nativo. */

@@ -17,6 +17,7 @@ import { deleteWorkItemApi, restoreWorkItemApi } from "../api/workItems";
 import { FicReconcilePanel } from "../components/billing/FicReconcilePanel";
 import { FicCreditNotesPanel } from "../components/billing/FicCreditNotesPanel";
 import { FicDuplicateInvoicesPanel } from "../components/billing/FicDuplicateInvoicesPanel";
+import { StripeSdiPanel } from "../components/billing/StripeSdiPanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fatturazione — dati REALI.
@@ -332,7 +333,9 @@ function ForgottenPanel({
 export function FatturazionePage() {
   const toast = useToast();
   const { registerUndo } = useUndo();
-  const [view, setView] = useState<"fatture" | "riconciliazione" | "note-credito" | "duplica">("fatture");
+  const [view, setView] = useState<
+    "fatture" | "riconciliazione" | "note-credito" | "duplica" | "stripe"
+  >("fatture");
   const [month, setMonth] = useState<string>(currentMonth());
   const [data, setData] = useState<BillingItemsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -552,6 +555,12 @@ export function FatturazionePage() {
           >
             <Icon name="copy" className="h-[15px] w-[15px]" /> Duplica fatture
           </button>
+          <button
+            className={"fb-tab" + (view === "stripe" ? " is-active" : "")}
+            onClick={() => setView("stripe")}
+          >
+            <Icon name="credit-card" className="h-[15px] w-[15px]" /> Abbonamenti Stripe
+          </button>
         </div>
       </div>
 
@@ -560,6 +569,8 @@ export function FatturazionePage() {
       {view === "note-credito" ? <FicCreditNotesPanel /> : null}
 
       {view === "duplica" ? <FicDuplicateInvoicesPanel /> : null}
+
+      {view === "stripe" ? <StripeSdiPanel /> : null}
 
       {view === "fatture" && (
         <>

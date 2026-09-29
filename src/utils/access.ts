@@ -22,6 +22,7 @@ export type AppRouteKey =
   | "reports"
   | "catalog"
   | "llm"
+  | "oracolo"
   | "profile"
   | "work-items"
   | "comunicazioni"
@@ -110,6 +111,10 @@ export function canAccessRoute(
       // Ogni utente autenticato può accedere al PROPRIO profilo per modificare
       // le informazioni personali (l'API applica comunque l'RBAC sui dati).
       return true;
+    case "oracolo":
+      // Assistente AI: admin e PM sempre, agli operatori si abilita per utente.
+      // Il backend rifiuta comunque chi non ha il permesso, questo nasconde solo la voce.
+      return permissions.can_use_oracle;
     case "work-items":
       // All authenticated users can access; the API enforces fine-grained RBAC
       return true;
