@@ -821,7 +821,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       return (
         <button
           type="button"
-          title={`Scansione decreti — ${decretoUnico.nome}`}
+          title={`Scansione decreti — ${decretoUnico.nome} (legge le pagine più rilevanti, fino al tetto del sito)`}
           aria-label="Scansione decreti"
           disabled={bloccato}
           onClick={() => scansionaDecreto(site, decretoUnico)}
@@ -1361,7 +1361,12 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                 onClick={() => scansionaDecretoSelezionati(decretoUnico)}
                 leftIcon={<Icon name="shield" className="w-3.5 h-3.5" />}
               >
-                Scansione decreti ({selectedIds.size})
+                {/* Come per l'analisi, il costo in tempo è dichiarato prima del
+                    clic. «Fino a» perché il tetto è di cento pagine per sito ma
+                    un sito piccolo si legge in una decina di secondi: l'ETA che
+                    compare durante il giro è misurato, questo è il tetto. */}
+                Scansione decreti ({selectedIds.size} · fino a ~
+                {Math.ceil(selectedIds.size * 1.5)} min)
               </Button>
             ) : (
               decreti.length > 1 && (
@@ -1394,7 +1399,8 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             )}
             <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
               «Analizza ora» gira subito da questa pagina e si può interrompere; «Metti in coda»
-              lascia fare al controllo automatico.
+              lascia fare al controllo automatico. «Scansione decreti» legge le pagine in ordine
+              di rilevanza, quindi anche su un sito grande guarda prima dove stanno i claim.
             </span>
             <button
               type="button"

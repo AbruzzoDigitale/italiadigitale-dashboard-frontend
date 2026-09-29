@@ -109,8 +109,8 @@ export function WebsiteDecreeReport({
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
-            La scansione legge le pagine pubbliche: è un aiuto alla revisione, non un parere
-            legale.
+            Legge le pagine pubbliche in ordine di rilevanza, fino al tetto configurato sul
+            sito: è un aiuto alla revisione, non un parere legale.
           </span>
           <div className="flex gap-2">
             <Button
