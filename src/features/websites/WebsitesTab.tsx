@@ -24,6 +24,7 @@ import {
   type WebsiteType,
 } from "../../api/websites";
 import {
+  getDecreeScanApi,
   listDecretiApi,
   runDecreeScanApi,
   type DecretoCatalogo,
@@ -47,6 +48,7 @@ import {
   WebsiteDecreeReport,
   type DecreeBulkRow,
 } from "./WebsiteDecreeReport";
+import { WebsiteDecreeHistory } from "./WebsiteDecreeHistory";
 import { ActionButton } from "../button-actions/ActionButton";
 import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
@@ -296,6 +298,9 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     eta: string;
   } | null>(null);
   const [decreeSummary, setDecreeSummary] = useState<DecreeBulkRow[] | null>(null);
+  // Alzata dopo ogni scansione: lo storico aperto nella scheda si riallinea da
+  // solo, senza ricaricare l'elenco dei siti.
+  const [decreeReloadKey, setDecreeReloadKey] = useState(0);
   const stopDecreeRef = useRef(false);
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -724,6 +729,16 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   /** Con un decreto solo non c'è niente da scegliere: è quello. */
   const decretoUnico = decreti.length === 1 ? decreti[0] : null;
 
+  /** Riapre un referto già salvato. Stessa forma di una scansione appena fatta. */
+  const apriRefertoStorico = async (site: Website, scanId: number) => {
+    try {
+      const scan = await getDecreeScanApi(scanId);
+      setDecreeReport({ scan, label: websiteLabel(site), url: site.url });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Referto non disponibile");
+    }
+  };
+
   const scansionaDecreto = async (site: Website, decreto: DecretoCatalogo) => {
     setDecreeScanningId(site.id);
     try {
@@ -733,6 +748,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       setWebsites((prev) =>
         prev.map((s) => (s.id === site.id ? { ...s, last_decree_scan_at: scan.finished_at } : s))
       );
+      setDecreeReloadKey((k) => k + 1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Scansione non riuscita");
     } finally {
@@ -793,6 +809,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       });
     }
 
+    setDecreeReloadKey((k) => k + 1);
     const interrotta = stopDecreeRef.current;
     setDecreeBulk(null);
     stopDecreeRef.current = false;
@@ -951,6 +968,18 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                   {!site.scan_enabled && " · automatismo sospeso"}
                 </dd>
               </div>
+              {decreti.length > 0 && (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+                    Ultima conformità
+                  </dt>
+                  {/* «mai» qui non è un dettaglio: distingue un sito senza
+                      rilievi da un sito che nessuno ha ancora controllato. */}
+                  <dd className="text-ink dark:text-[#f4f4f7]">
+                    {formatDateTime(site.last_decree_scan_at ?? null)}
+                  </dd>
+                </div>
+              )}
               {customFields.map((field) => (
                 <div key={field.key}>
                   <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
@@ -992,6 +1021,16 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             <ScanDetail scan={site.latest_desktop} title="Desktop" />
           </div>
         </div>
+        {/* Storico delle scansioni di conformità: righe, come la cassaforte. */}
+        {decreti.length > 0 && (
+          <div className={compact ? "" : "lg:col-span-2"}>
+            <WebsiteDecreeHistory
+              websiteId={site.id}
+              reloadKey={decreeReloadKey}
+              onOpen={(scanId) => apriRefertoStorico(site, scanId)}
+            />
+          </div>
+        )}
         {/* Cassaforte a tutta larghezza: le voci sono righe, non stanno in colonna. */}
         <div className={compact ? "" : "lg:col-span-2"}>
           <WebsiteSecretsPanel websiteId={site.id} companyId={site.company_id} />
