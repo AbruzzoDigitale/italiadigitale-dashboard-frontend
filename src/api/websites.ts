@@ -378,6 +378,8 @@ export interface Website {
   scan_enabled: boolean;
   last_scan_at: string | null;
   next_scan_at: string | null;
+  /** Ultima verifica di conformità normativa (vedi api/websiteDecrees.ts). */
+  last_decree_scan_at?: string | null;
   latest_mobile: WebsiteScan | null;
   latest_desktop: WebsiteScan | null;
 
