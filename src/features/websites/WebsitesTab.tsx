@@ -31,6 +31,14 @@ import {
   type DecretoCatalogo,
   type DecreeScanDetail,
 } from "../../api/websiteDecrees";
+import {
+  getAuditScanApi,
+  listControlliApi,
+  queueAuditScansApi,
+  runAuditScanApi,
+  type AuditScanDetail,
+  type ControlloCatalogo,
+} from "../../api/websiteAudits";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/Checkbox";
@@ -51,6 +59,13 @@ import {
 } from "./WebsiteDecreeReport";
 import { WebsiteDecreeHistory } from "./WebsiteDecreeHistory";
 import { WebsiteDecreeQueueBanner } from "./WebsiteDecreeQueueBanner";
+import {
+  WebsiteAuditBulkSummary,
+  WebsiteAuditReport,
+  type AuditBulkRow,
+} from "./WebsiteAuditReport";
+import { WebsiteAuditHistory } from "./WebsiteAuditHistory";
+import { WebsiteAuditQueueBanner } from "./WebsiteAuditQueueBanner";
 import { ActionButton } from "../button-actions/ActionButton";
 import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
@@ -305,6 +320,26 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   const [decreeReloadKey, setDecreeReloadKey] = useState(0);
   const [accodando, setAccodando] = useState(false);
   const stopDecreeRef = useRef(false);
+
+  // ── Controlli tecnici ─────────────────────────────────────────────────────
+  // Gemelli della scansione decreti nel comportamento — bottone di riga, bulk
+  // interrompibile, coda lato server — ma guardano com'è fatto il sito e non
+  // cosa ci scrive sopra. Il catalogo arriva dal backend: aggiungere un
+  // controllo non richiede alcuna modifica qui.
+  const [controlli, setControlli] = useState<ControlloCatalogo[]>([]);
+  const [auditScanningId, setAuditScanningId] = useState<number | null>(null);
+  const [auditReport, setAuditReport] = useState<{ scan: AuditScanDetail; label: string; url: string } | null>(null);
+  const [auditBulk, setAuditBulk] = useState<{
+    total: number;
+    done: number;
+    critical: number;
+    current: string | null;
+    eta: string;
+  } | null>(null);
+  const [auditSummary, setAuditSummary] = useState<AuditBulkRow[] | null>(null);
+  const [auditReloadKey, setAuditReloadKey] = useState(0);
+  const [accodandoAudit, setAccodandoAudit] = useState(false);
+  const stopAuditRef = useRef(false);
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   // Righe in chiusura: restano montate finché l'animazione d'uscita non finisce,
@@ -894,6 +929,162 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     );
   };
 
+  // ── Controlli tecnici ─────────────────────────────────────────────────────
+
+  // Il catalogo si legge una volta: cambia solo con un rilascio del backend.
+  useEffect(() => {
+    listControlliApi()
+      // Un catalogo che non arriva nasconde i bottoni, non rompe la pagina.
+      .then(setControlli)
+      .catch(() => setControlli([]));
+  }, []);
+
+  /**
+   * Accoda i controlli dei siti selezionati: li esegue il controllo automatico.
+   *
+   * Come per i decreti, è l'alternativa al bulk immediato quando non si vuole
+   * tenere la pagina aperta: la coda sta nel database.
+   */
+  const accodaControlli = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    setAccodandoAudit(true);
+    try {
+      const esito = await queueAuditScansApi(ids);
+      const gia = esito.already ? ` · ${esito.already} erano già in coda` : "";
+      toast.success(
+        `${esito.queued} ${esito.queued === 1 ? "sito messo" : "siti messi"} in coda${gia}: ` +
+          "i controlli partono col prossimo giro automatico"
+      );
+      setAuditReloadKey((k) => k + 1);
+      clearSelection();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Accodamento non riuscito");
+    } finally {
+      setAccodandoAudit(false);
+    }
+  };
+
+  /** Riapre un referto già salvato. Stessa forma di un giro appena fatto. */
+  const apriRefertoControlli = async (site: Website, scanId: number) => {
+    try {
+      const scan = await getAuditScanApi(scanId);
+      setAuditReport({ scan, label: websiteLabel(site), url: site.url });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Referto non disponibile");
+    }
+  };
+
+  const controllaSito = async (site: Website) => {
+    setAuditScanningId(site.id);
+    try {
+      const scan = await runAuditScanApi(site.id);
+      setAuditReport({ scan, label: websiteLabel(site), url: site.url });
+      // La data in tabella si aggiorna subito, senza rileggere tutto l'elenco.
+      setWebsites((prev) =>
+        prev.map((s) => (s.id === site.id ? { ...s, last_audit_scan_at: scan.finished_at } : s))
+      );
+      setAuditReloadKey((k) => k + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Controlli non riusciti");
+    } finally {
+      setAuditScanningId(null);
+    }
+  };
+
+  /**
+   * Bulk sequenziale, come «Analizza ora»: una richiesta per sito, avanzamento
+   * visibile e interrompibile. Alla fine apre il riepilogo ordinato per
+   * punteggio — senza quello l'operatore avrebbe venti referti e nessuna
+   * priorità.
+   */
+  const controllaSelezionati = async () => {
+    const targets = websites.filter((site) => selectedIds.has(site.id));
+    if (!targets.length) return;
+
+    stopAuditRef.current = false;
+    const startedAt = Date.now();
+    let done = 0;
+    let critical = 0;
+    const righe: AuditBulkRow[] = [];
+    setAuditBulk({ total: targets.length, done, critical, current: null, eta: "" });
+
+    for (const site of targets) {
+      if (stopAuditRef.current) break;
+      setAuditBulk({
+        total: targets.length,
+        done,
+        critical,
+        current: websiteLabel(site),
+        eta: etaLabel(startedAt, done, targets.length),
+      });
+      try {
+        const scan = await runAuditScanApi(site.id);
+        righe.push({ websiteId: site.id, label: websiteLabel(site), url: site.url, scan });
+        if (scan.critical_count > 0) critical += 1;
+        setWebsites((prev) =>
+          prev.map((s) => (s.id === site.id ? { ...s, last_audit_scan_at: scan.finished_at } : s))
+        );
+      } catch (err) {
+        // Un sito che non si lascia leggere non ferma gli altri, ma resta in
+        // riepilogo: un buco nel controllo non è un sito a posto.
+        righe.push({
+          websiteId: site.id,
+          label: websiteLabel(site),
+          url: site.url,
+          scan: null,
+          error: err instanceof Error ? err.message : "Sito non raggiungibile",
+        });
+      }
+      done += 1;
+      setAuditBulk({
+        total: targets.length,
+        done,
+        critical,
+        current: null,
+        eta: etaLabel(startedAt, done, targets.length),
+      });
+    }
+
+    setAuditReloadKey((k) => k + 1);
+    const interrotta = stopAuditRef.current;
+    setAuditBulk(null);
+    stopAuditRef.current = false;
+    setAuditSummary(righe);
+    const esito = `${done} ${done === 1 ? "sito controllato" : "siti controllati"}${
+      critical ? ` · ${critical} con rilievi da sistemare` : ""
+    }`;
+    if (interrotta) toast.success(`Controlli interrotti: ${esito}`);
+    else if (critical) toast.error(`Controlli completati: ${esito}`);
+    else toast.success(`Controlli completati: ${esito}`);
+    if (!interrotta) clearSelection();
+  };
+
+  /**
+   * Bottone «Controlli tecnici» di una riga. Scritto una volta: la tabella e le
+   * schede rendono lo stesso elemento. Non ha menu perché i controlli girano
+   * tutti insieme sulle stesse pagine: sceglierne uno solo farebbe scaricare il
+   * sito per metà del risultato.
+   */
+  const renderAuditButton = (site: Website) => {
+    if (!controlli.length) return null;
+    const busy = auditScanningId === site.id;
+    const bloccato = busy || !!bulkScan || !!decreeBulk || !!auditBulk;
+
+    return (
+      <button
+        type="button"
+        title="Controlli tecnici — banner cookie, pagine legali, protezione dei form, FAQ, peso di immagini e video"
+        aria-label="Controlli tecnici"
+        disabled={bloccato}
+        onClick={() => controllaSito(site)}
+        className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
+      >
+        <Icon name="tools" className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
+      </button>
+    );
+  };
+
   /**
    * Pannello «Dettagli e metriche», condiviso da tabella e schede: dominio,
    * anagrafica, campi personalizzati e le due letture PageSpeed.
@@ -1009,6 +1200,16 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                   </dd>
                 </div>
               )}
+              {controlli.length > 0 && (
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+                    Ultimi controlli tecnici
+                  </dt>
+                  <dd className="text-ink dark:text-[#f4f4f7]">
+                    {formatDateTime(site.last_audit_scan_at ?? null)}
+                  </dd>
+                </div>
+              )}
               {customFields.map((field) => (
                 <div key={field.key}>
                   <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted dark:text-[#9999a0]">
@@ -1057,6 +1258,16 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
               websiteId={site.id}
               reloadKey={decreeReloadKey}
               onOpen={(scanId) => apriRefertoStorico(site, scanId)}
+            />
+          </div>
+        )}
+        {/* Storico dei controlli tecnici: stesse righe, stesso modale. */}
+        {controlli.length > 0 && (
+          <div className={compact ? "" : "lg:col-span-2"}>
+            <WebsiteAuditHistory
+              websiteId={site.id}
+              reloadKey={auditReloadKey}
+              onOpen={(scanId) => apriRefertoControlli(site, scanId)}
             />
           </div>
         )}
@@ -1131,6 +1342,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
               />
             </button>
             {renderDecreeButton(site)}
+            {renderAuditButton(site)}
             <button
               type="button"
               title="Modifica"
@@ -1329,6 +1541,9 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       {decreti.length > 0 && (
         <WebsiteDecreeQueueBanner reloadKey={decreeReloadKey} onSvuotata={() => void refetch()} />
       )}
+      {controlli.length > 0 && (
+        <WebsiteAuditQueueBanner reloadKey={auditReloadKey} onSvuotata={() => void refetch()} />
+      )}
 
       {bulkScan ? (
         <div className="mb-4 flex flex-none flex-col gap-2 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2.5">
@@ -1403,6 +1618,45 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             letti restano in riepilogo.
           </p>
         </div>
+      ) : auditBulk ? (
+        <div className="mb-4 flex flex-none flex-col gap-2 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Icon name="tools" className="h-4 w-4 animate-pulse text-brand-magenta" />
+            <span className="text-[13px] font-semibold text-ink dark:text-[#f4f4f7]">
+              Controlli tecnici: {auditBulk.done} di {auditBulk.total}
+            </span>
+            {auditBulk.current && (
+              <span className="min-w-0 truncate text-[12px] text-muted dark:text-[#9999a0]">
+                {auditBulk.current}
+              </span>
+            )}
+            <span className="text-[12px] text-muted dark:text-[#9999a0]">{auditBulk.eta}</span>
+            {auditBulk.critical > 0 && (
+              <span className="text-[12px] font-semibold text-danger">
+                {auditBulk.critical} da sistemare
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                stopAuditRef.current = true;
+              }}
+              className="ml-auto text-[12px] font-semibold text-danger hover:underline"
+            >
+              Interrompi
+            </button>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-line dark:bg-[#2a2a2e]">
+            <div
+              className="h-full rounded-full bg-brand-magenta transition-all duration-300"
+              style={{ width: `${Math.round((auditBulk.done / auditBulk.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-[11.5px] text-muted dark:text-[#9999a0]">
+            Oltre alle pagine misura il peso vero di immagini e video, quindi su un sito
+            ricco di foto dura qualche secondo in più. Se chiudi la pagina si ferma.
+          </p>
+        </div>
       ) : (
         selectedIds.size > 0 && (
           <div className="mb-4 flex flex-none flex-wrap items-center gap-3 rounded-md border border-brand-magenta/30 bg-brand-magenta/5 px-3 py-2">
@@ -1469,6 +1723,31 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                 />
               )
             )}
+            {/* Controlli tecnici: nessun menu, girano tutti insieme sulle
+                stesse pagine. */}
+            {controlli.length > 0 && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={accodaControlli}
+                  loading={accodandoAudit}
+                  leftIcon={<Icon name="clock" className="w-3.5 h-3.5" />}
+                >
+                  Controlli in coda ({selectedIds.size})
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={controllaSelezionati}
+                  leftIcon={<Icon name="tools" className="w-3.5 h-3.5" />}
+                >
+                  {/* Come per l'analisi, il costo in tempo è dichiarato prima
+                      del clic. Più dei decreti perché oltre a leggere le pagine
+                      misura il peso di immagini e video. */}
+                  Controlli tecnici ({selectedIds.size} · fino a ~
+                  {Math.ceil(selectedIds.size * 2)} min)
+                </Button>
+              </>
+            )}
             {/* L'avviso multiplo compare solo se il bottone è configurato: senza
                 azione collegata non c'è niente da mandare. */}
             {avviso.allConfigured([...selectedIds]) && (
@@ -1484,10 +1763,12 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             )}
             <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
               «Analizza ora» gira subito da questa pagina e si può interrompere; «Metti in coda»
-              lascia fare al controllo automatico. Stessa differenza per i decreti: «Scansione
-              decreti» ti fa vedere il referto adesso ma va tenuta aperta, «Decreti in coda»
-              sopravvive alla chiusura della pagina. In entrambi i casi le pagine si leggono in
-              ordine di rilevanza, quindi anche su un sito grande guarda prima dove stanno i claim.
+              lascia fare al controllo automatico. Stessa differenza per decreti e controlli
+              tecnici: la versione «adesso» ti fa vedere il referto subito ma va tenuta aperta,
+              quella «in coda» sopravvive alla chiusura della pagina. In tutti i casi le pagine si
+              leggono in ordine di rilevanza — per i decreti dove stanno i claim, per i controlli
+              tecnici home, pagine legali, FAQ e pagine con form — quindi anche su un sito grande
+              guardano prima dove conta.
             </span>
             <button
               type="button"
@@ -1664,6 +1945,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                               />
                             </button>
                             {renderDecreeButton(site)}
+                            {renderAuditButton(site)}
                             <button
                               type="button"
                               title="Modifica"
@@ -2030,6 +2312,27 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
         onOpenReport={(row) => {
           if (!row.scan) return;
           setDecreeReport({ scan: row.scan, label: row.label, url: row.url });
+        }}
+      />
+
+      {/* Referto dei controlli tecnici di un singolo sito. */}
+      <WebsiteAuditReport
+        open={!!auditReport}
+        onClose={() => setAuditReport(null)}
+        scan={auditReport?.scan ?? null}
+        siteLabel={auditReport?.label ?? ""}
+        siteUrl={auditReport?.url}
+        catalogo={controlli}
+      />
+
+      {/* Riepilogo del bulk: quali siti hanno bisogno di lavoro, in che ordine. */}
+      <WebsiteAuditBulkSummary
+        open={!!auditSummary}
+        onClose={() => setAuditSummary(null)}
+        rows={auditSummary ?? []}
+        onOpenReport={(row) => {
+          if (!row.scan) return;
+          setAuditReport({ scan: row.scan, label: row.label, url: row.url });
         }}
       />
 
