@@ -380,6 +380,8 @@ export interface Website {
   next_scan_at: string | null;
   /** Ultima verifica di conformità normativa (vedi api/websiteDecrees.ts). */
   last_decree_scan_at?: string | null;
+  /** Ultimo giro di controlli tecnici (vedi api/websiteAudits.ts). */
+  last_audit_scan_at?: string | null;
   latest_mobile: WebsiteScan | null;
   latest_desktop: WebsiteScan | null;
 
