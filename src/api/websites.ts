@@ -380,6 +380,8 @@ export interface Website {
   next_scan_at: string | null;
   /** Ultima verifica di conformità normativa (vedi api/websiteDecrees.ts). */
   last_decree_scan_at?: string | null;
+  /** Ultimo giro di controlli tecnici (vedi api/websiteAudits.ts). */
+  last_audit_scan_at?: string | null;
   latest_mobile: WebsiteScan | null;
   latest_desktop: WebsiteScan | null;
 
@@ -484,6 +486,29 @@ export async function queueWebsiteScansApi(
   ids: number[]
 ): Promise<{ queued: number; skipped: number }> {
   return jsonOrThrow(await authFetch(`${BASE}/scan-bulk`, jsonBody("POST", { ids })));
+}
+
+/**
+ * Quanti siti aspettano l'analisi automatica, e da quando.
+ *
+ * Stessa forma delle code di decreti e controlli tecnici, così il banner
+ * dell'elenco è un componente solo — ma i numeri hanno una precisione diversa,
+ * perché là la coda è una riga di tabella e qui è una condizione
+ * (`next_scan_at` scaduto). Quindi `pending` comprende anche i siti diventati
+ * scaduti da soli con la cadenza aziendale, `running` è sempre 0 e `done` è
+ * un'approssimazione. I dettagli stanno in `WebsiteScanQueueStatus` lato
+ * backend, che è dove quella scelta è documentata.
+ */
+export interface WebsiteScanQueueStatus {
+  pending: number;
+  running: number;
+  oldest_queued_at: string | null;
+  done: number;
+}
+
+/** Stato della coda dell'analisi. Lo interroga il banner dell'elenco siti. */
+export async function getWebsiteScanQueueApi(): Promise<WebsiteScanQueueStatus> {
+  return jsonOrThrow(await authFetch(`${BASE}/coda`));
 }
 
 // ── Impostazioni della scansione automatica (per azienda) ────────────────────
