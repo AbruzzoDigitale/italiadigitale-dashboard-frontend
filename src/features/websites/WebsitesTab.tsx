@@ -66,6 +66,7 @@ import {
 } from "./WebsiteAuditReport";
 import { WebsiteAuditHistory } from "./WebsiteAuditHistory";
 import { WebsiteAuditQueueBanner } from "./WebsiteAuditQueueBanner";
+import { WebsiteAnalysisQueueBanner } from "./WebsiteAnalysisQueueBanner";
 import { ActionButton } from "../button-actions/ActionButton";
 import { useConfigurableButton } from "../button-actions/useConfigurableButton";
 
@@ -287,6 +288,9 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   const [whoisId, setWhoisId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [queueing, setQueueing] = useState(false);
+  // Alzata dopo un accodamento: fa ricomparire il banner senza attendere il
+  // prossimo controllo periodico.
+  const [analysisReloadKey, setAnalysisReloadKey] = useState(0);
   // Analisi immediata di più siti: gira nel browser, un sito per volta, perché
   // una sola richiesta per decine di siti supererebbe di molto il timeout del
   // server (ogni analisi dura circa un minuto fra mobile e desktop).
@@ -683,6 +687,9 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       toast.success(
         `${result.queued} ${result.queued === 1 ? "sito messo" : "siti messi"} in coda: l'analisi parte col prossimo giro automatico${skipped}`
       );
+      // Il toast muore con la pagina, il banner no: è quello che resta da
+      // guardare dopo un F5.
+      setAnalysisReloadKey((k) => k + 1);
       clearSelection();
       await refetch();
     } catch (err) {
@@ -1538,6 +1545,10 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
       </div>
 
       {/* Coda lato server: l'unico avanzamento che sopravvive a un F5. */}
+      <WebsiteAnalysisQueueBanner
+        reloadKey={analysisReloadKey}
+        onSvuotata={() => void refetch()}
+      />
       {decreti.length > 0 && (
         <WebsiteDecreeQueueBanner reloadKey={decreeReloadKey} onSvuotata={() => void refetch()} />
       )}
