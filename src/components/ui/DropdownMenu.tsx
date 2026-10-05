@@ -29,6 +29,17 @@ export interface DropdownMenuItem {
   trailing?: string;
   /** Disegna un separatore sopra questa voce. */
   separatorBefore?: boolean;
+  /**
+   * Intestazione di sezione: non è cliccabile e non riceve il focus.
+   *
+   * Serve quando un menu raggruppa voci che si somigliano e la differenza sta
+   * nel gruppo, non nell'etichetta — per esempio tre scansioni «adesso» e le
+   * stesse tre «in coda»: senza un titolo sopra ciascun gruppo sono sei voci
+   * quasi identiche. Il separatore da solo divide senza dire perché.
+   *
+   * `label` è il titolo; `onClick`, `icon` e `trailing` vengono ignorati.
+   */
+  heading?: boolean;
 }
 
 /** Le voci falsy vengono ignorate: comodo per `condizione && {...}`. */
@@ -119,6 +130,14 @@ export function DropdownMenu({
         {visible.map((it, i) => (
           <div key={it.key} className="dd-item" style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
             {it.separatorBefore ? <div className="my-1 h-px bg-line dark:bg-[#2a2a2e]" /> : null}
+            {it.heading ? (
+              // Non è un bottone disabilitato: un bottone disabilitato resta
+              // nell'albero come azione non disponibile, e uno screen reader
+              // lo annuncerebbe così. Questo è un titolo.
+              <div className="px-3 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-muted dark:text-[#9999a0]">
+                {it.label}
+              </div>
+            ) : (
             <button
               type="button"
               role="menuitem"
@@ -142,6 +161,7 @@ export function DropdownMenu({
               ) : null}
               {it.active ? <Icon name="check" className="h-3.5 w-3.5 flex-shrink-0" /> : null}
             </button>
+            )}
           </div>
         ))}
       </div>

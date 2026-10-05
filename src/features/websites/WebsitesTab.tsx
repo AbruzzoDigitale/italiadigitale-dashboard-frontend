@@ -343,6 +343,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   const [auditSummary, setAuditSummary] = useState<AuditBulkRow[] | null>(null);
   const [auditReloadKey, setAuditReloadKey] = useState(0);
   const [accodandoAudit, setAccodandoAudit] = useState(false);
+  const [accodandoTutto, setAccodandoTutto] = useState(false);
   const stopAuditRef = useRef(false);
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -894,48 +895,6 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
     if (!interrotta) clearSelection();
   };
 
-  /**
-   * Bottone «Scansione decreti» di una riga. Scritto una volta: la tabella e le
-   * schede rendono lo stesso elemento. Con un decreto solo parte diretto, con
-   * più di uno apre il menu — così il secondo decreto non richiede di toccare
-   * questo file.
-   */
-  const renderDecreeButton = (site: Website) => {
-    if (!decreti.length) return null;
-    const busy = decreeScanningId === site.id;
-    const bloccato = busy || !!bulkScan || !!decreeBulk;
-
-    if (decretoUnico) {
-      return (
-        <button
-          type="button"
-          title={`Scansione decreti — ${decretoUnico.nome} (legge le pagine più rilevanti, fino al tetto del sito)`}
-          aria-label="Scansione decreti"
-          disabled={bloccato}
-          onClick={() => scansionaDecreto(site, decretoUnico)}
-          className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
-        >
-          <Icon name="shield" className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
-        </button>
-      );
-    }
-    return (
-      <DropdownMenu
-        label="Scansione decreti"
-        icon="shield"
-        variant="secondary"
-        size="sm"
-        disabled={bloccato}
-        items={decreti.map((d) => ({
-          key: d.id,
-          label: d.nome,
-          icon: "shield" as const,
-          onClick: () => scansionaDecreto(site, d),
-        }))}
-      />
-    );
-  };
-
   // ── Controlli tecnici ─────────────────────────────────────────────────────
 
   // Il catalogo si legge una volta: cambia solo con un rilascio del backend.
@@ -1068,27 +1027,166 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
   };
 
   /**
-   * Bottone «Controlli tecnici» di una riga. Scritto una volta: la tabella e le
-   * schede rendono lo stesso elemento. Non ha menu perché i controlli girano
-   * tutti insieme sulle stesse pagine: sceglierne uno solo farebbe scaricare il
-   * sito per metà del risultato.
+   * Accoda tutte le scansioni sui siti selezionati, in un gesto.
+   *
+   * Tre code distinte lato server, quindi tre chiamate: non c'è una rotta
+   * «accoda tutto» e inventarla significherebbe duplicare nel backend una
+   * composizione che qui costa tre righe. `allSettled` e non `all` perché sono
+   * indipendenti — se una fallisce le altre restano accodate, che su
+   * un'operazione idempotente (riaccodare un sito già in coda non lo duplica)
+   * è meglio di un tutto-o-niente.
+   *
+   * Compare solo con UN decreto nel registro: con più di uno «tutte» non
+   * vorrebbe dire niente di preciso, e scegliere al posto dell'operatore quale
+   * decreto accodare sarebbe peggio che non offrire la scorciatoia.
    */
-  const renderAuditButton = (site: Website) => {
-    if (!controlli.length) return null;
-    const busy = auditScanningId === site.id;
-    const bloccato = busy || !!bulkScan || !!decreeBulk || !!auditBulk;
+  const accodaTutto = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length || !decretoUnico) return;
+    setAccodandoTutto(true);
+    const esiti = await Promise.allSettled([
+      queueWebsiteScansApi(ids),
+      queueDecreeScansApi(ids, decretoUnico.id),
+      queueAuditScansApi(ids),
+    ]);
+    setAccodandoTutto(false);
+    setDecreeReloadKey((k) => k + 1);
+    setAuditReloadKey((k) => k + 1);
+    setAnalysisReloadKey((k) => k + 1);
 
+    const falliti = esiti.filter((e) => e.status === "rejected").length;
+    if (falliti === esiti.length) {
+      toast.error("Accodamento non riuscito");
+      return;
+    }
+    const nomi = ["analisi", "decreti", "controlli"];
+    const riuscite = esiti
+      .map((e, i) => (e.status === "fulfilled" ? nomi[i] : null))
+      .filter(Boolean)
+      .join(", ");
+    const coda = falliti ? ` · ${falliti} non accodata` : "";
+    toast.success(
+      `${ids.length} ${ids.length === 1 ? "sito messo" : "siti messi"} in coda per ${riuscite}${coda}: ` +
+        "parte col prossimo giro automatico"
+    );
+    if (!falliti) clearSelection();
+  };
+
+  /**
+   * Le voci di scansione, in un menu solo.
+   *
+   * Due gruppi, perché la differenza che conta non è quale scansione ma **se
+   * sopravvive alla chiusura della pagina**: «adesso» gira dal browser e muore
+   * con lui, «in coda» la esegue il cron. Prima erano sei bottoni gemelli più
+   * un paragrafo che spiegava la differenza a parole; qui la dice la struttura.
+   *
+   * `site === null` significa «sui selezionati»: lì compaiono anche le voci in
+   * coda e le stime di tempo. Su un sito singolo la coda non c'è, perché
+   * aspettare il cron per una cosa che dura pochi secondi è un passo indietro.
+   */
+  const vociScansione = (site: Website | null) => {
+    const n = selectedIds.size;
+    const massa = site === null;
+
+    return [
+      // L'intestazione serve solo dove ci sono DUE gruppi da distinguere. Nel
+      // menu di una riga la coda non c'è, quindi un titolo «Adesso» sopra
+      // l'unico gruppo sarebbe una riga che non dice niente.
+      massa && {
+        key: "h-adesso",
+        heading: true,
+        label: "Adesso — tieni aperta la pagina",
+      },
+      {
+        key: "a-analisi",
+        label: "Analisi PageSpeed",
+        icon: "activity" as const,
+        trailing: massa ? `~${n} min` : undefined,
+        onClick: () => (massa ? handleScanSelected() : handleScan(site!)),
+      },
+      ...decreti.map((d) => ({
+        key: `a-dec-${d.id}`,
+        label: decreti.length > 1 ? `Decreti — ${d.nome}` : "Scansione decreti",
+        icon: "shield" as const,
+        trailing: massa ? `fino a ~${Math.ceil(n * 1.5)} min` : undefined,
+        onClick: () => (massa ? scansionaDecretoSelezionati(d) : scansionaDecreto(site!, d)),
+      })),
+      controlli.length > 0 && {
+        key: "a-controlli",
+        label: "Controlli tecnici",
+        icon: "tools" as const,
+        trailing: massa ? `fino a ~${Math.ceil(n * 2)} min` : undefined,
+        onClick: () => (massa ? controllaSelezionati() : controllaSito(site!)),
+      },
+      massa && {
+        key: "h-coda",
+        heading: true,
+        separatorBefore: true,
+        label: "In coda — puoi chiudere la pagina",
+      },
+      massa && {
+        key: "c-analisi",
+        label: "Analisi PageSpeed",
+        icon: "clock" as const,
+        onClick: handleQueueScans,
+      },
+      ...(massa
+        ? decreti.map((d) => ({
+            key: `c-dec-${d.id}`,
+            label: decreti.length > 1 ? `Decreti — ${d.nome}` : "Scansione decreti",
+            icon: "clock" as const,
+            onClick: () => accodaDecreto(d),
+          }))
+        : []),
+      massa &&
+        controlli.length > 0 && {
+          key: "c-controlli",
+          label: "Controlli tecnici",
+          icon: "clock" as const,
+          onClick: accodaControlli,
+        },
+      massa &&
+        decretoUnico &&
+        controlli.length > 0 && {
+          key: "c-tutte",
+          label: "Tutte e tre",
+          icon: "clock" as const,
+          trailing: "un gesto",
+          onClick: accodaTutto,
+        },
+    ];
+  };
+
+  /**
+   * Il menu delle scansioni di una riga, al posto delle tre icone che c'erano.
+   *
+   * Mentre una scansione gira, al posto del menu compare la rotella: con un
+   * trigger solo non si vedrebbe più QUALE delle tre sta girando, e perdere il
+   * segnale di «sto lavorando» su un'operazione da decine di secondi è il modo
+   * più rapido per far ricliccare l'operatore.
+   */
+  const renderScanMenu = (site: Website) => {
+    const inCorso =
+      scanningId === site.id || decreeScanningId === site.id || auditScanningId === site.id;
+    if (inCorso) {
+      return (
+        <span
+          title="Scansione in corso"
+          className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-brand-magenta dark:border-[#2a2a2e]"
+        >
+          <Icon name="refresh-cw" className="h-3.5 w-3.5 animate-spin" />
+        </span>
+      );
+    }
     return (
-      <button
-        type="button"
-        title="Controlli tecnici — banner cookie, pagine legali, protezione dei form, FAQ, peso di immagini e video"
-        aria-label="Controlli tecnici"
-        disabled={bloccato}
-        onClick={() => controllaSito(site)}
-        className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
-      >
-        <Icon name="tools" className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
-      </button>
+      <DropdownMenu
+        label="Scansioni"
+        icon="activity"
+        variant="secondary"
+        size="sm"
+        disabled={!!bulkScan || !!decreeBulk || !!auditBulk}
+        items={vociScansione(site)}
+      />
     );
   };
 
@@ -1335,21 +1433,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
               onConfigure={() => avviso.configure(site.id)}
               onRun={() => avviso.run(avvisoTargets([site]))}
             />
-            <button
-              type="button"
-              title="Analizza ora (richiede qualche decina di secondi)"
-              aria-label="Analizza ora"
-              disabled={scanningId === site.id || !!bulkScan}
-              onClick={() => handleScan(site)}
-              className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
-            >
-              <Icon
-                name="refresh-cw"
-                className={`h-3.5 w-3.5 ${scanningId === site.id ? "animate-spin" : ""}`}
-              />
-            </button>
-            {renderDecreeButton(site)}
-            {renderAuditButton(site)}
+            {renderScanMenu(site)}
             <button
               type="button"
               title="Modifica"
@@ -1674,91 +1758,20 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
             <span className="text-[13px] font-semibold text-ink dark:text-[#f4f4f7]">
               {selectedIds.size} selezionati
             </span>
-            <Button
+            {/* Un menu solo al posto di sei bottoni gemelli. I due gruppi —
+                «adesso» e «in coda» — sono la distinzione che conta, e prima
+                stava in un paragrafo sotto i bottoni invece che nella loro
+                struttura. Le stime di tempo restano dichiarate PRIMA del clic,
+                nella colonna di destra di ogni voce. */}
+            <DropdownMenu
+              label="Scansioni"
+              icon="activity"
+              triggerLabel={`Scansioni (${selectedIds.size})`}
               variant="primary"
-              onClick={handleScanSelected}
-              leftIcon={<Icon name="activity" className="w-3.5 h-3.5" />}
-            >
-              {/* Il costo in tempo è dichiarato prima del clic: un'analisi dura
-                  circa un minuto a sito e su molti siti diventa lunga. */}
-              Analizza ora ({selectedIds.size} · ~{selectedIds.size} min)
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={handleQueueScans}
-              loading={queueing}
-              leftIcon={<Icon name="clock" className="w-3.5 h-3.5" />}
-            >
-              Metti in coda
-            </Button>
-            {/* Scansione decreti: con un decreto solo il bottone parte diretto,
-                con più di uno apre il menu delle scelte. */}
-            {decretoUnico && (
-              <Button
-                variant="secondary"
-                onClick={() => accodaDecreto(decretoUnico)}
-                loading={accodando}
-                leftIcon={<Icon name="clock" className="w-3.5 h-3.5" />}
-              >
-                {/* Gemello di «Metti in coda» dell'analisi: nessun tempo
-                    dichiarato, perché non aspetti tu. */}
-                Decreti in coda ({selectedIds.size})
-              </Button>
-            )}
-            {decretoUnico ? (
-              <Button
-                variant="secondary"
-                onClick={() => scansionaDecretoSelezionati(decretoUnico)}
-                leftIcon={<Icon name="shield" className="w-3.5 h-3.5" />}
-              >
-                {/* Come per l'analisi, il costo in tempo è dichiarato prima del
-                    clic. «Fino a» perché il tetto è di cento pagine per sito ma
-                    un sito piccolo si legge in una decina di secondi: l'ETA che
-                    compare durante il giro è misurato, questo è il tetto. */}
-                Scansione decreti ({selectedIds.size} · fino a ~
-                {Math.ceil(selectedIds.size * 1.5)} min)
-              </Button>
-            ) : (
-              decreti.length > 1 && (
-                <DropdownMenu
-                  label="Scansione decreti"
-                  icon="shield"
-                  triggerLabel={`Scansione decreti (${selectedIds.size})`}
-                  variant="secondary"
-                  items={decreti.map((d) => ({
-                    key: d.id,
-                    label: d.nome,
-                    icon: "shield" as const,
-                    onClick: () => scansionaDecretoSelezionati(d),
-                  }))}
-                />
-              )
-            )}
-            {/* Controlli tecnici: nessun menu, girano tutti insieme sulle
-                stesse pagine. */}
-            {controlli.length > 0 && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={accodaControlli}
-                  loading={accodandoAudit}
-                  leftIcon={<Icon name="clock" className="w-3.5 h-3.5" />}
-                >
-                  Controlli in coda ({selectedIds.size})
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={controllaSelezionati}
-                  leftIcon={<Icon name="tools" className="w-3.5 h-3.5" />}
-                >
-                  {/* Come per l'analisi, il costo in tempo è dichiarato prima
-                      del clic. Più dei decreti perché oltre a leggere le pagine
-                      misura il peso di immagini e video. */}
-                  Controlli tecnici ({selectedIds.size} · fino a ~
-                  {Math.ceil(selectedIds.size * 2)} min)
-                </Button>
-              </>
-            )}
+              align="left"
+              disabled={queueing || accodando || accodandoAudit || accodandoTutto}
+              items={vociScansione(null)}
+            />
             {/* L'avviso multiplo compare solo se il bottone è configurato: senza
                 azione collegata non c'è niente da mandare. */}
             {avviso.allConfigured([...selectedIds]) && (
@@ -1773,13 +1786,8 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
               </Button>
             )}
             <span className="text-[11.5px] text-muted dark:text-[#9999a0]">
-              «Analizza ora» gira subito da questa pagina e si può interrompere; «Metti in coda»
-              lascia fare al controllo automatico. Stessa differenza per decreti e controlli
-              tecnici: la versione «adesso» ti fa vedere il referto subito ma va tenuta aperta,
-              quella «in coda» sopravvive alla chiusura della pagina. In tutti i casi le pagine si
-              leggono in ordine di rilevanza — per i decreti dove stanno i claim, per i controlli
-              tecnici home, pagine legali, FAQ e pagine con form — quindi anche su un sito grande
-              guardano prima dove conta.
+              Le pagine si leggono in ordine di rilevanza, quindi anche su un sito grande guardano
+              prima dove conta.
             </span>
             <button
               type="button"
@@ -1942,21 +1950,7 @@ export function WebsitesTab({ companyId, canManage, canShareFields, fillHeight =
                               onConfigure={() => avviso.configure(site.id)}
                               onRun={() => avviso.run(avvisoTargets([site]))}
                             />
-                            <button
-                              type="button"
-                              title="Analizza ora (richiede qualche decina di secondi)"
-                              aria-label="Analizza ora"
-                              disabled={scanningId === site.id || !!bulkScan}
-                              onClick={() => handleScan(site)}
-                              className="inline-grid h-7 w-7 place-items-center rounded-md border border-line text-ink transition-colors hover:bg-paper disabled:opacity-40 dark:border-[#2a2a2e] dark:text-[#f4f4f7] dark:hover:bg-[#131316]"
-                            >
-                              <Icon
-                                name="refresh-cw"
-                                className={`h-3.5 w-3.5 ${scanningId === site.id ? "animate-spin" : ""}`}
-                              />
-                            </button>
-                            {renderDecreeButton(site)}
-                            {renderAuditButton(site)}
+                            {renderScanMenu(site)}
                             <button
                               type="button"
                               title="Modifica"
